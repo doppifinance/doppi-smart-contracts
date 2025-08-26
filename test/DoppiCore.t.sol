@@ -13,6 +13,7 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {MockToken} from "../src/test/MockToken.sol";
 import {MockOracle} from "../src/test/MockOracle.sol";
 // import "forge-std/console.sol";
+import {Swapper} from "../src/test/Swapper.sol";
 
 contract DoppiCoreTest is Test {
     DoppiCore doppiCore;
@@ -24,6 +25,7 @@ contract DoppiCoreTest is Test {
     MockToken usdt;
     MockToken btc;
     MockOracle oracle;
+    Swapper swapper;
 
     address owner = address(this);
     address user1 = address(0x1);
@@ -56,9 +58,17 @@ contract DoppiCoreTest is Test {
         impliedVol = new ImpliedVol(blackScholes);
         impliedVol.setRegression(86400, a_buy, b_buy, c_buy, a_sell, b_sell, c_sell);
 
+        // Deploy Swapper that will act as both router and pool
+        swapper = new Swapper(MockToken(usdt), MockToken(btc));
+        swapper.setOracle(MockOracle(oracle));    
+        
         doppiLP =
             new DoppiLiquidity("Dual Asset Liquidity Pool", "DALP", IERC20(usdt), IERC20(btc), treasury);
         doppiLP.setOracle(address(oracle));
+        doppiLP.setRouter(address(swapper));
+        doppiLP.setPancakeV3Pool(address(swapper));
+        doppiLP.setQuoter(address(swapper));
+        doppiLP.approveRouter();
 
         doppiCore = new DoppiCore(address(usdt), address(btc), doppiLP, impliedVol);
 
@@ -477,7 +487,7 @@ contract DoppiCoreTest is Test {
         assertGt(performData.length, 0);
     }
 
-    function test_performUpkeep() public {
+    function test_performUpkeep_buy() public {
         // Deposit positions
         _depositUSDT();
 
@@ -492,6 +502,115 @@ contract DoppiCoreTest is Test {
 
         // Position should be settled
         assertLt(doppiCore.getBuyPositionCount(), initialPositionCount);
+    }
+
+    function test_performUpkeep_sell() public {
+        // Deposit positions
+        _depositBTC();
+
+        // Fast forward time
+        vm.warp(block.timestamp + 1 days + 1);
+        oracle.setPrice(int256(106_500 ether));
+        (bool upkeepNeeded, bytes memory performData) = doppiCore.checkUpkeep("");
+        assertTrue(upkeepNeeded);
+
+        uint256 initialPositionCount = doppiCore.getSellPositionCount();
+        doppiCore.performUpkeep(performData);
+
+        // Position should be settled
+        assertLt(doppiCore.getSellPositionCount(), initialPositionCount);
+    }
+
+    function test_performUpkeep_buy_hedge_profit() public {
+        // Deposit positions
+        _depositUSDT();
+
+        // Fast forward time
+        vm.warp(block.timestamp + 1 days + 1);
+        oracle.setPrice(int256(96_500 ether));
+        (, bytes memory performData) = doppiCore.checkUpkeep("");
+        doppiCore.performUpkeep(performData);
+
+        // profit in hedging position (earn BTC)
+        assertGt(doppiCore.settleHedgeProfitAssetB(), 0);
+        
+        assertEq(doppiCore.settleHedgeProfitAssetA(), 0);
+        assertEq(doppiCore.settleHedgeLossAssetA(), 0);
+        assertEq(doppiCore.settleHedgeLossAssetB(), 0);
+
+        // console.log(doppiCore.settleHedgeProfitAssetA(), "settleHedgeProfitAssetA");
+        // console.log(doppiCore.settleHedgeProfitAssetB(), "settleHedgeProfitAssetB");
+        // console.log(doppiCore.settleHedgeLossAssetA(), "settleHedgeLossAssetA");
+        // console.log(doppiCore.settleHedgeLossAssetB(), "settleHedgeLossAssetB");
+    }
+
+    function test_performUpkeep_sell_hedge_profit() public {
+        // Deposit positions
+        _depositBTC();
+
+        // Fast forward time
+        vm.warp(block.timestamp + 1 days + 1);
+        oracle.setPrice(int256(106_500 ether));
+        (, bytes memory performData) = doppiCore.checkUpkeep("");
+        doppiCore.performUpkeep(performData);
+
+        // profit in hedging position (earn BTC)
+        assertGt(doppiCore.settleHedgeProfitAssetA(), 0);
+
+        assertEq(doppiCore.settleHedgeProfitAssetB(), 0);
+        assertEq(doppiCore.settleHedgeLossAssetA(), 0);
+        assertEq(doppiCore.settleHedgeLossAssetB(), 0);
+
+        // console.log(doppiCore.settleHedgeProfitAssetA(), "settleHedgeProfitAssetA");
+        // console.log(doppiCore.settleHedgeProfitAssetB(), "settleHedgeProfitAssetB");
+        // console.log(doppiCore.settleHedgeLossAssetA(), "settleHedgeLossAssetA");
+        // console.log(doppiCore.settleHedgeLossAssetB(), "settleHedgeLossAssetB");
+    }
+
+    function test_performUpkeep_buy_hedge_loss() public {
+        // Deposit positions
+        _depositUSDT();
+
+        // Fast forward time
+        vm.warp(block.timestamp + 1 days + 1);
+        oracle.setPrice(int256(106_500 ether));
+        (, bytes memory performData) = doppiCore.checkUpkeep("");
+        doppiCore.performUpkeep(performData);
+
+        // loss in hedging position (loss BTC)
+        assertGt(doppiCore.settleHedgeLossAssetB(), 0);
+        
+        assertEq(doppiCore.settleHedgeProfitAssetA(), 0);
+        assertEq(doppiCore.settleHedgeLossAssetA(), 0);
+        assertEq(doppiCore.settleHedgeProfitAssetB(), 0);
+
+        // console.log(doppiCore.settleHedgeProfitAssetA(), "settleHedgeProfitAssetA");
+        // console.log(doppiCore.settleHedgeProfitAssetB(), "settleHedgeProfitAssetB");
+        // console.log(doppiCore.settleHedgeLossAssetA(), "settleHedgeLossAssetA");
+        // console.log(doppiCore.settleHedgeLossAssetB(), "settleHedgeLossAssetB");
+    }
+
+    function test_performUpkeep_sell_hedge_loss() public {
+        // Deposit positions
+        _depositBTC();
+
+        // Fast forward time
+        vm.warp(block.timestamp + 1 days + 1);
+        oracle.setPrice(int256(96_500 ether));
+        (, bytes memory performData) = doppiCore.checkUpkeep("");
+        doppiCore.performUpkeep(performData);
+
+        // profit in hedging position (earn BTC)
+        assertGt(doppiCore.settleHedgeLossAssetA(), 0);
+
+        assertEq(doppiCore.settleHedgeProfitAssetB(), 0);
+        assertEq(doppiCore.settleHedgeProfitAssetA(), 0);
+        assertEq(doppiCore.settleHedgeLossAssetB(), 0);
+
+        // console.log(doppiCore.settleHedgeProfitAssetA(), "settleHedgeProfitAssetA");
+        // console.log(doppiCore.settleHedgeProfitAssetB(), "settleHedgeProfitAssetB");
+        // console.log(doppiCore.settleHedgeLossAssetA(), "settleHedgeLossAssetA");
+        // console.log(doppiCore.settleHedgeLossAssetB(), "settleHedgeLossAssetB");
     }
 
     function testFuzz_deposit_buy_amounts(uint256 amount) public {

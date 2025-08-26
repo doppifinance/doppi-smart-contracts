@@ -13,6 +13,7 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {MockToken} from "../src/test/MockToken.sol";
 import {MockOracle} from "../src/test/MockOracle.sol";
 import {DoppiOpportunity} from "../src/mainnet/DoppiOpportunity.sol";
+import {Swapper} from "../src/test/Swapper.sol";
 
 contract DoppiTraderTest is Test {
     DoppiTraderFactory doppiFactory;
@@ -26,6 +27,7 @@ contract DoppiTraderTest is Test {
     MockToken btc;
     MockOracle oracle;
     DoppiOpportunity opportunityBot;
+    Swapper swapper;
 
     address owner = address(0x1);
     address treasury = address(0x3);
@@ -52,9 +54,17 @@ contract DoppiTraderTest is Test {
         impliedVol = new ImpliedVol(blackScholes);
         impliedVol.setRegression(86400, a_buy, b_buy, c_buy, a_sell, b_sell, c_sell);
 
+        // Deploy Swapper that will act as both router and pool
+        swapper = new Swapper(MockToken(usdt), MockToken(btc));
+        swapper.setOracle(MockOracle(oracle));    
+
         doppiLP =
             new DoppiLiquidity("Dual Asset Liquidity Pool", "DALP", IERC20(usdt), IERC20(btc), treasury);
         doppiLP.setOracle(address(oracle));
+        doppiLP.setRouter(address(swapper));
+        doppiLP.setPancakeV3Pool(address(swapper));
+        doppiLP.setQuoter(address(swapper));
+        doppiLP.approveRouter();
 
         doppiCore = new DoppiCore(address(usdt), address(btc), doppiLP, impliedVol);
 

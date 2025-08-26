@@ -24,9 +24,9 @@ contract DoppiCore is Ownable, AutomationCompatibleInterface {
         uint256 swappedAmount;
         bool isTraded;
         uint256 interest;
-        uint256 hedgeAmount; // Amount used for hedging
-        uint256 swappedHedgeAmount;
-        uint256 hedgePrice;
+        uint256 hedgeAmountInHedgeToken; // amount sell of B
+        uint256 swappedHedgeAmount; // proceeds of A 
+        uint256 hedgePrice; // sold price
     }
 
     struct DualAssetOffer {
@@ -144,7 +144,7 @@ contract DoppiCore is Ownable, AutomationCompatibleInterface {
             uint256 idx = _indexes[i];
             require(idx < buyPositionKeys.length, "index out of bounds");
             KeyPosition memory pos = buyPositionKeys[idx];
-            _settleBuyPosition(pos);
+            _settlePosition(pos, true);
             _removeBuyPosition(idx, pos);
         }
     }
@@ -157,7 +157,7 @@ contract DoppiCore is Ownable, AutomationCompatibleInterface {
             uint256 idx = _indexes[i];
             require(idx < sellPositionKeys.length, "index out of bounds");
             KeyPosition memory pos = sellPositionKeys[idx];
-            _settleSellPosition(pos);
+            _settlePosition(pos, false);
             _removeSellPosition(idx, pos);
         }
     }
@@ -433,16 +433,14 @@ contract DoppiCore is Ownable, AutomationCompatibleInterface {
 
     // Internal functions
     function _depositBuy(DepositParams calldata params, DualAssetOffer memory _buyOffer) internal {
-        uint256 priceDecimals = doppiLP.getPriceDecimals();
+        
         uint256 price = doppiLP.getPrice();
 
         assetA.safeTransferFrom(msg.sender, address(this), params.amount);
         uint256 positionId = nextPositionId++;
 
         // Hedge
-        uint256 hedgeAmount = params.amount.mulDiv(_buyOffer.delta, 10000);
-        uint256 hedgeAmountInAssetB = hedgeAmount.mulDiv(10 ** priceDecimals, price);
-        uint256 hedgeOut = doppiLP.hedgeSwap(hedgeAmountInAssetB, price, false); // Selling Asset B to hedge
+        (uint256 hedgeAmountInAssetB, uint256 swappedHedgeAmount, uint256 hedgePrice) = _hedgeSwap(params.amount, _buyOffer.delta, price, true);
 
         positions_buy[msg.sender][positionId] = DualAssetPosition(
             params.amount,
@@ -454,25 +452,24 @@ contract DoppiCore is Ownable, AutomationCompatibleInterface {
             0,
             false,
             params.amount.mulDiv(_buyOffer.apr, 10000 * 365),
-            hedgeAmount,
-            hedgeOut,
-            price
+            hedgeAmountInAssetB, // amount sell of B
+            swappedHedgeAmount, // proceeds of A 
+            hedgePrice // sold price
         );
+
         buyPositionKeys.push(KeyPosition(msg.sender, positionId));
     }
 
     function _depositSell(DepositParams calldata params, DualAssetOffer memory _sellOffer) internal {
-        uint256 priceDecimals = doppiLP.getPriceDecimals();
+        
         uint256 price = doppiLP.getPrice();
 
         assetB.safeTransferFrom(msg.sender, address(this), params.amount);
         uint256 positionId = nextPositionId++;
 
         // Hedge
-        uint256 hedgeAmount = params.amount.mulDiv(_sellOffer.delta, 10000);
-        uint256 hedgeAmountInAssetA = hedgeAmount.mulDiv(price, 10 ** priceDecimals);
-        uint256 hedgeOut = doppiLP.hedgeSwap(hedgeAmountInAssetA, price, true); // Selling Asset B to hedge
-        
+        (uint256 hedgeAmountInAssetA, uint256 swappedHedgeAmount, uint256 hedgePrice) = _hedgeSwap(params.amount, _sellOffer.delta, price, false);
+
         positions_sell[msg.sender][positionId] = DualAssetPosition(
             params.amount,
             _sellOffer.price,
@@ -483,73 +480,57 @@ contract DoppiCore is Ownable, AutomationCompatibleInterface {
             0,
             false,
             params.amount.mulDiv(_sellOffer.apr, 10000 * 365),
-            hedgeAmount,
-            hedgeOut,
-            price
+            hedgeAmountInAssetA, // amount sell of B
+            swappedHedgeAmount, // proceeds of A 
+            hedgePrice // sold price
         );
         sellPositionKeys.push(KeyPosition(msg.sender, positionId));
 
         emit Deposited(msg.sender, 0, params.amount);
     }
 
-    function _settleBuyPosition(KeyPosition memory position) internal {
-        DualAssetPosition storage p = positions_buy[position.owner][position.positionId];
-        require(p.expiryTimestamp <= block.timestamp, "no ready for settlement");
+    function _settlePosition(KeyPosition memory position, bool isBuy) internal {
+        // Select the correct position mapping based on direction
+        DualAssetPosition storage p = isBuy 
+            ? positions_buy[position.owner][position.positionId] 
+            : positions_sell[position.owner][position.positionId];
+        
+        require(p.expiryTimestamp <= block.timestamp, "not ready for settlement");
+        
         uint256 price = doppiLP.getPrice();
         uint8 priceDecimals = doppiLP.getPriceDecimals();
+        
+        // Determine assets and conditions based on direction
+        IERC20 interestAsset = isBuy ? assetA : assetB;
+        bool isInTheMoney = isBuy ? (price <= p.strikePrice) : (price >= p.strikePrice);
 
-        doppiLP.transfer(assetA, p.interest, address(this));
-        if (price <= p.strikePrice) {
-            uint256 assetBPayout = p.amount.mulDiv(10 ** priceDecimals, p.strikePrice);
-            if (!p.isTraded) {
-                _settleStrikeNoTraded(p, price, assetBPayout, true);
-            } else {
-                _settleStrikeTraded(p, assetBPayout, true);
-            }
+        // Transfer interest
+        doppiLP.transfer(interestAsset, p.interest, address(this));
+
+        if (isInTheMoney) {
+            // Calculate payout - different formula for buy vs sell
+            uint256 payout = isBuy 
+                ? p.amount.mulDiv(10 ** priceDecimals, p.strikePrice)  // Buy payout
+                : p.amount.mulDiv(p.strikePrice, 10 ** priceDecimals); // Sell payout
+            
+            // Handle traded vs non-traded
+            p.isTraded 
+                ? _settleStrikeTraded(p, payout, isBuy) 
+                : _settleStrikeNoTraded(p, price, payout, isBuy);
+            
+            // Create unwind position for trader bots
             if (address(traderFactory) != address(0) && traderFactory.isTraderBot(p.owner)) {
-                IDoppiTrader(p.owner).createUnwindPosition(p.amount, p.strikePrice, true);
+                IDoppiTrader(p.owner).createUnwindPosition(p.amount, p.strikePrice, isBuy);
             }
         } else {
-            if (p.isTraded) {
-                _settleNoStrikeTraded(p, price, true);
-            } else {
-                _settleNoStrikeNoTraded(p, true);
-            }
+            // Handle out-of-the-money positions
+            p.isTraded 
+                ? _settleNoStrikeTraded(p, price, isBuy) 
+                : _settleNoStrikeNoTraded(p, isBuy);
         }
 
-        settleHedgeSwap(p, price, true);
-
-        emit Settled(p.owner, 0, p.amount);
-    }
-
-    function _settleSellPosition(KeyPosition memory position) internal {
-        DualAssetPosition storage p = positions_sell[position.owner][position.positionId];
-        require(p.expiryTimestamp <= block.timestamp, "no ready for settlement");
-        uint256 price = doppiLP.getPrice();
-        uint8 priceDecimals = doppiLP.getPriceDecimals();
-
-        doppiLP.transfer(assetB, p.interest, address(this));
-        if (price >= p.strikePrice) {
-            uint256 assetAPayout = p.amount.mulDiv(p.strikePrice, 10 ** priceDecimals);
-            if (!p.isTraded) {
-                _settleStrikeNoTraded(p, price, assetAPayout, false);
-            } else {
-                _settleStrikeTraded(p, assetAPayout, false);
-            }
-            if (address(traderFactory) != address(0) && traderFactory.isTraderBot(p.owner)) {
-                IDoppiTrader(p.owner).createUnwindPosition(p.amount, p.strikePrice, false);
-            }
-        } else {
-            if (p.isTraded) {
-                _settleNoStrikeTraded(p, price, false);
-            } else {
-                _settleNoStrikeNoTraded(p, false);
-            }
-        }
-
-        settleHedgeSwap(p, price, false);
-
-        emit Settled(p.owner, p.amount, 0);
+        _settleHedgeSwap(p, price, isBuy);
+        emit Settled(p.owner, isBuy ? 0 : p.amount, isBuy ? p.amount : 0);
     }
 
     function _removeSellPosition(uint256 index, KeyPosition memory _pos) internal {
@@ -568,131 +549,166 @@ contract DoppiCore is Ownable, AutomationCompatibleInterface {
         uint8 priceDecimals = doppiLP.getPriceDecimals();
         uint256 priceGapWithDecimals = PRICE_GAP_PEROFFER * 10 ** priceDecimals;
         _price = (_price / priceGapWithDecimals) * priceGapWithDecimals;
-        if (_isBuy) {
-            return _price - (priceGapWithDecimals * _strikeZone);
-        } else {
-            return _price + (priceGapWithDecimals * _strikeZone);
-        }
+        return _isBuy ? _price - (priceGapWithDecimals * _strikeZone) : _price + (priceGapWithDecimals * _strikeZone);
     }
 
     // Settlement helper functions (from DualAssetNew)
     function _settleStrikeNoTraded(DualAssetPosition memory p, uint256 _price, uint256 _payout, bool _isBuy) internal {
+        // 1. Determine the assets based on the trade direction
+        (IERC20 inToken, IERC20 payoutToken, IERC20 interestToken) = _isBuy 
+            ? (assetA, assetB, assetA) 
+            : (assetB, assetA, assetB);
+
+        // 2. Execute the settlement
+        inToken.safeIncreaseAllowance(address(doppiLP), p.amount);
+        uint256 amountOut = doppiLP.settle(p.amount, _price, _isBuy);
+        
+        // 3. Calculate profit
+        uint256 profit = amountOut > _payout ? amountOut - _payout : 0;
+        
+        // 4. Update stats - directly update the correct storage field
         if (_isBuy) {
-            assetA.safeIncreaseAllowance(address(doppiLP), p.amount);
-            uint256 amountOut = doppiLP.settle(p.amount, _price, true);
-            uint256 profit = amountOut > _payout ? amountOut - _payout : 0;
             dualStats[p.owner].settleProfit_assetB += profit;
             dualStats[p.owner].interestPaid_assetA += p.interest;
-
-            if(profit > 0){
-                assetB.safeTransfer(address(doppiLP), profit);
-            }
-            assetB.safeTransfer(p.owner, _payout);
-            assetA.safeTransfer(p.owner, p.interest);
         } else {
-            assetB.safeIncreaseAllowance(address(doppiLP), p.amount);
-            uint256 amountOut = doppiLP.settle(p.amount, _price, false);
-            uint256 profit = amountOut > _payout ? amountOut - _payout : 0;
-
             dualStats[p.owner].settleProfit_assetA += profit;
             dualStats[p.owner].interestPaid_assetB += p.interest;
-
-            if(profit > 0){
-                assetA.safeTransfer(address(doppiLP), profit);
-            }
-            assetA.safeTransfer(p.owner, _payout);
-            assetB.safeTransfer(p.owner, p.interest);
         }
+
+        // 5. Transfer tokens
+        if (profit > 0) {
+            payoutToken.safeTransfer(address(doppiLP), profit);
+        }
+        payoutToken.safeTransfer(p.owner, _payout);
+        interestToken.safeTransfer(p.owner, p.interest);
     }
 
     function _settleStrikeTraded(DualAssetPosition memory p, uint256 _payout, bool _isBuy) internal {
+        // 1. Determine assets and stats based on direction
+        (IERC20 profitToken, IERC20 payoutToken, IERC20 interestToken) = _isBuy 
+            ? (assetB, assetB, assetA) 
+            : (assetA, assetA, assetB);
+
+        // 2. Update interest stats
         if (_isBuy) {
             dualStats[p.owner].interestPaid_assetA += p.interest;
-
-            if (p.swappedAmount >= _payout) {
-                dualStats[p.owner].opportunityProfit_assetB += p.swappedAmount - _payout;
-                assetB.safeTransfer(address(doppiLP), p.swappedAmount - _payout);
-            } else {
-                dualStats[p.owner].opportunityLoss_assetB += _payout - p.swappedAmount;
-                doppiLP.transfer(assetB, _payout - p.swappedAmount, address(this));
-            }
-
-            assetB.safeTransfer(p.owner, _payout);
-            assetA.safeTransfer(p.owner, p.interest);
         } else {
             dualStats[p.owner].interestPaid_assetB += p.interest;
-
-            if (p.swappedAmount >= _payout) {
-                dualStats[p.owner].opportunityProfit_assetA += p.swappedAmount - _payout;
-                assetA.safeTransfer(address(doppiLP), p.swappedAmount - _payout);
-            } else {
-                dualStats[p.owner].opportunityLoss_assetA += _payout - p.swappedAmount;
-                doppiLP.transfer(assetA, _payout - p.swappedAmount, address(this));
-            }
-
-            assetA.safeTransfer(p.owner, _payout);
-            assetB.safeTransfer(p.owner, p.interest);
         }
+
+        // 3. Calculate profit/loss
+        uint256 profitOrLoss;
+        bool isProfit = p.swappedAmount >= _payout;
+        
+        if (isProfit) {
+            profitOrLoss = p.swappedAmount - _payout;
+            // Update profit stats
+            if (_isBuy) {
+                dualStats[p.owner].opportunityProfit_assetB += profitOrLoss;
+            } else {
+                dualStats[p.owner].opportunityProfit_assetA += profitOrLoss;
+            }
+            profitToken.safeTransfer(address(doppiLP), profitOrLoss);
+        } else {
+            profitOrLoss = _payout - p.swappedAmount;
+            // Update loss stats
+            if (_isBuy) {
+                dualStats[p.owner].opportunityLoss_assetB += profitOrLoss;
+            } else {
+                dualStats[p.owner].opportunityLoss_assetA += profitOrLoss;
+            }
+            doppiLP.transfer(profitToken, profitOrLoss, address(this));
+        }
+
+        // 4. Execute final transfers
+        payoutToken.safeTransfer(p.owner, _payout);
+        interestToken.safeTransfer(p.owner, p.interest);
     }
 
     function _settleNoStrikeTraded(DualAssetPosition memory p, uint256 _price, bool _isBuy) internal {
+        // 1. Determine assets based on direction
+        (IERC20 settleToken, IERC20 profitLossToken) = _isBuy 
+            ? (assetB, assetA) 
+            : (assetA, assetB);
+
+        // 2. Execute settlement
+        settleToken.safeIncreaseAllowance(address(doppiLP), p.swappedAmount);
+        uint256 amountOut = doppiLP.settle(p.swappedAmount, _price, !_isBuy);
+        
+        // 3. Update interest stats
         if (_isBuy) {
-            assetB.safeIncreaseAllowance(address(doppiLP), p.swappedAmount);
-            uint256 amountOut = doppiLP.settle(p.swappedAmount, _price, false);
             dualStats[p.owner].interestPaid_assetA += p.interest;
-
-            if (amountOut >= p.amount) {
-                dualStats[p.owner].opportunityProfit_assetA += amountOut - p.amount;
-                assetA.safeTransfer(address(doppiLP), amountOut - p.amount);
-            } else {
-                dualStats[p.owner].opportunityLoss_assetA += p.amount - amountOut;
-                doppiLP.transfer(assetA, p.amount - amountOut, address(this));
-            }
-
-            assetA.safeTransfer(p.owner, p.amount + p.interest);
         } else {
-            assetA.safeIncreaseAllowance(address(doppiLP), p.swappedAmount);
-            uint256 amountOut = doppiLP.settle(p.swappedAmount, _price, true);
             dualStats[p.owner].interestPaid_assetB += p.interest;
-
-            if (amountOut >= p.amount) {
-                dualStats[p.owner].opportunityProfit_assetB += amountOut - p.amount;
-                assetB.safeTransfer(address(doppiLP), amountOut - p.amount);
-            } else {
-                dualStats[p.owner].opportunityLoss_assetB += p.amount - amountOut;
-                doppiLP.transfer(assetB, p.amount - amountOut, address(this));
-            }
-
-            assetB.safeTransfer(p.owner, p.amount + p.interest);
         }
+
+        // 4. Handle profit/loss
+        uint256 profitOrLoss;
+        bool isProfit = amountOut >= p.amount;
+        
+        if (isProfit) {
+            profitOrLoss = amountOut - p.amount;
+            if (_isBuy) {
+                dualStats[p.owner].opportunityProfit_assetA += profitOrLoss;
+            } else {
+                dualStats[p.owner].opportunityProfit_assetB += profitOrLoss;
+            }
+            profitLossToken.safeTransfer(address(doppiLP), profitOrLoss);
+        } else {
+            profitOrLoss = p.amount - amountOut;
+            if (_isBuy) {
+                dualStats[p.owner].opportunityLoss_assetA += profitOrLoss;
+            } else {
+                dualStats[p.owner].opportunityLoss_assetB += profitOrLoss;
+            }
+            doppiLP.transfer(profitLossToken, profitOrLoss, address(this));
+        }
+
+        // 5. Final transfer (principal + interest)
+        profitLossToken.safeTransfer(p.owner, p.amount + p.interest);
     }
 
     function _settleNoStrikeNoTraded(DualAssetPosition memory p, bool _isBuy) internal {
+        IERC20 token = _isBuy ? assetA : assetB;
+        
         if (_isBuy) {
             dualStats[p.owner].interestPaid_assetA += p.interest;
-            assetA.safeTransfer(p.owner, p.amount + p.interest);
         } else {
             dualStats[p.owner].interestPaid_assetB += p.interest;
-            assetB.safeTransfer(p.owner, p.amount + p.interest);
         }
+        
+        token.safeTransfer(p.owner, p.amount + p.interest);
     }
 
-    function settleHedgeSwap(DualAssetPosition memory p, uint256 price, bool isBuy) internal {
-        if (isBuy) {
-            uint256 hedgeOut = doppiLP.hedgeSwap(p.swappedHedgeAmount, price, true); // Asset A -> Asset B
-            if (hedgeOut > p.hedgeAmount) {
-                settleHedgeProfitAssetB += hedgeOut - p.hedgeAmount;
-            } else {
-                settleHedgeLossAssetB += p.hedgeAmount - hedgeOut;
-            }
-        } else {
-            uint256 hedgeOut = doppiLP.hedgeSwap(p.swappedHedgeAmount, price, false); // Asset B -> Asset A
-            if (hedgeOut > p.hedgeAmount) {
-                settleHedgeProfitAssetA += hedgeOut - p.hedgeAmount;
-            } else {
-                settleHedgeLossAssetA += p.hedgeAmount - hedgeOut;
-            }
-        }
+    function _settleHedgeSwap(DualAssetPosition memory p, uint256 price, bool isBuy) internal {
+        
+        // no hedge position
+        if(p.swappedHedgeAmount == 0) return;
+
+        (uint256 hedgeOut, ) = doppiLP.hedgeSwap(p.swappedHedgeAmount, price, isBuy); // Asset A -> Asset B
+        if (hedgeOut > p.hedgeAmountInHedgeToken) {
+            uint256 profit = hedgeOut - p.hedgeAmountInHedgeToken;
+            if(isBuy){
+                settleHedgeProfitAssetB += profit;  
+            }else{
+                settleHedgeProfitAssetA += profit;    
+            } 
+        }else{
+            uint256 loss = p.hedgeAmountInHedgeToken - hedgeOut;
+            if(isBuy){
+                settleHedgeLossAssetB += loss;  
+            }else{
+                settleHedgeLossAssetA += loss;    
+            } 
+        } 
+    }
+
+    function _hedgeSwap(uint256 _amount, uint256 _delta, uint256 _price, bool isBuy) internal returns (uint256 amountInHedgeAsset, uint256 swappedHedgeAmount, uint256 hedgePrice) {
+        
+        uint256 priceDecimals = doppiLP.getPriceDecimals();
+        uint256 hedgeAmount = _amount.mulDiv(_delta, 10000);
+        amountInHedgeAsset = hedgeAmount.mulDiv(10 ** priceDecimals, _price);
+        (swappedHedgeAmount, hedgePrice) = doppiLP.hedgeSwap(amountInHedgeAsset, _price, !isBuy); // Selling Asset B to hedge
     }
 
     function _adminTrade(

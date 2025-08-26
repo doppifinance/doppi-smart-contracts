@@ -21,7 +21,7 @@ interface IDoppiLiquidity is IShares {
     function amountToSell(uint256 price) external view returns (uint256);
     function toBuyPrices(uint256 index) external view returns (uint256);
     function toSellPrices(uint256 index) external view returns (uint256);
-    function hedgeSwap(uint256 _amountIn, uint256 _price, bool _isBuy) external returns (uint256);
+    function hedgeSwap(uint256 _amountIn, uint256 _price, bool _isBuy) external returns (uint256 amountOut, uint256 tradedPrice);
 
     function swap(uint256 _amountIn, uint256 _price, bool _isBuy) external returns (uint256 amountOut) ;
     function settle(uint256 _amountIn, uint256 _price, bool _isBuy) external returns (uint256 amountOut);

@@ -87,32 +87,19 @@ contract DoppiLiquidity is ERC20, Ownable, IDoppiLiquidity, AutomationCompatible
     function hedgeSwap(uint256 _amountIn, uint256 _price, bool _isBuy)
         external
         onlyDoppiContract
-        returns (uint256)
+        returns (uint256 amountOut, uint256 tradedPrice)
     {
+
+        if ((_isBuy ? assetA : assetB).balanceOf(address(this)) < _amountIn) return (0, 0);
+
         uint8 priceDecimals = DALiquidityLib.getPriceDecimals(chainLinkFeed);
 
-        if (_isBuy) {
-            uint256 amountOut = (_amountIn).mulDiv(10 ** priceDecimals, _price);
-
-            uint256 targetPrice = _price.mulDiv(1000000 - swapMargin, 1000000);
-            (bool exists, uint256 index) = DALiquidityLib.find(toBuyPrices, targetPrice);
-            amountToBuy[targetPrice] += _amountIn;
-
-            if (!exists) {
-                DALiquidityLib.sortedInsert(toBuyPrices, index, targetPrice);
-            }
-            return amountOut;
+        if (_isBuy) {  
+            amountOut  = _swapPancake(_amountIn, _amountIn.mulDiv(10 ** priceDecimals, _price), true);
+            tradedPrice = _amountIn.mulDiv(10 ** priceDecimals, amountOut);
         } else {
-            uint256 amountOut = (_amountIn).mulDiv(_price, 10 ** priceDecimals);
-
-            uint256 targetPrice = _price.mulDiv(1000000 + swapMargin, 1000000);
-            (bool exists, uint256 index) = DALiquidityLib.find(toSellPrices, targetPrice);
-            amountToSell[targetPrice] += _amountIn;
-
-            if (!exists) {
-                DALiquidityLib.sortedInsert(toSellPrices, index, targetPrice);
-            }
-            return amountOut;
+            amountOut  = _swapPancake(_amountIn, _amountIn.mulDiv(_price, 10 ** priceDecimals), false);
+            tradedPrice = amountOut.mulDiv(10 ** priceDecimals, _amountIn);
         }
     }
 
@@ -428,6 +415,7 @@ contract DoppiLiquidity is ERC20, Ownable, IDoppiLiquidity, AutomationCompatible
 
         
         uint256 balance = assetOut.balanceOf(address(this));
+        // console.log("_swap", amountOut, balance);
         if(amountOut > balance){ //fallback  
             uint256 actualAmountIn = _swapExactOutputV3(amountOut, address(assetIn), address(assetOut), msg.sender, _amountIn); 
             uint256 tradedPrice = amountOut.mulDiv(10 ** priceDecimals, actualAmountIn);

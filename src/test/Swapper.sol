@@ -94,36 +94,36 @@ contract Swapper is ISwapper, ISwapRouter, IQuoterV2 {
         // Transfer tokens from caller
         tokenIn.safeTransferFrom(msg.sender, address(this), params.amountIn);
 
-        // Simple conversion based on oracle price if available, otherwise 1:1
-        if (address(oracle) != address(0)) {
-            (, int256 price,,,) = oracle.latestRoundData();
-            uint256 priceUint = price.toUint256();
+        // // Simple conversion based on oracle price if available, otherwise 1:1
+        // if (address(oracle) != address(0)) {
+        //     (, int256 price,,,) = oracle.latestRoundData();
+        //     uint256 priceUint = price.toUint256();
 
-            if (params.tokenIn == address(USDT) && params.tokenOut == address(BTC)) {
-                // USDT to BTC: divide by price
-                amountOut = params.amountIn.mulDiv(10 ** oracle.decimals(), priceUint);
-            } else if (params.tokenIn == address(BTC) && params.tokenOut == address(USDT)) {
-                // BTC to USDT: multiply by price
-                amountOut = params.amountIn.mulDiv(priceUint, 10 ** oracle.decimals());
-            } else {
-                // Fallback 1:1
-                amountOut = params.amountIn;
-            }
-        } else {
-            // No oracle, 1:1 conversion
-            amountOut = params.amountIn;
-        }
+        //     if (params.tokenIn == address(USDT) && params.tokenOut == address(BTC)) {
+        //         // USDT to BTC: divide by price
+        //         amountOut = params.amountIn.mulDiv(10 ** oracle.decimals(), priceUint);
+        //     } else if (params.tokenIn == address(BTC) && params.tokenOut == address(USDT)) {
+        //         // BTC to USDT: multiply by price
+        //         amountOut = params.amountIn.mulDiv(priceUint, 10 ** oracle.decimals());
+        //     } else {
+        //         // Fallback 1:1
+        //         amountOut = params.amountIn;
+        //     }
+        // } else {
+        //     // No oracle, 1:1 conversion
+        //     amountOut = params.amountIn;
+        // }
 
-        // Apply minimum amount check
-        require(amountOut >= params.amountOutMinimum, "Insufficient output amount");
+        // // Apply minimum amount check
+        // require(amountOut >= params.amountOutMinimum, "Insufficient output amount");
 
         // Mint output tokens to recipient
-        tokenOut.mint(params.recipient, amountOut);
+        tokenOut.mint(params.recipient, params.amountOutMinimum);
 
         // Burn input tokens
         tokenIn.burn(address(this), params.amountIn);
 
-        return amountOut;
+        return params.amountOutMinimum;
     }
 
     function exactInput(ExactInputParams calldata) external payable override returns (uint256) {
