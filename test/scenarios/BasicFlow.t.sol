@@ -14,7 +14,6 @@ import {MockToken} from "../../src/test/MockToken.sol";
 import {MockOracle} from "../../src/test/MockOracle.sol";
 import {DoppiOpportunity} from "../../src/mainnet/DoppiOpportunity.sol";
 import {Swapper} from "../../src/test/Swapper.sol";
-import {InitialSetup} from "../InitialSetup.sol";
 
 
 contract BasicFlowTest is Test {
@@ -46,7 +45,6 @@ contract BasicFlowTest is Test {
         oracle = new MockOracle(int256(100_000 ether), 18);
 
         vm.prank(owner);
-        InitialSetup setup = new InitialSetup();
         // Deploy Swapper that will act as both router and pool
         swapper = _setupMockSwapper(address(usdt), address(btc), address(oracle));        
         impliedVol = _setupIV();
