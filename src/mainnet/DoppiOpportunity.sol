@@ -63,8 +63,8 @@ contract DoppiOpportunity is Ownable, AutomationCompatibleInterface {
         DoppiCore.DualAssetPosition[] memory buys = doppiCore.get_positions_buy();
         DoppiCore.DualAssetPosition[] memory sells = doppiCore.get_positions_sell();
 
-        _performOpportunity(price, buyIndexes, buys, true);
-        _performOpportunity(price, sellIndexes, sells, false);
+        if(buyIndexes.length > 0) _performOpportunity(price, buyIndexes, buys, true);
+        if(sellIndexes.length > 0) _performOpportunity(price, sellIndexes, sells, false);
     }
 
     function _checkOpportunity(uint256 price, DoppiCore.DualAssetPosition[] memory _orders, bool _isBuy)
@@ -78,15 +78,14 @@ contract DoppiOpportunity is Ownable, AutomationCompatibleInterface {
         for (uint256 i = 0; i < _orders.length; i++) {
             uint256 buffer = _orders[i].strikePrice.mulDiv(tolerance, 10000);
             uint256 triggerPrice = _isBuy ? _orders[i].strikePrice - buffer : _orders[i].strikePrice + buffer;
-            uint256 triggerPriceUnwind = _isBuy ? _orders[i].strikePrice + buffer: _orders[i].strikePrice - buffer;
-    
+
             if(_isBuy){
-                if ((!_orders[i].isTraded && price <= triggerPrice) || (_orders[i].isTraded && price >= triggerPriceUnwind)) {
+                if ((!_orders[i].isTraded && price <= triggerPrice) || (_orders[i].isTraded && price >= _orders[i].strikePrice)) {
                     indexes[count] = i;
                     count++;
                 }
             }else{
-                if ((!_orders[i].isTraded && price >= triggerPrice) || (_orders[i].isTraded && price <= triggerPriceUnwind)) {
+                if ((!_orders[i].isTraded && price >= triggerPrice) || (_orders[i].isTraded && price <= _orders[i].strikePrice)) {
                     indexes[count] = i;
                     count++;
                 }
@@ -110,14 +109,13 @@ contract DoppiOpportunity is Ownable, AutomationCompatibleInterface {
             // take opportunity
             if (_isNotTradedTriggered(_isBuy, _orders[i], price, buffer)) {
                 doppiCore.adminSwap(_orders[i].owner, _orders[i].amount, price, i, _isBuy);
-            
             }else if (_isTradedTriggered(_isBuy, _orders[i], price, buffer)) { // unwinding take profit
-            
-                uint256 outAmount = doppiCore.adminUnwind(_orders[i].owner, _orders[i].swappedAmount, price, i, !_isBuy);
+
+                (, uint256 profit) = doppiCore.adminUnwind(_orders[i].owner, _orders[i].swappedAmount, price, i, !_isBuy);
                 if (_isBuy) {
-                    profitAssetA += outAmount - _orders[i].amount;
+                    profitAssetA += profit;
                 } else {
-                    profitAssetB += outAmount - _orders[i].amount;
+                    profitAssetB += profit;
                 }
             }
         }
@@ -132,7 +130,7 @@ contract DoppiOpportunity is Ownable, AutomationCompatibleInterface {
         uint256 triggerPrice = 0;
         if (_isBuy) {
             triggerPrice = _order.strikePrice + _buffer;
-            return !_order.isTraded && _price <= triggerPrice;
+            return !_order.isTraded && _price <= triggerPrice;                   
         } else {
             triggerPrice = _order.strikePrice - _buffer;
             return !_order.isTraded && _price >= triggerPrice;
@@ -149,8 +147,7 @@ contract DoppiOpportunity is Ownable, AutomationCompatibleInterface {
             triggerPrice = _order.strikePrice + _buffer;
             return _order.isTraded && _price >= triggerPrice;
         } else {
-            triggerPrice = _order.strikePrice - _buffer;
-            return _order.isTraded && _price <= triggerPrice;
+            return _order.isTraded && _price <= _order.strikePrice;
         }
     }
 }

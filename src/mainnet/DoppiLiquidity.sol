@@ -128,7 +128,7 @@ contract DoppiLiquidity is ERC20, Ownable, IDoppiLiquidity, AutomationCompatible
             uint256 price = toBuyPrices[_index];
             uint256 amount = amountToBuy[price];
 
-            swapPancake(amount, amount.mulDiv(10 ** priceDecimals, price), true);
+            _swapPancake(amount, amount.mulDiv(10 ** priceDecimals, price), true);
 
             delete amountToBuy[price];
             DALiquidityLib.sortedRemove(toBuyPrices, _index);
@@ -136,18 +136,10 @@ contract DoppiLiquidity is ERC20, Ownable, IDoppiLiquidity, AutomationCompatible
             uint256 price = toSellPrices[_index];
             uint256 amount = amountToSell[price];
 
-            swapPancake(amount, amount.mulDiv(price, 10 ** priceDecimals), false);
+            _swapPancake(amount, amount.mulDiv(price, 10 ** priceDecimals), false);
 
             delete amountToSell[price];
             DALiquidityLib.sortedRemove(toSellPrices, _index);
-        }
-    }
-
-    function swapPancake(uint256 _amount, uint256 _amountOutQuote, bool _isBuy) internal returns (uint256 shares){
-        if (_isBuy) {
-            shares = _swapExactInputV3(_amount, address(assetA), address(assetB), address(this), _amountOutQuote);
-        } else {
-            shares = _swapExactInputV3(_amount, address(assetB), address(assetA), address(this), _amountOutQuote);
         }
     }
 
@@ -361,7 +353,6 @@ contract DoppiLiquidity is ERC20, Ownable, IDoppiLiquidity, AutomationCompatible
             amountOutMinimum: amountOutQuote.mulDiv(10000 - slippage, 10000),
             sqrtPriceLimitX96: 0
         });
-        // TransferHelper.safeApprove(_fromToken, router, _amount);
         return ISwapRouter(router).exactInputSingle(params);
     }
 
@@ -383,29 +374,31 @@ contract DoppiLiquidity is ERC20, Ownable, IDoppiLiquidity, AutomationCompatible
         result = ISwapRouter(router).exactOutputSingle(params);
     }
 
-    function _settle_buy(uint256 _amountIn, uint256 _price, bool _isBuy) internal returns (uint256) {
+    function _settle_buy(uint256 _amountIn, uint256 _price, bool _isBuy) internal returns (uint256 out) {
         
         // Amount out formula
         uint8 priceDecimals = DALiquidityLib.getPriceDecimals(chainLinkFeed);
         uint256 amountOut = _amountIn.mulDiv(10 ** priceDecimals, _price); // in btc output
         uint256 balance = assetB.balanceOf(address(this));
-        if(amountOut > balance){            
-            return _swapExactOutputV3(amountOut, address(assetA), address(assetB), msg.sender, _amountIn);
+        if(amountOut > balance){    
+            _swapExactOutputV3(amountOut, address(assetA), address(assetB), msg.sender, _amountIn);
+            out = amountOut;
         }else{
-            return _swap(_amountIn, _price, _isBuy, 0);
+            out = _swap(_amountIn, _price, _isBuy, 0);
         }   
     }
 
-    function _settle_sell(uint256 _amountIn, uint256 _price, bool _isBuy) internal returns (uint256) {
+    function _settle_sell(uint256 _amountIn, uint256 _price, bool _isBuy) internal returns (uint256 out) {
         
         // Amount out formula
         uint8 priceDecimals = DALiquidityLib.getPriceDecimals(chainLinkFeed);
         uint256 amountOut = _amountIn.mulDiv(_price, 10 ** priceDecimals); // in usdt assetA output
         uint256 balance = assetA.balanceOf(address(this));
         if(amountOut > balance){            
-            return _swapExactOutputV3(amountOut, address(assetA), address(assetB), msg.sender, _amountIn);
+            _swapExactOutputV3(amountOut, address(assetB), address(assetA), msg.sender, _amountIn);
+            out = amountOut;
         }else{
-            return _swap(_amountIn, _price, _isBuy, 0);
+            out = _swap(_amountIn, _price, _isBuy, 0);
         }   
     }
 
@@ -416,6 +409,7 @@ contract DoppiLiquidity is ERC20, Ownable, IDoppiLiquidity, AutomationCompatible
         uint256 _fee 
     ) internal returns (uint256) {
         
+        uint256 targetPrice = 0;
         uint256 price = DALiquidityLib.getPrice(chainLinkFeed);
         uint8 priceDecimals = DALiquidityLib.getPriceDecimals(chainLinkFeed);
         require(_price == price, "Price mismatch");
@@ -432,15 +426,26 @@ contract DoppiLiquidity is ERC20, Ownable, IDoppiLiquidity, AutomationCompatible
             ? (_amountIn - _fee).mulDiv(10 ** priceDecimals, _price)
             : (_amountIn - _fee).mulDiv(_price, 10 ** priceDecimals);
 
-        // Transfer fee (if any) and output
-        if (_fee > 0) assetIn.safeTransfer(treasury, _fee);
-        assetOut.safeTransfer(msg.sender, amountOut);
+        
+        uint256 balance = assetOut.balanceOf(address(this));
+        if(amountOut > balance){ //fallback  
+            uint256 actualAmountIn = _swapExactOutputV3(amountOut, address(assetIn), address(assetOut), msg.sender, _amountIn); 
+            uint256 tradedPrice = amountOut.mulDiv(10 ** priceDecimals, actualAmountIn);
+            targetPrice = _isBuy
+            ? tradedPrice.mulDiv(1_000_000 - swapMargin, 1_000_000)
+            : tradedPrice.mulDiv(1_000_000 + swapMargin, 1_000_000); 
 
-        // Target price and order book update
-        uint256 targetPrice = _isBuy
+        }else{
+            // Transfer fee (if any) and output
+            if (_fee > 0) assetIn.safeTransfer(treasury, _fee);    
+            assetOut.safeTransfer(msg.sender, amountOut);  
+
+            // Target price and order book update
+            targetPrice = _isBuy
             ? _price.mulDiv(1_000_000 - swapMargin, 1_000_000)
-            : _price.mulDiv(1_000_000 + swapMargin, 1_000_000);
-
+            : _price.mulDiv(1_000_000 + swapMargin, 1_000_000); 
+        }
+        
         if (_isBuy) {
             (bool exists, uint256 index) = DALiquidityLib.find(toBuyPrices, targetPrice);
             amountToBuy[targetPrice] += _amountIn;
@@ -449,8 +454,16 @@ contract DoppiLiquidity is ERC20, Ownable, IDoppiLiquidity, AutomationCompatible
             (bool exists, uint256 index) = DALiquidityLib.find(toSellPrices, targetPrice);
             amountToSell[targetPrice] += _amountIn;
             if (!exists) DALiquidityLib.sortedInsert(toSellPrices, index, targetPrice);
-        }
-
+        }   
+        
         return amountOut;
+    }
+
+    function _swapPancake(uint256 _amount, uint256 _amountOutQuote, bool _isBuy) internal returns (uint256 shares){
+        if (_isBuy) {
+            shares = _swapExactInputV3(_amount, address(assetA), address(assetB), address(this), _amountOutQuote);
+        } else {
+            shares = _swapExactInputV3(_amount, address(assetB), address(assetA), address(this), _amountOutQuote);
+        }
     }
 }

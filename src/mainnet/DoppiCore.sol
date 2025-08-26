@@ -166,7 +166,7 @@ contract DoppiCore is Ownable, AutomationCompatibleInterface {
     function adminSwap(address _owner, uint256 _amountPay, uint256 _price, uint256 _keyIndex, bool _isBuy)
         external
         onlyAdmin
-        returns (uint256 amountOut) {
+        returns (uint256 amountOut, uint256 profit) {
 
         uint256 price = doppiLP.getPrice();
         require(price == _price, "price mismatch");
@@ -176,7 +176,7 @@ contract DoppiCore is Ownable, AutomationCompatibleInterface {
     function adminUnwind(address _owner, uint256 _amountPay, uint256 _price, uint256 _keyIndex, bool _isBuy)
         external
         onlyAdmin
-        returns (uint256 amountOut) {
+        returns (uint256 amountOut, uint256 profit) {
         
         uint256 price = doppiLP.getPrice();
         require(price == _price, "price mismatch");
@@ -534,7 +534,6 @@ contract DoppiCore is Ownable, AutomationCompatibleInterface {
             if (!p.isTraded) {
                 _settleStrikeNoTraded(p, price, assetAPayout, false);
             } else {
-                console.log("_settleStrikeTraded", p.strikePrice);
                 _settleStrikeTraded(p, assetAPayout, false);
             }
             if (address(traderFactory) != address(0) && traderFactory.isTraderBot(p.owner)) {
@@ -542,7 +541,6 @@ contract DoppiCore is Ownable, AutomationCompatibleInterface {
             }
         } else {
             if (p.isTraded) {
-                console.log("_settleNoStrikeTraded", p.strikePrice);
                 _settleNoStrikeTraded(p, price, false);
             } else {
                 _settleNoStrikeNoTraded(p, false);
@@ -595,7 +593,7 @@ contract DoppiCore is Ownable, AutomationCompatibleInterface {
             assetB.safeIncreaseAllowance(address(doppiLP), p.amount);
             uint256 amountOut = doppiLP.settle(p.amount, _price, false);
             uint256 profit = amountOut > _payout ? amountOut - _payout : 0;
-            
+
             dualStats[p.owner].settleProfit_assetA += profit;
             dualStats[p.owner].interestPaid_assetB += p.interest;
 
@@ -704,7 +702,7 @@ contract DoppiCore is Ownable, AutomationCompatibleInterface {
         uint256 _keyIndex,
         bool _isBuy,
         bool _isUnwind
-    ) private returns (uint256 amountOut) {
+    ) private returns (uint256 amountOut, uint256 profit) {
         DualAssetPosition storage p;
 
         if (_isBuy) {
@@ -720,7 +718,7 @@ contract DoppiCore is Ownable, AutomationCompatibleInterface {
                 p.isTraded = false;
                 p.swappedAmount = 0;
 
-                uint256 profit = amountOut - p.amount;
+                profit = amountOut - p.amount;
                 assetB.safeTransfer(address(doppiLP), profit);
             } else {
                 p.isTraded = true;
@@ -738,15 +736,13 @@ contract DoppiCore is Ownable, AutomationCompatibleInterface {
                 p.isTraded = false;
                 p.swappedAmount = 0;
 
-                uint256 profit = amountOut - p.amount;
+                profit = amountOut - p.amount;
                 assetA.safeTransfer(address(doppiLP), profit);
             } else {
                 p.isTraded = true;
                 p.swappedAmount = amountOut;            
             }
         }
-
-        return amountOut;
     }
 
     function _isDescending(uint256[] memory arr) internal pure returns (bool) {

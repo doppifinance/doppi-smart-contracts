@@ -173,13 +173,6 @@ contract DoppiTraderTest is Test {
         DoppiCore.DualAssetPosition[] memory positions = doppiCore.get_positions_buy();
         assertEq(positions.length, 0);
 
-        // console.log(doppiCore.get_stats(address(trader)).opportunityProfit_assetB);
-        // console.log(doppiCore.get_stats(address(trader)).opportunityProfit_assetA);
-        // console.log(doppiCore.get_stats(address(trader)).settleProfit_assetA);
-        // console.log(doppiCore.get_stats(address(trader)).settleProfit_assetB);
-        // console.log(doppiCore.get_stats(address(trader)).interestPaid_assetA);
-        // console.log(doppiCore.get_stats(address(trader)).interestPaid_assetB);
-
         // ***** END 
         
         // ***** validate trader checkupkeep to place new batch of orders
@@ -211,10 +204,6 @@ contract DoppiTraderTest is Test {
         assertEq(buyIndexes.length, 0);
         opportunityBot.performUpkeep(performData);
         
-        // DualAsset.KeyPosition[] memory keyPositions = doppiCore.get_sell_positions_id(address(trader));
-        // for(uint8 i=0; i< keyPositions.length; i++){
-        //     console.log(keyPositions[i].owner, keyPositions[i].positionId);
-        // }
         DoppiCore.DualAssetPosition memory pos = doppiCore.get_sell(address(trader), 6);
         assertEq(pos.isTraded, true);
 
@@ -231,13 +220,6 @@ contract DoppiTraderTest is Test {
         assertEq(positionssell.length, 0);
         DoppiCore.DualAssetPosition[] memory positions = doppiCore.get_positions_buy();
         assertEq(positions.length, 0);
-
-        // console.log(doppiCore.get_stats(address(trader)).opportunityProfit_assetB);
-        // console.log(doppiCore.get_stats(address(trader)).opportunityProfit_assetA);
-        // console.log(doppiCore.get_stats(address(trader)).settleProfit_assetA);
-        // console.log(doppiCore.get_stats(address(trader)).settleProfit_assetB);
-        // console.log(doppiCore.get_stats(address(trader)).interestPaid_assetA);
-        // console.log(doppiCore.get_stats(address(trader)).interestPaid_assetB);
 
         assertGt(doppiCore.get_stats(address(trader)).opportunityProfit_assetB, 0);
         assertEq(doppiCore.get_stats(address(trader)).opportunityProfit_assetA, 0); 
@@ -262,10 +244,7 @@ contract DoppiTraderTest is Test {
         assertEq(buyIndexes.length, 0);
         opportunityBot.performUpkeep(performData);
         
-        // DualAsset.KeyPosition[] memory keyPositions = doppiCore.get_sell_positions_id(address(trader));
-        // for(uint8 i=0; i< keyPositions.length; i++){
-        //     console.log(keyPositions[i].owner, keyPositions[i].positionId);
-        // }
+
         DoppiCore.DualAssetPosition memory pos = doppiCore.get_sell(address(trader), 6);
         assertEq(pos.isTraded, true);
 
@@ -285,82 +264,23 @@ contract DoppiTraderTest is Test {
         assertEq(doppiCore.get_stats(address(trader)).opportunityProfit_assetB, 0);
         assertGt(doppiCore.get_stats(address(trader)).opportunityProfit_assetA, 0); // sell btc oppotunity profit in usdt
 
-        // console.log(doppiCore.get_stats(address(trader)).opportunityProfit_assetB);
-        // console.log(doppiCore.get_stats(address(trader)).opportunityProfit_assetA);
-        // console.log(doppiCore.get_stats(address(trader)).settleProfit_assetA);
-        // console.log(doppiCore.get_stats(address(trader)).settleProfit_assetB);
-        // console.log(doppiCore.get_stats(address(trader)).interestPaid_assetA);
-        // console.log(doppiCore.get_stats(address(trader)).interestPaid_assetB);
-        
         // ***** END    
     }
 
     function test_opportunity_bot_trader_buyUndo() public {
         
-        // Fork BSC mainnet
-        // vm.createSelectFork("bsc", 57458972);
-        
-        // vm.startPrank(admin);
-        // usdt.approve(address(doppiRouter), 1_000_000 ether);
-        // btc.approve(address(doppiRouter), 20 ether);
-        // doppiRouter.deposit(address(usdt), 1_000_000 ether);
-        // doppiRouter.deposit(address(btc), 20 ether);
-        // vm.stopPrank();
-
         vm.startPrank(owner);
         _start();
         vm.stopPrank();
 
-        // // ***** START perform opportunityBot.checkUpkeep
-        // oracle.setPrice(int256(97_600 ether));
-        // (bool upkeepNeeded, bytes memory performData) = opportunityBot.checkUpkeep("");
-        // assertTrue(upkeepNeeded);
-        // assertGt(performData.length, 0);
-        // opportunityBot.performUpkeep(performData);
-        // // ***** END 
-
         // ***** doppiCore settle buy and sell order
         vm.warp(block.timestamp + 1 days + 1);
-        oracle.setPrice(int256(96_500 ether)); // settled buy + no traded + strike
+        oracle.setPrice(int256(98_500 ether)); // settled buy + no traded + strike
         (bool upkeepNeeded, bytes memory performData) = doppiCore.checkUpkeep("");
-        // (upkeepNeeded, performData) = doppiCore.checkUpkeep("");
         assertTrue(upkeepNeeded);
         doppiCore.performUpkeep(performData);        
         // ***** END  
 
-
-        // ***** traderbot unwind opportunity
-        // assertGt(trader.get_buy_undos().length, 0);    
-        // vm.warp(block.timestamp + 1 days + 1);
-        // oracle.setPrice(int256(100_000 ether)); // settled buy + no traded + strike
-        // (upkeepNeeded, performData) = trader.checkUpkeep("");
-        // assertTrue(upkeepNeeded);
-        // doppiCore.performUpkeep(performData);    
-        // assertEq(trader.get_buy_undos().length, 0);    
-        // ***** END  
-
-
-
-        // // Create an unwind position with even smaller amount
-        // vm.startPrank(address(doppiCore));
-        // trader.createUnwindPosition(1000 ether, 100_000 ether, true); // Very small amount
-        // vm.stopPrank();
-
-        // // Add more BTC to trader for swapping
-        // btc.mint(address(trader), 10 ether);
-
-        // // Test with extreme profit margin
-        // uint256 triggerPrice = 200_000 ether; // 100% above strike
-
-        // oracle.setPrice(int256(triggerPrice));
-
-        // // Get initial balances
-        // uint256 initialTraderUSDT = usdt.balanceOf(address(trader));
-        // console.log("Initial trader USDT:", initialTraderUSDT);
-
-        // trader.opportunity_bot_trader(triggerPrice, 0, true);
-        // console.log("Trade executed successfully");
-        // assertEq(trader.get_buy_undos().length, 0);
     }
 
     function test_pauseTrades_onlyOwner() public {

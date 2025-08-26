@@ -9,6 +9,7 @@ import "./MockOracle.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {SafeCast} from "@openzeppelin/contracts/utils/math/SafeCast.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
+import "forge-std/console.sol";
 
 // Simple Swapper Contract that also mocks Uniswap V3 Router, Pool, and QuoterV2 functionality
 contract Swapper is ISwapper, ISwapRouter, IQuoterV2 {
@@ -129,8 +130,21 @@ contract Swapper is ISwapper, ISwapRouter, IQuoterV2 {
         revert("Not implemented");
     }
 
-    function exactOutputSingle(ExactOutputSingleParams calldata) external payable override returns (uint256) {
-        revert("Not implemented");
+    function exactOutputSingle(ExactOutputSingleParams calldata params) external payable override returns (uint256 amountIn) {
+        // revert("Not implemented");
+        // console.log("exactOutputSingle");
+        MockToken tokenIn = MockToken(params.tokenIn);
+        MockToken tokenOut = MockToken(params.tokenOut);
+
+        // Transfer tokens from caller
+        tokenIn.safeTransferFrom(msg.sender, address(this), params.amountInMaximum);
+        amountIn = params.amountInMaximum;
+        // Mint output tokens to recipient
+        tokenOut.mint(params.recipient, params.amountOut);
+
+        // Burn input tokens
+        tokenIn.burn(address(this), params.amountInMaximum);
+        return params.amountInMaximum;
     }
 
     function exactOutput(ExactOutputParams calldata) external payable override returns (uint256) {
