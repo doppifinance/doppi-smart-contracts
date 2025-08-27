@@ -10,6 +10,7 @@ import {DoppiCore} from "./DoppiCore.sol";
 import {DoppiLiquidity} from "./DoppiLiquidity.sol";
 import {IDoppiLiquidityRouter} from "../Interface/IDoppiLiquidityRouter.sol";
 import {DoppiTrader} from "./DoppiTrader.sol";
+import "forge-std/console.sol";
 
 contract DoppiTraderFactory is Ownable, IDoppiTraderFactory {
     using SafeERC20 for IERC20;
@@ -22,6 +23,7 @@ contract DoppiTraderFactory is Ownable, IDoppiTraderFactory {
     DoppiLiquidity public doppiLP;
     IDoppiLiquidityRouter public doppiRouter;
     DoppiTrader[] public traderBots;
+    address public DEFAULT_FORWARDER_ADDRESS;
 
     mapping(address => uint256) public traderBotId;
 
@@ -30,14 +32,15 @@ contract DoppiTraderFactory is Ownable, IDoppiTraderFactory {
         IERC20 _assetB,
         DoppiCore _da,
         DoppiLiquidity _daLP,
-        IDoppiLiquidityRouter _router
+        IDoppiLiquidityRouter _router,
+        address _forwarderAddress
     ) Ownable(msg.sender) {
         assetA = _assetA;
         assetB = _assetB;
         doppiCore = _da;
         doppiLP = _daLP;
         doppiRouter = _router;
-
+        DEFAULT_FORWARDER_ADDRESS = _forwarderAddress;
         // Remove index 0, so id == 0 is invalid
         traderBots.push(DoppiTrader(address(0)));
     }
@@ -45,8 +48,10 @@ contract DoppiTraderFactory is Ownable, IDoppiTraderFactory {
     function deployTraderBot(uint24[] calldata _weights) external returns (uint256) {
         uint256 id = traderBots.length;
         DoppiTrader newTrader = new DoppiTrader(
-            msg.sender, assetA, assetB, doppiLP, doppiRouter, doppiCore, _weights
+            address(this), assetA, assetB, doppiLP, doppiRouter, doppiCore, _weights
         );
+        newTrader.setForwarderAddress(DEFAULT_FORWARDER_ADDRESS);
+        newTrader.transferOwnership(msg.sender);
         traderBots.push(newTrader);
         traderBotId[address(newTrader)] = id;
         return id;

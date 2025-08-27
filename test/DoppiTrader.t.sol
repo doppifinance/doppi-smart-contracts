@@ -32,6 +32,9 @@ contract DoppiTraderTest is Test {
     address owner = address(0x1);
     address treasury = address(0x3);
     address admin = address(0x4);
+    address mockForwarder = address(0x5);
+    // address owner2 = address(0x7FA9385bE102ac3EAc297483Dd6233D62b3e1496);
+
     uint24[] weights;
 
     event Paused(address account);
@@ -69,7 +72,11 @@ contract DoppiTraderTest is Test {
         doppiCore = new DoppiCore(address(usdt), address(btc), doppiLP, impliedVol);
 
         opportunityBot = new DoppiOpportunity(address(doppiCore), address(doppiLP));
+        // console.log(doppiCore.owner(), "doppiCore.owner()");
+        // console.log(opportunityBot.owner(), "opportunityBot.owner()");
         doppiCore.setAdmin(address(opportunityBot), true);
+        doppiCore.setForwarderAddress(mockForwarder);
+        opportunityBot.setForwarderAddress(mockForwarder);
 
         doppiLP.setDualAsset(address(doppiCore));
 
@@ -87,12 +94,17 @@ contract DoppiTraderTest is Test {
         doppiLP.approveEntryPoint(address(doppiRouter.entryPointB()), address(btc));
 
         doppiFactory =
-            new DoppiTraderFactory(IERC20(usdt), IERC20(btc), doppiCore, doppiLP, doppiRouter);
+            new DoppiTraderFactory(IERC20(usdt), IERC20(btc), doppiCore, doppiLP, doppiRouter, mockForwarder);
         doppiLP.setDoppiTraderFactory(address(doppiFactory));
-
+        
         vm.prank(owner);
         uint256 id = doppiFactory.deployTraderBot(weights);
         trader = doppiFactory.traderBots(id);
+        vm.stopPrank();
+        // console.log("setup", trader.owner(), owner);
+        // vm.prank(owner2);
+        // trader.setForwarderAddress(mockForwarder);
+        // vm.stopPrank();
 
         usdt.mint(owner, 10_000_000 ether);
         btc.mint(owner, 100 ether);
@@ -177,7 +189,10 @@ contract DoppiTraderTest is Test {
         oracle.setPrice(int256(98_500 ether));
         (bool upkeepNeeded, bytes memory performData) = doppiCore.checkUpkeep("");
         assertTrue(upkeepNeeded);
+        
+        vm.prank(mockForwarder);
         doppiCore.performUpkeep(performData);
+        vm.stopPrank();
         DoppiCore.DualAssetPosition[] memory positionssell = doppiCore.get_positions_sell();
         assertEq(positionssell.length, 0);
         DoppiCore.DualAssetPosition[] memory positions = doppiCore.get_positions_buy();
@@ -186,9 +201,12 @@ contract DoppiTraderTest is Test {
         // ***** END 
         
         // ***** validate trader checkupkeep to place new batch of orders
+
         oracle.setPrice(int256(98_600 ether));
         (upkeepNeeded, performData) = trader.checkUpkeep("");
         assertTrue(upkeepNeeded);
+        
+        vm.prank(mockForwarder);
         trader.performUpkeep(performData);
         positionssell = doppiCore.get_positions_sell();
         assertGt(positionssell.length, 0);
@@ -212,6 +230,8 @@ contract DoppiTraderTest is Test {
             abi.decode(performData, (uint256, uint256[], uint256[]));
         assertGt(sellIndexes.length, 0);
         assertEq(buyIndexes.length, 0);
+
+        vm.prank(mockForwarder);
         opportunityBot.performUpkeep(performData);
         
         DoppiCore.DualAssetPosition memory pos = doppiCore.get_sell(address(trader), 6);
@@ -225,6 +245,7 @@ contract DoppiTraderTest is Test {
         oracle.setPrice(int256(99_500 ether)); // settled sell + traded with profit in assetB with buy back + NO strike
         (upkeepNeeded, performData) = doppiCore.checkUpkeep("");
         assertTrue(upkeepNeeded);
+        vm.prank(mockForwarder);
         doppiCore.performUpkeep(performData);
         DoppiCore.DualAssetPosition[] memory positionssell = doppiCore.get_positions_sell();
         assertEq(positionssell.length, 0);
@@ -252,6 +273,7 @@ contract DoppiTraderTest is Test {
             abi.decode(performData, (uint256, uint256[], uint256[]));
         assertGt(sellIndexes.length, 0);
         assertEq(buyIndexes.length, 0);
+        vm.prank(mockForwarder);
         opportunityBot.performUpkeep(performData);
         
 
@@ -265,6 +287,7 @@ contract DoppiTraderTest is Test {
         oracle.setPrice(int256(101_900 ether)); // settled sell + traded + strike
         (upkeepNeeded, performData) = doppiCore.checkUpkeep("");
         assertTrue(upkeepNeeded);
+        vm.prank(mockForwarder);
         doppiCore.performUpkeep(performData);
         DoppiCore.DualAssetPosition[] memory positionssell = doppiCore.get_positions_sell();
         assertEq(positionssell.length, 0);
@@ -288,6 +311,7 @@ contract DoppiTraderTest is Test {
         oracle.setPrice(int256(98_500 ether)); // settled buy + no traded + strike
         (bool upkeepNeeded, bytes memory performData) = doppiCore.checkUpkeep("");
         assertTrue(upkeepNeeded);
+        vm.prank(mockForwarder);
         doppiCore.performUpkeep(performData);        
         // ***** END  
 
@@ -411,8 +435,6 @@ contract DoppiTraderTest is Test {
         (bool upkeepNeeded, bytes memory performData) = trader.checkUpkeep("");
         assertTrue(upkeepNeeded);
         assertGt(performData.length, 0);
-        // trader.performUpkeep(performData);
-        // console.log(trader.buy_undo_profit(), "profit");
     }
 
     // internal

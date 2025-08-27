@@ -80,7 +80,7 @@ contract DoppiCore is Ownable, AutomationCompatibleInterface {
     KeyPosition[] public buyPositionKeys;
     KeyPosition[] public sellPositionKeys;
     uint256 private nextPositionId = 1;
-
+    address public s_forwarderAddress;
     uint256 public settleHedgeProfitAssetA;
     uint256 public settleHedgeProfitAssetB;
     uint256 public settleHedgeLossAssetA;
@@ -197,7 +197,7 @@ contract DoppiCore is Ownable, AutomationCompatibleInterface {
         return (buyReady || sellReady, abi.encode(buyReady, buys, sellReady, sells));
     }
 
-    function performUpkeep(bytes calldata performData) external {
+    function performUpkeep(bytes calldata performData) external onlyForwarder {
         (bool buyReady, uint256[] memory buyIndexes, bool sellReady, uint256[] memory sellIndexes) =
             abi.decode(performData, (bool, uint256[], bool, uint256[]));
         if (buyReady) {
@@ -423,12 +423,19 @@ contract DoppiCore is Ownable, AutomationCompatibleInterface {
         traderFactory = _traderFactory;
     }
 
-    function setAdmin(address _admin, bool _status) public onlyAdmin {
+    function setAdmin(address _admin, bool _status) public onlyOwner {
         admins[_admin] = _status;
     }
 
     function setPriceGap(uint256 _priceGap) external onlyOwner {
         PRICE_GAP_PEROFFER = _priceGap;
+    }
+
+    /// @notice Set the address that `performUpkeep` is called from
+    /// @dev Only callable by the owner
+    /// @param forwarderAddress the address to set
+    function setForwarderAddress(address forwarderAddress) external onlyOwner {
+        s_forwarderAddress = forwarderAddress;
     }
 
     // Internal functions
@@ -451,7 +458,7 @@ contract DoppiCore is Ownable, AutomationCompatibleInterface {
             msg.sender,
             0,
             false,
-            params.amount.mulDiv(_buyOffer.apr, 10000 * 365),
+            params.amount.mulDiv(_buyOffer.apr, 10000 * (31536000 / 86400 * params.numDays)),
             hedgeAmountInAssetB, // amount sell of B
             swappedHedgeAmount, // proceeds of A 
             hedgePrice // sold price
@@ -479,7 +486,7 @@ contract DoppiCore is Ownable, AutomationCompatibleInterface {
             msg.sender,
             0,
             false,
-            params.amount.mulDiv(_sellOffer.apr, 10000 * 365),
+            params.amount.mulDiv(_sellOffer.apr, 10000 * (31536000 / 86400 * params.numDays)),
             hedgeAmountInAssetA, // amount sell of B
             swappedHedgeAmount, // proceeds of A 
             hedgePrice // sold price
@@ -773,6 +780,11 @@ contract DoppiCore is Ownable, AutomationCompatibleInterface {
 
     modifier onlyAdmin() {
         require(admins[msg.sender], "only admin");
+        _;
+    }
+
+    modifier onlyForwarder() {
+        require(msg.sender == s_forwarderAddress, "This address does not have permission to call performUpkeep");
         _;
     }
 }

@@ -32,6 +32,7 @@ contract DoppiCoreTest is Test {
     address user2 = address(0x2);
     address treasury = address(0x3);
     address admin = address(0x4);
+    address mockForwarder = address(0x5);
 
     uint256 constant INITIAL_PRICE = 100_000 ether;
     uint24[] weights;
@@ -82,10 +83,12 @@ contract DoppiCoreTest is Test {
         doppiLP.approveEntryPoint(address(doppiRouter.entryPointB()), address(btc));
 
         traderFactory =
-            new DoppiTraderFactory(IERC20(usdt), IERC20(btc), doppiCore, doppiLP, doppiRouter);
+            new DoppiTraderFactory(IERC20(usdt), IERC20(btc), doppiCore, doppiLP, doppiRouter, mockForwarder);
 
         doppiCore.setTraderFactory(traderFactory);
         doppiCore.setAdmin(admin, true);
+        doppiCore.setForwarderAddress(mockForwarder);
+        
 
         weights.push(500);
         weights.push(1000);
@@ -129,16 +132,15 @@ contract DoppiCoreTest is Test {
         assertFalse(doppiCore.admins(user1));
     }
 
-    function test_setAdmin_onlyAdmin() public {
-        vm.startPrank(user1);
-        vm.expectRevert("only admin");
+    function test_setAdmin_onlyOwner() public {
+        vm.startPrank(owner);
         doppiCore.setAdmin(user2, true);
         vm.stopPrank();
     }
 
     function test_setTraderFactory() public {
         DoppiTraderFactory newFactory =
-            new DoppiTraderFactory(IERC20(usdt), IERC20(btc), doppiCore, doppiLP, doppiRouter);
+            new DoppiTraderFactory(IERC20(usdt), IERC20(btc), doppiCore, doppiLP, doppiRouter, mockForwarder);
         doppiCore.setTraderFactory(newFactory);
         assertEq(address(doppiCore.traderFactory()), address(newFactory));
     }
@@ -152,6 +154,10 @@ contract DoppiCoreTest is Test {
         DoppiCore.DualAssetOffer[] memory buyOffers = doppiCore.getBuyOffers(1);
 
         assertEq(buyOffers.length, 5);
+        assertEq(buyOffers[0].apr, 31399);
+        assertEq(buyOffers[1].apr, 25600);
+        assertEq(buyOffers[4].apr, 13612);
+            
         for (uint256 i = 0; i < buyOffers.length; i++) {
             // console.log(buyOffers[i].strikePrice, buyOffers[i].apr);
             assertEq(buyOffers[i].price, INITIAL_PRICE);
@@ -170,7 +176,13 @@ contract DoppiCoreTest is Test {
         DoppiCore.DualAssetOffer[] memory sellOffers = doppiCore.getSellOffers(1);
 
         assertEq(sellOffers.length, 5);
+
+        assertEq(sellOffers[0].apr, 35700);
+        assertEq(sellOffers[1].apr, 27794);
+        assertEq(sellOffers[4].apr, 10881);
+
         for (uint256 i = 0; i < sellOffers.length; i++) {
+            // console.log(sellOffers[i].strikePrice, sellOffers[i].apr);
             assertEq(sellOffers[i].price, INITIAL_PRICE);
             assertGt(sellOffers[i].strikePrice, INITIAL_PRICE);
             assertGt(sellOffers[i].apr, 0);
@@ -498,6 +510,7 @@ contract DoppiCoreTest is Test {
         assertTrue(upkeepNeeded);
 
         uint256 initialPositionCount = doppiCore.getBuyPositionCount();
+        vm.prank(mockForwarder);
         doppiCore.performUpkeep(performData);
 
         // Position should be settled
@@ -515,6 +528,7 @@ contract DoppiCoreTest is Test {
         assertTrue(upkeepNeeded);
 
         uint256 initialPositionCount = doppiCore.getSellPositionCount();
+        vm.prank(mockForwarder);
         doppiCore.performUpkeep(performData);
 
         // Position should be settled
@@ -529,6 +543,7 @@ contract DoppiCoreTest is Test {
         vm.warp(block.timestamp + 1 days + 1);
         oracle.setPrice(int256(96_500 ether));
         (, bytes memory performData) = doppiCore.checkUpkeep("");
+        vm.prank(mockForwarder);
         doppiCore.performUpkeep(performData);
 
         // profit in hedging position (earn BTC)
@@ -552,6 +567,7 @@ contract DoppiCoreTest is Test {
         vm.warp(block.timestamp + 1 days + 1);
         oracle.setPrice(int256(106_500 ether));
         (, bytes memory performData) = doppiCore.checkUpkeep("");
+        vm.prank(mockForwarder);
         doppiCore.performUpkeep(performData);
 
         // profit in hedging position (earn BTC)
@@ -575,6 +591,7 @@ contract DoppiCoreTest is Test {
         vm.warp(block.timestamp + 1 days + 1);
         oracle.setPrice(int256(106_500 ether));
         (, bytes memory performData) = doppiCore.checkUpkeep("");
+        vm.prank(mockForwarder);
         doppiCore.performUpkeep(performData);
 
         // loss in hedging position (loss BTC)
@@ -598,6 +615,7 @@ contract DoppiCoreTest is Test {
         vm.warp(block.timestamp + 1 days + 1);
         oracle.setPrice(int256(96_500 ether));
         (, bytes memory performData) = doppiCore.checkUpkeep("");
+        vm.prank(mockForwarder);
         doppiCore.performUpkeep(performData);
 
         // profit in hedging position (earn BTC)

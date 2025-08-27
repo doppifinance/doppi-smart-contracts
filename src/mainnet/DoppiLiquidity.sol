@@ -36,6 +36,7 @@ contract DoppiLiquidity is ERC20, Ownable, IDoppiLiquidity, AutomationCompatible
     uint24 public liquidityFee = 1000;
     uint32 public swapMargin = 10000; // 1%
     mapping(address => bool) public validEntryPoints;
+    address public s_forwarderAddress;
 
     // price to amount mapping
     mapping(uint256 => uint256) public amountToBuy;
@@ -166,6 +167,13 @@ contract DoppiLiquidity is ERC20, Ownable, IDoppiLiquidity, AutomationCompatible
         return assetB.balanceOf(address(this));
     }
 
+    /// @notice Set the address that `performUpkeep` is called from
+    /// @dev Only callable by the owner
+    /// @param forwarderAddress the address to set
+    function setForwarderAddress(address forwarderAddress) external onlyOwner {
+        s_forwarderAddress = forwarderAddress;
+    }
+
     function setDualAsset(address _dualAsset) external onlyOwner {
         doppiCore = _dualAsset;
     }
@@ -266,7 +274,7 @@ contract DoppiLiquidity is ERC20, Ownable, IDoppiLiquidity, AutomationCompatible
         return (false, "0x");
     }
 
-    function performUpkeep(bytes calldata performData) external override {
+    function performUpkeep(bytes calldata performData) external override onlyForwarder {
         (uint256 index, bool isBuy) = abi.decode(performData, (uint256, bool));
 
         if (isBuy) {
@@ -453,5 +461,10 @@ contract DoppiLiquidity is ERC20, Ownable, IDoppiLiquidity, AutomationCompatible
         } else {
             shares = _swapExactInputV3(_amount, address(assetB), address(assetA), address(this), _amountOutQuote);
         }
+    }
+    
+    modifier onlyForwarder() {
+        require(msg.sender == s_forwarderAddress, "This address does not have permission to call performUpkeep");
+        _;
     }
 }

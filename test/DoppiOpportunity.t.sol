@@ -30,6 +30,7 @@ contract DoppiOpportunityTest is Test {
     address user1 = address(0x1);
     address user2 = address(0x2);
     address treasury = address(0x3);
+    address mockForwarder = address(0x5);
 
     event Paused(address account);
     event Unpaused(address account);
@@ -76,6 +77,7 @@ contract DoppiOpportunityTest is Test {
 
         doppiOpportunity = new DoppiOpportunity(address(doppiCore), address(doppiLP));
         doppiCore.setAdmin(address(doppiOpportunity), true);
+        doppiOpportunity.setForwarderAddress(mockForwarder);
 
         // Mint tokens to a liquidity provider and properly deposit into LP
         address liquidityProvider = address(0x999);
@@ -103,6 +105,7 @@ contract DoppiOpportunityTest is Test {
         (bool upkeepNeeded, bytes memory performData) = doppiOpportunity.checkUpkeep("");
         assertTrue(upkeepNeeded);
         assertGt(performData.length, 0);
+        vm.prank(mockForwarder);
         doppiOpportunity.performUpkeep(performData);
         DoppiCore.DualAssetPosition memory pos = doppiCore.get_buy(user1, 1);
         assertEq(pos.isTraded, true);
@@ -115,6 +118,7 @@ contract DoppiOpportunityTest is Test {
         (bool upkeepNeeded, bytes memory performData) = doppiOpportunity.checkUpkeep("");
         assertTrue(upkeepNeeded);
         assertGt(performData.length, 0);
+        vm.prank(mockForwarder);
         doppiOpportunity.performUpkeep(performData);
         DoppiCore.DualAssetPosition memory pos = doppiCore.get_sell(user2, 1);
         assertEq(pos.isTraded, true);
@@ -124,6 +128,7 @@ contract DoppiOpportunityTest is Test {
         depositBTC();
         oracle.setPrice(int256(110_500 ether));
         (bool upkeepNeeded, bytes memory performData) = doppiOpportunity.checkUpkeep("");
+        vm.prank(mockForwarder);
         doppiOpportunity.performUpkeep(performData);
         DoppiCore.DualAssetPosition memory pos = doppiCore.get_sell(user2, 1);
         assertEq(pos.isTraded, true);
@@ -131,6 +136,7 @@ contract DoppiOpportunityTest is Test {
         // unwind for profit opportunity
         oracle.setPrice(int256(98_500 ether));
         (upkeepNeeded, performData) = doppiOpportunity.checkUpkeep("");
+        vm.prank(mockForwarder);
         doppiOpportunity.performUpkeep(performData);
         pos = doppiCore.get_sell(user2, 1); // refresh position
         assertEq(pos.isTraded, false); // unwind successfully
@@ -143,6 +149,7 @@ contract DoppiOpportunityTest is Test {
         depositUSDT();
         oracle.setPrice(int256(98_500 ether));
         (bool upkeepNeeded, bytes memory performData) = doppiOpportunity.checkUpkeep("");
+        vm.prank(mockForwarder);
         doppiOpportunity.performUpkeep(performData);
         DoppiCore.DualAssetPosition memory pos = doppiCore.get_buy(user1, 1);
         assertEq(pos.isTraded, true);
@@ -150,6 +157,7 @@ contract DoppiOpportunityTest is Test {
         // unwind for profit opportunity
         oracle.setPrice(int256(100_500 ether));
         (upkeepNeeded, performData) = doppiOpportunity.checkUpkeep("");
+        vm.prank(mockForwarder);
         doppiOpportunity.performUpkeep(performData);
         pos = doppiCore.get_sell(user1, 1); // refresh position
         assertEq(pos.isTraded, false); // unwind successfully

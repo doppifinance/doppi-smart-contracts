@@ -21,6 +21,7 @@ contract DoppiLiquidityTest is Test {
     address public user = address(0x1);
     address public treasury = address(0x2);
     address public mockDualAsset = address(0x3);
+    address mockForwarder = address(0x5);
 
     // Price: 100,000 USDT per BTC
     int256 constant ORACLE_PRICE = 100_000e8; // 8 decimals (Chainlink standard)
@@ -57,6 +58,7 @@ contract DoppiLiquidityTest is Test {
         doppiLP.setQuoter(address(swapper));
         doppiLP.setDualAsset(mockDualAsset);
         doppiLP.approveRouter();
+        doppiLP.setForwarderAddress(mockForwarder);
 
         // Deploy doppiLPRouter
         router = new DoppiLiquidityRouter(IERC20(address(usdt)), IERC20(address(btc)), doppiLP);
@@ -285,6 +287,7 @@ contract DoppiLiquidityTest is Test {
         uint256 preUpkeepBTC = btc.balanceOf(address(doppiLP));
         uint256 preUpkeepToBuyPricesLength = doppiLP.getToBuyPricesLength();
         
+        vm.prank(mockForwarder);
         doppiLP.performUpkeep(newPerformData);
 
         uint256 postUpkeepUSDT = usdt.balanceOf(address(doppiLP));

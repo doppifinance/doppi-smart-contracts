@@ -28,6 +28,7 @@ contract DoppiTrader is Ownable, Pausable, AutomationCompatibleInterface {
     IERC20 public assetB;
     IDoppiLiquidity public doppiLP;
     IDoppiLiquidityRouter public doppiRouter;
+    address public s_forwarderAddress;
 
     uint256 public defaultassetAAmount;
     uint256 public defaultassetBAmount;
@@ -166,6 +167,13 @@ contract DoppiTrader is Ownable, Pausable, AutomationCompatibleInterface {
         orderWeights = _weights;
     }
 
+    /// @notice Set the address that `performUpkeep` is called from
+    /// @dev Only callable by the owner
+    /// @param forwarderAddress the address to set
+    function setForwarderAddress(address forwarderAddress) external onlyOwner {
+        s_forwarderAddress = forwarderAddress;
+    }
+
     function checkUpkeep(bytes calldata) external view override returns (bool upkeepNeeded, bytes memory performData) {
         uint256 price = doppiLP.getPrice();
         (upkeepNeeded, performData) = _checkUndoTrade(true, price);
@@ -190,7 +198,7 @@ contract DoppiTrader is Ownable, Pausable, AutomationCompatibleInterface {
         return (false, bytes(""));
     }
 
-    function performUpkeep(bytes calldata performData) external override {
+    function performUpkeep(bytes calldata performData) external override onlyForwarder {
         (bool performUnwind, uint256 price, uint256 index, 
         bool isBuyUndo, bool placeBuy, bool placeSell) = abi.decode(performData, (bool, uint256, uint256, bool, bool, bool));
         
@@ -302,9 +310,13 @@ contract DoppiTrader is Ownable, Pausable, AutomationCompatibleInterface {
         }
     }
     
-
     modifier onlyDualAsset() {
         require(msg.sender == address(doppiCore), "only Dual Asset");
+        _;
+    }
+
+    modifier onlyForwarder() {
+        require(msg.sender == s_forwarderAddress, "This address does not have permission to call performUpkeep");
         _;
     }
 }

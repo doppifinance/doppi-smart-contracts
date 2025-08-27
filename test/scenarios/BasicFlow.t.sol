@@ -33,6 +33,8 @@ contract BasicFlowTest is Test {
     address owner = address(0x1);
     address treasury = address(0x3);
     address admin = address(0x4);
+    address mockForwarder = address(0x5);
+
     // uint24[] weights;
 
     event Paused(address account);
@@ -52,10 +54,11 @@ contract BasicFlowTest is Test {
         doppiCore = new DoppiCore(address(usdt), address(btc), doppiLP, impliedVol);
         opportunityBot = new DoppiOpportunity(address(doppiCore), address(doppiLP));
         doppiRouter = new DoppiLiquidityRouter(IERC20(usdt), IERC20(btc), doppiLP);
-        doppiFactory = new DoppiTraderFactory(IERC20(usdt), IERC20(btc), doppiCore, doppiLP, doppiRouter);
+        doppiFactory = new DoppiTraderFactory(IERC20(usdt), IERC20(btc), doppiCore, doppiLP, doppiRouter, mockForwarder);
 
         // Setup initial setting
         doppiCore.setAdmin(address(opportunityBot), true);
+        doppiCore.setForwarderAddress(mockForwarder);
         doppiLP.setDualAsset(address(doppiCore));
         doppiLP.setEntryPoint(address(doppiRouter.entryPointA()), true);
         doppiLP.setEntryPoint(address(doppiRouter.entryPointB()), true);
@@ -214,6 +217,7 @@ contract BasicFlowTest is Test {
         oracle.setPrice(int256(_settlePrice)); // settled buy + no traded + strike
         (bool upkeepNeeded, bytes memory performData) = doppiCore.checkUpkeep("");
         assertTrue(upkeepNeeded);
+        vm.prank(mockForwarder);
         doppiCore.performUpkeep(performData);  
     }
 
@@ -224,6 +228,7 @@ contract BasicFlowTest is Test {
         // console.log(upkeepNeeded, "upkeepNeeded");
         assertTrue(upkeepNeeded);
         assertGt(performData.length, 0);
+        vm.prank(mockForwarder);
         opportunityBot.performUpkeep(performData);
     }
     

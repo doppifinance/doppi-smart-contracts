@@ -15,6 +15,7 @@ contract DoppiOpportunity is Ownable, AutomationCompatibleInterface {
     uint256 public profitAssetA;
     uint256 public profitAssetB;
     uint32 public tolerance = 100;
+    address public s_forwarderAddress;
 
     constructor(address _doppiCore, address _doppiLP) Ownable(msg.sender) {
         doppiCore = DoppiCore(_doppiCore);
@@ -24,6 +25,13 @@ contract DoppiOpportunity is Ownable, AutomationCompatibleInterface {
     // Configuration functions
     function setTolerance(uint32 _tolerance) external onlyOwner {
         tolerance = _tolerance;
+    }
+
+    /// @notice Set the address that `performUpkeep` is called from
+    /// @dev Only callable by the owner
+    /// @param forwarderAddress the address to set
+    function setForwarderAddress(address forwarderAddress) external onlyOwner {
+        s_forwarderAddress = forwarderAddress;
     }
 
     function checkUpkeep(bytes calldata) external view override returns (bool upkeepNeeded, bytes memory performData) {
@@ -46,7 +54,7 @@ contract DoppiOpportunity is Ownable, AutomationCompatibleInterface {
         return (upkeepNeeded, performData);
     }
 
-    function performUpkeep(bytes calldata performData) external override {
+    function performUpkeep(bytes calldata performData) external override onlyForwarder {
         (uint256 price, uint256[] memory buyIndexes, uint256[] memory sellIndexes) =
             abi.decode(performData, (uint256, uint256[], uint256[]));
 
@@ -149,5 +157,10 @@ contract DoppiOpportunity is Ownable, AutomationCompatibleInterface {
         } else {
             return _order.isTraded && _price <= _order.strikePrice;
         }
+    }
+
+    modifier onlyForwarder() {
+        require(msg.sender == s_forwarderAddress, "This address does not have permission to call performUpkeep");
+        _;
     }
 }
