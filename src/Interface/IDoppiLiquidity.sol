@@ -28,7 +28,7 @@ interface IDoppiLiquidity is IShares {
     
     function transfer(IERC20 token, uint256 amount, address recipient) external;
 
-    function unwindSwapOrder(uint256 _index, bool _isBuy) external;
+    // function unwindSwapOrder(uint256 _index, bool _isBuy) external;
 
     function getPrice() external view returns (uint256);
     function getPriceDecimals() external view returns (uint8);

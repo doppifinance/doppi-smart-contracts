@@ -41,7 +41,7 @@ contract DoppiLiquidityTest is Test {
         btc = new MockToken("Bitcoin", "BTC");
 
         // Deploy mock oracle with 100,000 USDT per BTC price
-        oracle = new MockOracle(ORACLE_PRICE, 8);
+        oracle = new MockOracle(int256(100_000 ether), 18);
 
         // Deploy Swapper that will act as both router and pool
         swapper = new Swapper(usdt, btc);
@@ -94,7 +94,7 @@ contract DoppiLiquidityTest is Test {
         vm.stopPrank();
     }
 
-    // ===== BASIC FUNCTIONALITY TESTS =====
+    // // ===== BASIC FUNCTIONALITY TESTS =====
 
     function testEqualSharesForEquivalentDeposits() public {
         vm.startPrank(user);
@@ -168,10 +168,9 @@ contract DoppiLiquidityTest is Test {
             "USDT should be transferred from caller"
         );
         assertGt(btc.balanceOf(mockDualAsset), initialBTCBalance, "BTC should be received by caller");
-        assertGt(usdt.balanceOf(treasury), initialTreasuryBalance, "Treasury should receive fee in USDT");
-
+        
         uint256 expectedFee = SWAP_AMOUNT_USDT * LIQUIDITY_FEE / 1000000;
-        uint256 expectedAmountOut = (SWAP_AMOUNT_USDT - expectedFee) * 10 ** 8 / currentPrice;
+        uint256 expectedAmountOut = (SWAP_AMOUNT_USDT - expectedFee) * 10 ** 18 / currentPrice;
         assertEq(amountOut, expectedAmountOut, "Buy swap output should match calculation");
 
         // Test Sell: BTC for USDT
@@ -185,34 +184,54 @@ contract DoppiLiquidityTest is Test {
         // Verify sell swap results
         assertEq(btc.balanceOf(mockDualAsset), btcBeforeSell - SWAP_AMOUNT_BTC, "BTC should be transferred from caller");
         assertGt(usdt.balanceOf(mockDualAsset), usdtBeforeSell, "USDT should be received by caller");
-        assertGt(btc.balanceOf(treasury), treasuryBTCBefore, "Treasury should receive fee in BTC");
-
+        
         uint256 expectedSellFee = SWAP_AMOUNT_BTC * LIQUIDITY_FEE / 1000000;
-        uint256 expectedSellAmountOut = (SWAP_AMOUNT_BTC - expectedSellFee) * currentPrice / 10 ** 8;
+        uint256 expectedSellAmountOut = (SWAP_AMOUNT_BTC - expectedSellFee) * currentPrice / 10 ** 18;
         assertEq(sellAmountOut, expectedSellAmountOut, "Sell swap output should match calculation");
     }
 
     // ===== HEDGE SWAP FUNCTIONALITY TESTS =====
 
-    // function testHedgeSwapFunctionality() public {
-    //     uint256 currentPrice = doppiLP.getPrice();
+    function test_hedgeswap_with_balance() public {
+        
+        _setupLiquidity(LARGE_USDT_AMOUNT, LARGE_BTC_AMOUNT);
+        uint256 currentPrice = doppiLP.getPrice();
 
-    //     // Test hedge swap buy calculation
-    //     uint256 hedgeBuyAmount = 25_000e18;
-    //     vm.prank(mockDualAsset);
-    //     (uint256 buyAmountOut, ) = doppiLP.hedgeSwap(hedgeBuyAmount, currentPrice, true);
+        // Test hedge swap buy calculation
+        uint256 hedgeBuyAmount = 25_000e18;
+        vm.prank(mockDualAsset);
+        (uint256 swappedHedgeAmount, uint256 hedgePrice) = doppiLP.hedgeSwap(hedgeBuyAmount, currentPrice, true);
 
-    //     uint256 expectedBuyAmountOut = hedgeBuyAmount * 10 ** 8 / currentPrice;
-    //     assertEq(buyAmountOut, expectedBuyAmountOut, "Hedge swap buy output should match calculation");
+        uint256 expectedBuyAmountOut = hedgeBuyAmount * 10 ** 18 / currentPrice;
+        expectedBuyAmountOut = expectedBuyAmountOut *  9900 / 10000;
+        assertEq(swappedHedgeAmount, expectedBuyAmountOut, "Hedge swap buy output should match calculation");
 
-    //     // Test hedge swap sell calculation
-    //     uint256 hedgeSellAmount = 0.25e18;
-    //     vm.prank(mockDualAsset);
-    //     (uint256 sellAmountOut, ) = doppiLP.hedgeSwap(hedgeSellAmount, currentPrice, false);
+        // Test hedge swap sell calculation
+        uint256 hedgeSellAmount = 0.25e18;
+        vm.prank(mockDualAsset);
+        (swappedHedgeAmount, hedgePrice) =  doppiLP.hedgeSwap(hedgeSellAmount, currentPrice, false);
 
-    //     uint256 expectedSellAmountOut = hedgeSellAmount * currentPrice / 10 ** 8;
-    //     assertEq(sellAmountOut, expectedSellAmountOut, "Hedge swap sell output should match calculation");
-    // }
+        uint256 expectedSellAmountOut = hedgeSellAmount * currentPrice / 10 ** 18;
+        expectedSellAmountOut = expectedSellAmountOut *  9900 / 10000;
+        assertEq(swappedHedgeAmount, expectedSellAmountOut, "Hedge swap sell output should match calculation");
+    }
+
+    function test_hedgeswap_with_no_balance() public {
+        
+        uint256 currentPrice = doppiLP.getPrice();
+
+        // Test hedge swap buy calculation
+        uint256 hedgeBuyAmount = 25_000e18;
+        vm.prank(mockDualAsset);
+        (uint256 swappedHedgeAmount, uint256 hedgePrice) = doppiLP.hedgeSwap(hedgeBuyAmount, currentPrice, true);
+        assertEq(swappedHedgeAmount, 0, "Hedge swap buy output should be zero");
+
+        // Test hedge swap sell calculation
+        uint256 hedgeSellAmount = 0.25e18;
+        vm.prank(mockDualAsset);
+        (swappedHedgeAmount, hedgePrice) =  doppiLP.hedgeSwap(hedgeSellAmount, currentPrice, false);
+        assertEq(swappedHedgeAmount, 0, "Hedge swap sell output should be 0");
+    }
 
     // ===== UPKEEP SYSTEM TESTS =====
 
@@ -238,8 +257,8 @@ contract DoppiLiquidityTest is Test {
         uint256 currentPrice = doppiLP.getPrice();
 
         // Verify calculations
-        uint256 expectedTotalInAssetA = usdtAmount + (btcAmount * currentPrice / 10 ** 8);
-        uint256 expectedTotalInAssetB = btcAmount + (usdtAmount * 10 ** 8 / currentPrice);
+        uint256 expectedTotalInAssetA = usdtAmount + (btcAmount * currentPrice / 10 ** 18);
+        uint256 expectedTotalInAssetB = btcAmount + (usdtAmount * 10 ** 18 / currentPrice);
 
         assertEq(totalInAssetA, expectedTotalInAssetA, "Total assets in USDT should be correct");
         assertEq(totalInAssetB, expectedTotalInAssetB, "Total assets in BTC should be correct");
@@ -248,17 +267,15 @@ contract DoppiLiquidityTest is Test {
         emit log_named_uint("Total assets in BTC", totalInAssetB);
     }
     // ===== INTEGRATION TESTS =====
-
-    function testCompleteArbitrageWorkflow() public {
+    function testCheckUpkeep_performUp_buy() public {
         uint256 currentPrice = doppiLP.getPrice();
-
         // Setup substantial liquidity for testing
         _setupLiquidity(LARGE_USDT_AMOUNT * 5, LARGE_BTC_AMOUNT * 5);
         _setupSwapTest(SWAP_AMOUNT_USDT * 4, SWAP_AMOUNT_BTC * 4, mockDualAsset);
 
         // Step 1: Create price orders through swaps at different price points
-
         // Swap at current price
+        
         oracle.setPrice(int256(currentPrice));
         vm.prank(mockDualAsset);
         doppiLP.swap(SWAP_AMOUNT_USDT, currentPrice, true); // Buy order at current price
@@ -269,14 +286,46 @@ contract DoppiLiquidityTest is Test {
         vm.prank(mockDualAsset);
         doppiLP.swap(SWAP_AMOUNT_USDT, priceUp5Percent, true); // Buy at +5%
 
+        // Swap at -5% price
+        uint256 priceDown5Percent = currentPrice * 95 / 100;
+        oracle.setPrice(int256(priceDown5Percent));
+
+        // Check if price change triggers arbitrage opportunity
+        (bool upkeepNeededAfterPriceChange, bytes memory newPerformData) = doppiLP.checkUpkeep("");
+        assertTrue(upkeepNeededAfterPriceChange, "Upkeep should be needed after price change");
+        
+        // Price change created arbitrage opportunity
+        uint256 preUpkeepUSDT = usdt.balanceOf(address(doppiLP));
+        uint256 preUpkeepBTC = btc.balanceOf(address(doppiLP));
+        uint256 preUpkeepToBuyPricesLength = doppiLP.getToBuyPricesLength();
+
+        vm.prank(mockForwarder);
+        doppiLP.performUpkeep(newPerformData);
+
+        uint256 postUpkeepUSDT = usdt.balanceOf(address(doppiLP));
+        uint256 postUpkeepBTC = btc.balanceOf(address(doppiLP));
+        uint256 postUpkeepToBuyPricesLength = doppiLP.getToBuyPricesLength();
+        
+        assertGt(postUpkeepBTC, preUpkeepBTC, "BTC balance should increase after unwind");
+        assertEq(postUpkeepToBuyPricesLength, preUpkeepToBuyPricesLength - 2, "ToBuyPrices length should decrease after upkeep");
+        assertEq(postUpkeepUSDT, LARGE_USDT_AMOUNT * 5, "USDT balance back to initial position");
+
+    }
+
+    function testCheckUpkeep_performUp_sell() public {
+        uint256 currentPrice = doppiLP.getPrice();
+        // Setup substantial liquidity for testing
+        _setupLiquidity(LARGE_USDT_AMOUNT * 5, LARGE_BTC_AMOUNT * 5);
+        _setupSwapTest(SWAP_AMOUNT_USDT * 4, SWAP_AMOUNT_BTC * 4, mockDualAsset);
+
         // Swap at current price
         oracle.setPrice(int256(currentPrice));
         vm.prank(mockDualAsset);
         doppiLP.swap(SWAP_AMOUNT_BTC, currentPrice, false); // Sell order at current price
 
-        // Swap at -5% price
-        uint256 priceDown5Percent = currentPrice * 95 / 100;
-        oracle.setPrice(int256(priceDown5Percent));
+        // Swap at +5% price
+        uint256 priceUp5Percent = currentPrice * 105 / 100;
+        oracle.setPrice(int256(priceUp5Percent));
 
         // Check if price change triggers arbitrage opportunity
         (bool upkeepNeededAfterPriceChange, bytes memory newPerformData) = doppiLP.checkUpkeep("");
@@ -285,19 +334,84 @@ contract DoppiLiquidityTest is Test {
         // Price change created arbitrage opportunity
         uint256 preUpkeepUSDT = usdt.balanceOf(address(doppiLP));
         uint256 preUpkeepBTC = btc.balanceOf(address(doppiLP));
-        uint256 preUpkeepToBuyPricesLength = doppiLP.getToBuyPricesLength();
+        uint256 preUpkeepToSellPricesLength = doppiLP.getToSellPricesLength();
         
         vm.prank(mockForwarder);
         doppiLP.performUpkeep(newPerformData);
 
         uint256 postUpkeepUSDT = usdt.balanceOf(address(doppiLP));
         uint256 postUpkeepBTC = btc.balanceOf(address(doppiLP));
-        uint256 postUpkeepToBuyPricesLength = doppiLP.getToBuyPricesLength();
+        uint256 postUpkeepToSellPricesLength = doppiLP.getToSellPricesLength();
 
-        assertLt(postUpkeepUSDT, preUpkeepUSDT, "USDT balance should decrease after buying");
-        assertEq(postUpkeepToBuyPricesLength, preUpkeepToBuyPricesLength - 1, "ToBuyPrices length should decrease after upkeep");
-        
-        console.log("USDT spent in upkeep:", preUpkeepUSDT - postUpkeepUSDT);
-        console.log("BTC gained:" , postUpkeepBTC - preUpkeepBTC);
+        assertGt(postUpkeepUSDT, preUpkeepUSDT, "USDT balance should increase after unwind");
+        assertEq(postUpkeepToSellPricesLength, preUpkeepToSellPricesLength - 1, "ToSellPrices length should decrease after upkeep");
+        assertEq(postUpkeepBTC, LARGE_BTC_AMOUNT * 5, "BTC balance back to initial position");
+
     }
+
+    function testCheckUpkeep_performUp_buysell() public {
+        uint256 currentPrice = doppiLP.getPrice();
+        // Setup substantial liquidity for testing
+        _setupLiquidity(LARGE_USDT_AMOUNT * 5, LARGE_BTC_AMOUNT * 5);
+        _setupSwapTest(SWAP_AMOUNT_USDT * 4, SWAP_AMOUNT_BTC * 4, mockDualAsset);
+
+        // Step 1: Create price orders through swaps at different price points
+        // Swap at current price
+        oracle.setPrice(int256(currentPrice));
+        vm.prank(mockDualAsset);
+        doppiLP.swap(SWAP_AMOUNT_USDT, currentPrice, true); // Buy order at current price
+        vm.prank(mockDualAsset);
+        doppiLP.swap(SWAP_AMOUNT_BTC, currentPrice, false); // Sell order at current price
+
+        // Swap at +5% price
+        uint256 priceUp5Percent = currentPrice * 102 / 100;
+        oracle.setPrice(int256(priceUp5Percent));
+        vm.prank(mockDualAsset);
+        doppiLP.swap(SWAP_AMOUNT_USDT, priceUp5Percent, true); // Buy at +5%
+
+        // Swap at -5% price
+        uint256 priceDown5Percent = currentPrice * 101 / 100;
+        oracle.setPrice(int256(priceDown5Percent));
+
+        // Price change created arbitrage opportunity
+        uint256 preUpkeepUSDT = usdt.balanceOf(address(doppiLP));
+        uint256 preUpkeepBTC = btc.balanceOf(address(doppiLP));
+        uint256 preUpkeepToBuyPricesLength = doppiLP.getToBuyPricesLength();
+
+        // Check if price change triggers arbitrage opportunity
+        (bool upkeepNeededAfterPriceChange, bytes memory newPerformData) = doppiLP.checkUpkeep("");
+        assertTrue(upkeepNeededAfterPriceChange, "Upkeep should be needed after price change");
+        vm.prank(mockForwarder);
+        doppiLP.performUpkeep(newPerformData);
+
+        uint256 postUpkeepUSDT = usdt.balanceOf(address(doppiLP));
+        uint256 postUpkeepBTC = btc.balanceOf(address(doppiLP));
+        uint256 postUpkeepToBuyPricesLength = doppiLP.getToBuyPricesLength();
+        
+        // price down to 95000, unwind the last order
+        priceDown5Percent = currentPrice * 95 / 100;
+        oracle.setPrice(int256(priceDown5Percent));
+
+        // Price change created arbitrage opportunity
+        preUpkeepUSDT = usdt.balanceOf(address(doppiLP));
+        preUpkeepBTC = btc.balanceOf(address(doppiLP));
+        preUpkeepToBuyPricesLength = doppiLP.getToBuyPricesLength();
+
+        // Check if price change triggers arbitrage opportunity
+        (upkeepNeededAfterPriceChange, newPerformData) = doppiLP.checkUpkeep("");
+        assertTrue(upkeepNeededAfterPriceChange, "Upkeep should be needed after price change");
+        vm.prank(mockForwarder);
+        doppiLP.performUpkeep(newPerformData);
+        
+        postUpkeepUSDT = usdt.balanceOf(address(doppiLP));
+        postUpkeepBTC = btc.balanceOf(address(doppiLP));
+        postUpkeepToBuyPricesLength = doppiLP.getToBuyPricesLength();
+        uint256 postUpkeepToSellPricesLength = doppiLP.getToSellPricesLength();
+
+        assertGt(postUpkeepBTC, LARGE_BTC_AMOUNT * 5, "BTC balance should increase after unwind");
+        assertGt(postUpkeepUSDT, LARGE_USDT_AMOUNT * 5, "USDT balance should increase after unwind");
+        assertEq(postUpkeepToBuyPricesLength, 0, "ToBuyPrices length should decrease after upkeep");
+        assertEq(postUpkeepToSellPricesLength, 0, "ToSellPrices length should decrease after upkeep");
+    }
+
 }

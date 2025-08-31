@@ -34,7 +34,7 @@ contract DoppiLiquidity is ERC20, Ownable, IDoppiLiquidity, AutomationCompatible
     uint24 public poolFee = 500;
     uint24 public slippage = 100;
     uint24 public liquidityFee = 1000;
-    uint32 public swapMargin = 10000; // 1%
+    uint32 public swapMargin = 5000; // 0.5%
     mapping(address => bool) public validEntryPoints;
     address public s_forwarderAddress;
 
@@ -46,7 +46,7 @@ contract DoppiLiquidity is ERC20, Ownable, IDoppiLiquidity, AutomationCompatible
     uint256[] public toBuyPrices;
     uint256[] public toSellPrices;
 
-    modifier onlyDoppiContract() {
+    modifier onlyDoppiCore() {
         require(
             msg.sender == doppiCore || IDoppiTraderFactory(doppiTraderFactory).isTraderBot(msg.sender),
             "Not privileged"
@@ -69,17 +69,12 @@ contract DoppiLiquidity is ERC20, Ownable, IDoppiLiquidity, AutomationCompatible
     }
 
     
-
-    function settle(uint256 _amountIn, uint256 _price, bool _isBuy) external onlyDoppiContract returns (uint256) {
-        
-        if(_isBuy){
-            return _settle_buy(_amountIn, _price, _isBuy);
-        }else{
-            return _settle_sell(_amountIn, _price, _isBuy);
-        }
+    /// No fee charge for internal dual settlement
+    function settle(uint256 _amountIn, uint256 _price, bool _isBuy) external onlyDoppiCore returns (uint256) {
+        return _swap(_amountIn, _price, _isBuy, 0);
     }
 
-    function swap(uint256 _amountIn, uint256 _price, bool _isBuy) external onlyDoppiContract returns (uint256) {
+    function swap(uint256 _amountIn, uint256 _price, bool _isBuy) external onlyDoppiCore returns (uint256) {
         
         uint256 fee = _amountIn.mulDiv(liquidityFee, 1_000_000);
         return _swap(_amountIn, _price, _isBuy, fee);
@@ -87,10 +82,9 @@ contract DoppiLiquidity is ERC20, Ownable, IDoppiLiquidity, AutomationCompatible
 
     function hedgeSwap(uint256 _amountIn, uint256 _price, bool _isBuy)
         external
-        onlyDoppiContract
+        onlyDoppiCore
         returns (uint256 amountOut, uint256 tradedPrice)
     {
-
         if ((_isBuy ? assetA : assetB).balanceOf(address(this)) < _amountIn) return (0, 0);
 
         uint8 priceDecimals = DALiquidityLib.getPriceDecimals(chainLinkFeed);
@@ -104,31 +98,8 @@ contract DoppiLiquidity is ERC20, Ownable, IDoppiLiquidity, AutomationCompatible
         }
     }
 
-    function transfer(IERC20 token, uint256 amount, address recipient) external onlyDoppiContract {
+    function transfer(IERC20 token, uint256 amount, address recipient) external onlyDoppiCore {
         token.safeTransfer(recipient, amount);
-    }
-
-    // For unwind
-    function unwindSwapOrder(uint256 _index, bool _isBuy) public {
-        uint8 priceDecimals = DALiquidityLib.getPriceDecimals(chainLinkFeed);
-
-        if (_isBuy) {
-            uint256 price = toBuyPrices[_index];
-            uint256 amount = amountToBuy[price];
-
-            _swapPancake(amount, amount.mulDiv(10 ** priceDecimals, price), true);
-
-            delete amountToBuy[price];
-            DALiquidityLib.sortedRemove(toBuyPrices, _index);
-        } else {
-            uint256 price = toSellPrices[_index];
-            uint256 amount = amountToSell[price];
-
-            _swapPancake(amount, amount.mulDiv(price, 10 ** priceDecimals), false);
-
-            delete amountToSell[price];
-            DALiquidityLib.sortedRemove(toSellPrices, _index);
-        }
     }
 
     function totalAssetsInAssetA() public view override returns (uint256) {
@@ -224,68 +195,55 @@ contract DoppiLiquidity is ERC20, Ownable, IDoppiLiquidity, AutomationCompatible
         _spendAllowance(owner, spender, amount);
     }
 
-    function checkUpkeep(bytes calldata /* checkData */ )
+    function checkUpkeep(bytes calldata /* checkData */)
         external
         view
         override
         returns (bool upkeepNeeded, bytes memory performData)
     {
-        // Check toBuyPrices - check highest buy price (last in sorted array) since it's most likely to be triggered
-        if (toBuyPrices.length > 0) {
-            uint256 highestBuyIndex = toBuyPrices.length - 1;
-            uint256 highestBuyPrice = toBuyPrices[highestBuyIndex];
+        uint8 priceDecimals = DALiquidityLib.getPriceDecimals(chainLinkFeed);
+        uint256 currentPrice = DALiquidityLib.getPrice(chainLinkFeed);
 
-            if (amountToBuy[highestBuyPrice] > 0) {
-                // Try static call to swapPancake to see if it would succeed
-                uint8 priceDecimals = DALiquidityLib.getPriceDecimals(chainLinkFeed);
-                uint256 amount = amountToBuy[highestBuyPrice];
-                uint256 amountOut = amount.mulDiv(10 ** priceDecimals, highestBuyPrice);
-
-                try this.canSwapPancake(amount, amountOut, true) returns (bool canSwap) {
-                    if (canSwap) {
-                        return (true, abi.encode(highestBuyIndex, true));
-                    }
-                } catch {
-                    // Continue to check sell prices
-                }
+        // Get all profitable buy and sell prices and accumulate amounts
+        (uint256[] memory buyindexes, uint256 totalBuyAmount, uint256 totalBuyAmountOut) = 
+            _getAccumulatedBuyPrices(currentPrice, priceDecimals);
+        (uint256[] memory sellindexes, uint256 totalSellAmount, uint256 totalSellAmountOut) = 
+            _getAccumulatedSellPrices(currentPrice, priceDecimals);
+        
+        // Try netting opportunity first (most gas efficient)
+        if (buyindexes.length > 0 && sellindexes.length > 0) {
+            (bool isNetBuy, uint256 netAmount, uint256 netAmountOut) = 
+                _netoutBuySell(totalSellAmount, totalSellAmountOut, totalBuyAmount, totalBuyAmountOut);
+            
+            if (_canSwapPancake(netAmount, netAmountOut, isNetBuy)) {
+                return (true, abi.encode(isNetBuy, !isNetBuy, buyindexes, sellindexes, netAmount, netAmountOut));
             }
         }
 
-        // Check toSellPrices - check lowest sell price (first in sorted array) since it's most likely to be triggered
-        if (toSellPrices.length > 0) {
-            uint256 lowestSellPrice = toSellPrices[0];
-
-            if (amountToSell[lowestSellPrice] > 0) {
-                // Try static call to swapPancake to see if it would succeed
-                uint8 priceDecimals = DALiquidityLib.getPriceDecimals(chainLinkFeed);
-                uint256 amount = amountToSell[lowestSellPrice];
-                uint256 amountOut = amount.mulDiv(lowestSellPrice, 10 ** priceDecimals);
-
-                try this.canSwapPancake(amount, amountOut, false) returns (bool canSwap) {
-                    if (canSwap) {
-                        return (true, abi.encode(0, false));
-                    }
-                } catch {
-                    // Continue
-                }
-            }
+        // Fallback to individual sides
+        if (totalBuyAmount > 0 && _canSwapPancake(totalBuyAmount, totalBuyAmountOut, true)) {
+            return (true, abi.encode(true, false, buyindexes, sellindexes, totalBuyAmount, totalBuyAmountOut));
+        }
+        
+        if (totalSellAmount > 0 && _canSwapPancake(totalSellAmount, totalSellAmountOut, false)) {
+            return (true, abi.encode(false, true, buyindexes, sellindexes, totalSellAmount, totalSellAmountOut));
         }
 
         return (false, "0x");
     }
 
     function performUpkeep(bytes calldata performData) external override onlyForwarder {
-        (uint256 index, bool isBuy) = abi.decode(performData, (uint256, bool));
+    
+        (bool toBuy, bool toSell, uint256[] memory buyindexes, uint256[] memory sellindexes, uint256 totalAmount, uint256 totalAmountOut) = abi.decode(performData, (bool, bool, uint256[], uint256[], uint256, uint256));
+        
+        // Execute swap
+        _swapPancake(totalAmount, totalAmountOut, toBuy);
+        
+        // Clear all orders
+        _clearBuyOrders(buyindexes);
+        _clearSellOrders(sellindexes);
 
-        if (isBuy) {
-            require(index < toBuyPrices.length, "Invalid buy index");
-            require(amountToBuy[toBuyPrices[index]] > 0, "No amount to buy");
-        } else {
-            require(index < toSellPrices.length, "Invalid sell index");
-            require(amountToSell[toSellPrices[index]] > 0, "No amount to sell");
-        }
-
-        unwindSwapOrder(index, isBuy);
+        // emit UnwindExecuted(totalBuyAmount, totalSellAmount, isMixed);
     }
 
     function canSwapPancake(uint256 _amount, uint256 _amountOutQuote, bool _isBuy) external view returns (bool) {
@@ -298,12 +256,11 @@ contract DoppiLiquidity is ERC20, Ownable, IDoppiLiquidity, AutomationCompatible
         if (_isBuy) {
             tokenIn = address(assetA);
             tokenOut = address(assetB);
-            if (assetA.balanceOf(address(this)) < _amount) return false;
         } else {
             tokenIn = address(assetB);
             tokenOut = address(assetA);
-            if (assetB.balanceOf(address(this)) < _amount) return false;
         }
+        if (IERC20(tokenIn).balanceOf(address(this)) < _amount) return false;
 
         // Use QuoterV2 with static call to simulate swap without state changes
         bytes memory quoteData = abi.encodeWithSelector(
@@ -328,6 +285,7 @@ contract DoppiLiquidity is ERC20, Ownable, IDoppiLiquidity, AutomationCompatible
             console.log("Quoted amountOut:", amountOut);
             uint256 minRequired = _amountOutQuote.mulDiv(10000 - slippage, 10000);
             console.log("Min required:", minRequired);
+            // console.log(_amountOutQuote, amountOut, _amount);
             return amountOut >= minRequired;
         }
 
@@ -335,6 +293,108 @@ contract DoppiLiquidity is ERC20, Ownable, IDoppiLiquidity, AutomationCompatible
     }
 
     // internal
+    
+    // Internal helper function to avoid try-catch overhead
+    function _canSwapPancake(uint256 amountIn, uint256 amountOut, bool isBuy) internal view returns (bool) {
+        if (amountIn == 0) return false;
+        
+        try this.canSwapPancake(amountIn, amountOut, isBuy) returns (bool canSwap) {
+            return canSwap;
+        } catch {
+            return false;
+        }
+    }
+
+    function _netoutBuySell(uint256 _totalSellAmount, uint256 _totalSellAmountOut, uint256 _totalBuyAmount, uint256 _totalBuyAmountOut) internal pure returns (bool isNetBuy, uint256 netSellOrBuy, uint256 netSellOrBuyAmountOut) {
+
+        if(_totalSellAmount > _totalBuyAmountOut){
+            isNetBuy = false;
+            netSellOrBuy = _totalSellAmount - _totalBuyAmountOut;
+            netSellOrBuyAmountOut = _totalSellAmountOut - _totalBuyAmount;
+        }else{
+            isNetBuy = true;
+            netSellOrBuy = _totalBuyAmountOut - _totalSellAmount;
+            netSellOrBuyAmountOut = _totalBuyAmount - _totalSellAmountOut;
+        }
+    }
+
+    function _clearBuyOrders(uint256[] memory indexes) internal {
+
+        if(indexes.length == 0) return;
+        for (uint256 i = indexes.length-1; i >= 0; i--) {
+            delete amountToBuy[toBuyPrices[indexes[i]]];
+            DALiquidityLib.sortedRemove(toBuyPrices, indexes[i]);
+            if (i == 0) break;
+        }
+    }
+
+    function _clearSellOrders(uint256[] memory indexes) internal {
+
+        if(indexes.length == 0) return;
+        for (uint256 i = indexes.length-1; i >= 0; i--) {
+            delete amountToSell[toSellPrices[indexes[i]]];
+            DALiquidityLib.sortedRemove(toSellPrices, indexes[i]);
+            if (i == 0) break;
+        }
+    }
+
+    // Helper function to get accumulated buy prices (only profitable ones)
+    function _getAccumulatedBuyPrices(uint256 currentPrice, uint8 priceDecimals) internal view returns (
+        uint256[] memory _indexes, uint256 totalBuyAmount, uint256 totalBuyAmountOut) {
+        
+        if(toBuyPrices.length == 0) return(new uint256[](0), 0, 0);
+
+        uint256 count = 0;
+        for (uint256 i = toBuyPrices.length - 1; i >= 0; i--) {
+            uint256 price = toBuyPrices[i];
+            if (amountToBuy[price] > 0 && currentPrice < price) {
+                count++;
+            }
+            if (i == 0) break;
+        }
+        _indexes = new uint256[](count);
+
+        for (uint256 i = toBuyPrices.length - 1; i >= 0; i--) {
+            uint256 buyPrice = toBuyPrices[i];
+            if (amountToBuy[buyPrice] > 0 && currentPrice < buyPrice) {
+                uint256 buyAmount = amountToBuy[buyPrice];
+                totalBuyAmount += buyAmount;
+                totalBuyAmountOut += buyAmount.mulDiv(10 ** priceDecimals, currentPrice);
+                _indexes[count-1] = i;
+                count--;
+            }
+            if (i == 0) break;
+        }
+    }
+
+    // Helper function to get accumulated sell prices (only profitable ones)
+    function _getAccumulatedSellPrices(uint256 currentPrice, uint8 priceDecimals) internal view returns (
+        uint256[] memory _indexes, uint256 totalSellAmount, uint256 totalSellAmountOut) {
+        
+        if(toSellPrices.length == 0) return(new uint256[](0), 0, 0);
+        uint256 count = 0;
+        for (uint256 i = toSellPrices.length - 1; i >= 0; i--) {
+            uint256 price = toSellPrices[i];
+            if (amountToSell[price] > 0 && currentPrice > price) {
+                count++;
+            }
+            if (i == 0) break;
+        }
+        _indexes = new uint256[](count);
+
+        for (uint256 i = toSellPrices.length - 1; i >= 0; i--) {
+            uint256 sellPrice = toSellPrices[i];
+            if (amountToSell[sellPrice] > 0 && currentPrice > sellPrice) {
+                uint256 sellAmount = amountToSell[sellPrice];
+                totalSellAmount += sellAmount;
+                totalSellAmountOut += sellAmount.mulDiv(currentPrice, 10 ** priceDecimals);
+                _indexes[count-1] = i;
+                count--;
+            }
+            if (i == 0) break;
+        }
+    }
+
     function _swapExactInputV3(uint256 _amount, address _fromToken, address _toToken, address _recipient, uint256 amountOutQuote)
         internal
         returns (uint256)
@@ -369,34 +429,6 @@ contract DoppiLiquidity is ERC20, Ownable, IDoppiLiquidity, AutomationCompatible
         result = ISwapRouter(router).exactOutputSingle(params);
     }
 
-    function _settle_buy(uint256 _amountIn, uint256 _price, bool _isBuy) internal returns (uint256 out) {
-        
-        // Amount out formula
-        uint8 priceDecimals = DALiquidityLib.getPriceDecimals(chainLinkFeed);
-        uint256 amountOut = _amountIn.mulDiv(10 ** priceDecimals, _price); // in btc output
-        uint256 balance = assetB.balanceOf(address(this));
-        if(amountOut > balance){    
-            _swapExactOutputV3(amountOut, address(assetA), address(assetB), msg.sender, _amountIn);
-            out = amountOut;
-        }else{
-            out = _swap(_amountIn, _price, _isBuy, 0);
-        }   
-    }
-
-    function _settle_sell(uint256 _amountIn, uint256 _price, bool _isBuy) internal returns (uint256 out) {
-        
-        // Amount out formula
-        uint8 priceDecimals = DALiquidityLib.getPriceDecimals(chainLinkFeed);
-        uint256 amountOut = _amountIn.mulDiv(_price, 10 ** priceDecimals); // in usdt assetA output
-        uint256 balance = assetA.balanceOf(address(this));
-        if(amountOut > balance){            
-            _swapExactOutputV3(amountOut, address(assetB), address(assetA), msg.sender, _amountIn);
-            out = amountOut;
-        }else{
-            out = _swap(_amountIn, _price, _isBuy, 0);
-        }   
-    }
-
     function _swap(
         uint256 _amountIn,
         uint256 _price,
@@ -423,35 +455,25 @@ contract DoppiLiquidity is ERC20, Ownable, IDoppiLiquidity, AutomationCompatible
 
         
         uint256 balance = assetOut.balanceOf(address(this));
-        // console.log("_swap", amountOut, balance);
         if(amountOut > balance){ //fallback  
             uint256 actualAmountIn = _swapExactOutputV3(amountOut, address(assetIn), address(assetOut), msg.sender, _amountIn); 
-            uint256 tradedPrice = amountOut.mulDiv(10 ** priceDecimals, actualAmountIn);
-            targetPrice = _isBuy
-            ? tradedPrice.mulDiv(1_000_000 - swapMargin, 1_000_000)
-            : tradedPrice.mulDiv(1_000_000 + swapMargin, 1_000_000); 
-
         }else{
-            // Transfer fee (if any) and output
-            if (_fee > 0) assetIn.safeTransfer(treasury, _fee);    
             assetOut.safeTransfer(msg.sender, amountOut);  
-
             // Target price and order book update
             targetPrice = _isBuy
             ? _price.mulDiv(1_000_000 - swapMargin, 1_000_000)
             : _price.mulDiv(1_000_000 + swapMargin, 1_000_000); 
+
+            if (_isBuy) {
+                (bool exists, uint256 index) = DALiquidityLib.find(toBuyPrices, targetPrice);
+                amountToBuy[targetPrice] += _amountIn;
+                if (!exists) DALiquidityLib.sortedInsert(toBuyPrices, index, targetPrice);
+            } else {
+                (bool exists, uint256 index) = DALiquidityLib.find(toSellPrices, targetPrice);
+                amountToSell[targetPrice] += _amountIn;
+                if (!exists) DALiquidityLib.sortedInsert(toSellPrices, index, targetPrice);
+            }   
         }
-        
-        if (_isBuy) {
-            (bool exists, uint256 index) = DALiquidityLib.find(toBuyPrices, targetPrice);
-            amountToBuy[targetPrice] += _amountIn;
-            if (!exists) DALiquidityLib.sortedInsert(toBuyPrices, index, targetPrice);
-        } else {
-            (bool exists, uint256 index) = DALiquidityLib.find(toSellPrices, targetPrice);
-            amountToSell[targetPrice] += _amountIn;
-            if (!exists) DALiquidityLib.sortedInsert(toSellPrices, index, targetPrice);
-        }   
-        
         return amountOut;
     }
 
