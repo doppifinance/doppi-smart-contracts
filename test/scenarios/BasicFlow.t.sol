@@ -57,8 +57,10 @@ contract BasicFlowTest is Test {
         doppiFactory = new DoppiTraderFactory(IERC20(usdt), IERC20(btc), doppiCore, doppiLP, doppiRouter, mockForwarder);
 
         // Setup initial setting
-        doppiCore.setAdmin(address(opportunityBot), true);
+        opportunityBot.setForwarderAddress(mockForwarder);
         doppiCore.setForwarderAddress(mockForwarder);
+        doppiLP.setForwarderAddress(mockForwarder);
+        doppiCore.setAdmin(address(opportunityBot), true);
         doppiLP.setDualAsset(address(doppiCore));
         doppiLP.setEntryPoint(address(doppiRouter.entryPointA()), true);
         doppiLP.setEntryPoint(address(doppiRouter.entryPointB()), true);
