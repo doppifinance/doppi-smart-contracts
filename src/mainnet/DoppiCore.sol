@@ -69,7 +69,7 @@ contract DoppiCore is Ownable, AutomationCompatibleInterface {
     IERC20 public assetB;
     IImpliedVol public impliedVol;
     IDoppiLiquidity public doppiLP;
-    DoppiTraderFactory public traderFactory;
+    DoppiTraderFactory public doppiTraderFactory;
     mapping(address => bool) public admins;
 
     uint256 private constant SECONDS_PER_YEAR = 31536000;
@@ -122,7 +122,7 @@ contract DoppiCore is Ownable, AutomationCompatibleInterface {
     }
 
     // check not required to save gas as it is called internally from trader bot
-    function bulkDepositBuys(DepositParams[] calldata params, DualAssetOffer[] memory _buyOffers) external {
+    function bulkDepositBuys(DepositParams[] calldata params, DualAssetOffer[] memory _buyOffers) external onlyTraderBot {
         for (uint256 i = 0; i < params.length; i++) {
             DualAssetOffer memory buyOffer = _buyOffers[params[i].strikeZone];
             _depositBuy(params[i], buyOffer);
@@ -130,7 +130,7 @@ contract DoppiCore is Ownable, AutomationCompatibleInterface {
     }
 
     // check not required to save gas as it is called internally from trader bot
-    function bulkDepositSells(DepositParams[] calldata params, DualAssetOffer[] memory _sellOffers) external {
+    function bulkDepositSells(DepositParams[] calldata params, DualAssetOffer[] memory _sellOffers) external onlyTraderBot {
         for (uint256 i = 0; i < params.length; i++) {
             DualAssetOffer memory sellOffer = _sellOffers[params[i].strikeZone];
             _depositSell(params[i], sellOffer);
@@ -419,8 +419,8 @@ contract DoppiCore is Ownable, AutomationCompatibleInterface {
     }
 
     // Configuration functions
-    function setTraderFactory(DoppiTraderFactory _traderFactory) external onlyOwner {
-        traderFactory = _traderFactory;
+    function setDoppiTraderFactory(DoppiTraderFactory _traderFactory) external onlyOwner {
+        doppiTraderFactory = _traderFactory;
     }
 
     function setAdmin(address _admin, bool _status) public onlyOwner {
@@ -526,7 +526,7 @@ contract DoppiCore is Ownable, AutomationCompatibleInterface {
                 : _settleStrikeNoTraded(p, price, payout, isBuy);
             
             // Create unwind position for trader bots
-            if (address(traderFactory) != address(0) && traderFactory.isTraderBot(p.owner)) {
+            if (address(doppiTraderFactory) != address(0) && doppiTraderFactory.isTraderBot(p.owner)) {
                 IDoppiTrader(p.owner).createUnwindPosition(p.amount, p.strikePrice, isBuy);
             }
         } else {
@@ -787,4 +787,11 @@ contract DoppiCore is Ownable, AutomationCompatibleInterface {
         require(msg.sender == s_forwarderAddress, "This address does not have permission to call performUpkeep");
         _;
     }
+
+    modifier onlyTraderBot() {
+        require(doppiTraderFactory.isTraderBot(msg.sender), "only trader bot is allowed to call");
+        _;
+    }
+
+    
 }

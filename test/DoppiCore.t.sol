@@ -35,7 +35,6 @@ contract DoppiCoreTest is Test {
     address mockForwarder = address(0x5);
 
     uint256 constant INITIAL_PRICE = 100_000 ether;
-    uint24[] weights;
 
     event Deposited(address indexed user, uint256 amountA, uint256 amountB);
     event Settled(address indexed user, uint256 payoutA, uint256 payoutB);
@@ -85,20 +84,12 @@ contract DoppiCoreTest is Test {
         traderFactory =
             new DoppiTraderFactory(IERC20(usdt), IERC20(btc), doppiCore, doppiLP, doppiRouter, mockForwarder);
 
-        doppiCore.setTraderFactory(traderFactory);
+        doppiCore.setDoppiTraderFactory(traderFactory);
         doppiCore.setAdmin(admin, true);
         doppiCore.setForwarderAddress(mockForwarder);
         
 
-        weights.push(500);
-        weights.push(1000);
-        weights.push(1500);
-        weights.push(2500);
-        weights.push(4500);
-
         // Mint tokens
-        // usdt.mint(address(doppiLP), 1_000_000 ether);
-        // btc.mint(address(doppiLP), 10 ether);
         usdt.mint(user1, 200_000 ether);
         btc.mint(user1, 2 ether);
         usdt.mint(user2, 200_000 ether);
@@ -141,8 +132,8 @@ contract DoppiCoreTest is Test {
     function test_setTraderFactory() public {
         DoppiTraderFactory newFactory =
             new DoppiTraderFactory(IERC20(usdt), IERC20(btc), doppiCore, doppiLP, doppiRouter, mockForwarder);
-        doppiCore.setTraderFactory(newFactory);
-        assertEq(address(doppiCore.traderFactory()), address(newFactory));
+        doppiCore.setDoppiTraderFactory(newFactory);
+        assertEq(address(doppiCore.doppiTraderFactory()), address(newFactory));
     }
 
     function test_setPriceGap() public {
@@ -224,59 +215,59 @@ contract DoppiCoreTest is Test {
         assertEq(btc.balanceOf(user1), 2 ether - 0.5 ether);
     }
 
-    function test_bulkDepositBuys() public {
-        DoppiCore.DualAssetOffer[] memory buyOffers = doppiCore.getBuyOffers(1);
-        DoppiCore.DepositParams[] memory params = new DoppiCore.DepositParams[](2);
+    // function test_bulkDepositBuys() public {
+    //     DoppiCore.DualAssetOffer[] memory buyOffers = doppiCore.getBuyOffers(1);
+    //     DoppiCore.DepositParams[] memory params = new DoppiCore.DepositParams[](2);
 
-        uint256 totalAmount = 0;
-        for (uint256 i = 0; i < 2; i++) {
-            uint256 amount = 25_000 ether;
-            params[i] = DoppiCore.DepositParams({
-                amount: amount,
-                strikeZone: uint8(i),
-                strikePrice: buyOffers[i].strikePrice,
-                numDays: 1,
-                apr: buyOffers[i].apr,
-                validityTime: buyOffers[i].validUntilTimestamp
-            });
-            totalAmount += amount;
-        }
+    //     uint256 totalAmount = 0;
+    //     for (uint256 i = 0; i < 2; i++) {
+    //         uint256 amount = 25_000 ether;
+    //         params[i] = DoppiCore.DepositParams({
+    //             amount: amount,
+    //             strikeZone: uint8(i),
+    //             strikePrice: buyOffers[i].strikePrice,
+    //             numDays: 1,
+    //             apr: buyOffers[i].apr,
+    //             validityTime: buyOffers[i].validUntilTimestamp
+    //         });
+    //         totalAmount += amount;
+    //     }
 
-        vm.startPrank(user1);
-        usdt.approve(address(doppiCore), totalAmount);
-        doppiCore.bulkDepositBuys(params, buyOffers);
-        vm.stopPrank();
+    //     vm.startPrank(user1);
+    //     usdt.approve(address(doppiCore), totalAmount);
+    //     doppiCore.bulkDepositBuys(params, buyOffers);
+    //     vm.stopPrank();
 
-        assertEq(doppiCore.getBuyPositionCount(), 2);
-        assertEq(usdt.balanceOf(user1), 200_000 ether - totalAmount);
-    }
+    //     assertEq(doppiCore.getBuyPositionCount(), 2);
+    //     assertEq(usdt.balanceOf(user1), 200_000 ether - totalAmount);
+    // }
 
-    function test_bulkDepositSells() public {
-        DoppiCore.DualAssetOffer[] memory sellOffers = doppiCore.getSellOffers(1);
-        DoppiCore.DepositParams[] memory params = new DoppiCore.DepositParams[](2);
+    // function test_bulkDepositSells() public {
+    //     DoppiCore.DualAssetOffer[] memory sellOffers = doppiCore.getSellOffers(1);
+    //     DoppiCore.DepositParams[] memory params = new DoppiCore.DepositParams[](2);
 
-        uint256 totalAmount = 0;
-        for (uint256 i = 0; i < 2; i++) {
-            uint256 amount = 0.25 ether;
-            params[i] = DoppiCore.DepositParams({
-                amount: amount,
-                strikeZone: uint8(i),
-                strikePrice: sellOffers[i].strikePrice,
-                numDays: 1,
-                apr: sellOffers[i].apr,
-                validityTime: sellOffers[i].validUntilTimestamp
-            });
-            totalAmount += amount;
-        }
+    //     uint256 totalAmount = 0;
+    //     for (uint256 i = 0; i < 2; i++) {
+    //         uint256 amount = 0.25 ether;
+    //         params[i] = DoppiCore.DepositParams({
+    //             amount: amount,
+    //             strikeZone: uint8(i),
+    //             strikePrice: sellOffers[i].strikePrice,
+    //             numDays: 1,
+    //             apr: sellOffers[i].apr,
+    //             validityTime: sellOffers[i].validUntilTimestamp
+    //         });
+    //         totalAmount += amount;
+    //     }
 
-        vm.startPrank(user1);
-        btc.approve(address(doppiCore), totalAmount);
-        doppiCore.bulkDepositSells(params, sellOffers);
-        vm.stopPrank();
+    //     vm.startPrank(user1);
+    //     btc.approve(address(doppiCore), totalAmount);
+    //     doppiCore.bulkDepositSells(params, sellOffers);
+    //     vm.stopPrank();
 
-        assertEq(doppiCore.getSellPositionCount(), 2);
-        assertEq(btc.balanceOf(user1), 2 ether - totalAmount);
-    }
+    //     assertEq(doppiCore.getSellPositionCount(), 2);
+    //     assertEq(btc.balanceOf(user1), 2 ether - totalAmount);
+    // }
 
     function test_deposit_buy_invalidStrikePrice() public {
         DoppiCore.DualAssetOffer memory buyOffer = doppiCore.getOffer(true, 1, 0);

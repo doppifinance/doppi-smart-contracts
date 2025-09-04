@@ -30,7 +30,6 @@ contract DoppiLiquidity is ERC20, Ownable, IDoppiLiquidity, AutomationCompatible
     address public doppiTraderFactory;
     address public treasury;
     address public pancakeV3Pool = 0x46Cf1cF8c69595804ba91dFdd8d6b960c9B0a7C4;
-    uint32 public twapDuration = 10;
     uint24 public poolFee = 500;
     uint24 public slippage = 100;
     uint24 public liquidityFee = 1000;
@@ -456,7 +455,7 @@ contract DoppiLiquidity is ERC20, Ownable, IDoppiLiquidity, AutomationCompatible
         
         uint256 balance = assetOut.balanceOf(address(this));
         if(amountOut > balance){ //fallback  
-            uint256 actualAmountIn = _swapExactOutputV3(amountOut, address(assetIn), address(assetOut), msg.sender, _amountIn); 
+            amountOut = _swapExactInputV3(_amountIn - _fee, address(assetIn), address(assetOut), msg.sender, amountOut);
         }else{
             assetOut.safeTransfer(msg.sender, amountOut);  
             // Target price and order book update

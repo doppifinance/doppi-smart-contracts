@@ -176,7 +176,18 @@ contract DoppiTrader is Ownable, Pausable, AutomationCompatibleInterface {
 
     function checkUpkeep(bytes calldata) external view override returns (bool upkeepNeeded, bytes memory performData) {
         uint256 price = doppiLP.getPrice();
+        
+        if (!paused()) {
+            // place new buy order
+            uint256 buyPosCount = doppiCore.getBuyPositionCount(address(this));
+            uint256 sellPosCount = doppiCore.getSellPositionCount(address(this));
+            if(buyPosCount == 0 && sellPosCount == 0){
+                return (true, abi.encode(false, price, 0, false, buyPosCount == 0, sellPosCount == 0));
+            }
+        }
+
         (upkeepNeeded, performData) = _checkUndoTrade(true, price);
+            
         if (upkeepNeeded) {
             return (true, performData);
         }
@@ -186,15 +197,7 @@ contract DoppiTrader is Ownable, Pausable, AutomationCompatibleInterface {
             return (true, performData);
         }
 
-        if (!paused()) {
-            // place new buy order
-            uint256 buyPosCount = doppiCore.getBuyPositionCount(address(this));
-            uint256 sellPosCount = doppiCore.getSellPositionCount(address(this));
-            
-            if(buyPosCount == 0 && sellPosCount == 0){
-                return (true, abi.encode(false, price, 0, false, buyPosCount == 0, sellPosCount == 0));
-            }
-        }
+        
         return (false, bytes(""));
     }
 

@@ -96,7 +96,8 @@ contract DoppiTraderTest is Test {
         doppiFactory =
             new DoppiTraderFactory(IERC20(usdt), IERC20(btc), doppiCore, doppiLP, doppiRouter, mockForwarder);
         doppiLP.setDoppiTraderFactory(address(doppiFactory));
-        
+        doppiCore.setDoppiTraderFactory(doppiFactory);
+
         vm.prank(owner);
         uint256 id = doppiFactory.deployTraderBot(weights);
         trader = doppiFactory.traderBots(id);

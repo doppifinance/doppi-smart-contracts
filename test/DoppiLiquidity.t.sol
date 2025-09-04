@@ -146,7 +146,7 @@ contract DoppiLiquidityTest is Test {
 
     // ===== SWAP FUNCTIONALITY TESTS =====
 
-    function testSwapFunctionality() public {
+    function test_swap_with_liqudity() public {
         uint256 currentPrice = doppiLP.getPrice();
 
         // Setup liquidity for swaps
@@ -188,6 +188,41 @@ contract DoppiLiquidityTest is Test {
         uint256 expectedSellFee = SWAP_AMOUNT_BTC * LIQUIDITY_FEE / 1000000;
         uint256 expectedSellAmountOut = (SWAP_AMOUNT_BTC - expectedSellFee) * currentPrice / 10 ** 18;
         assertEq(sellAmountOut, expectedSellAmountOut, "Sell swap output should match calculation");
+    }
+
+    function test_swap_without_liqudity() public {
+        uint256 currentPrice = doppiLP.getPrice();
+
+        // Setup liquidity for swaps
+        _setupSwapTest(SWAP_AMOUNT_USDT * 2, SWAP_AMOUNT_BTC * 2, mockDualAsset);
+
+        // Test DoppiLP has no liquidty
+        uint256 initialUSDTBalance = usdt.balanceOf(address(doppiLP));
+        uint256 initialBTCBalance = btc.balanceOf(address(doppiLP));
+        assertEq(initialUSDTBalance, 0);
+        assertEq(initialBTCBalance, 0);
+        
+        // Test BUY: USDT for BTC
+        vm.prank(mockDualAsset);
+        uint256 amountOut = doppiLP.swap(SWAP_AMOUNT_USDT, currentPrice, true);
+        uint256 expectedFee = SWAP_AMOUNT_USDT * LIQUIDITY_FEE / 1000000;
+        uint256 expectedAmountOut = (SWAP_AMOUNT_USDT - expectedFee) * 10 ** 18 / currentPrice;
+        // extra fee + slippage when swap outside of doppiLP (-1%)
+        uint256 expectedAmountOutAfterDexFee = expectedAmountOut * 9900 / 10000;
+        assertEq(amountOut, expectedAmountOutAfterDexFee, "Buy swap output should match calculation");
+
+        // Test Sell: BTC for USDT
+        uint256 usdtBeforeSell = usdt.balanceOf(mockDualAsset);
+        uint256 btcBeforeSell = btc.balanceOf(mockDualAsset);
+        uint256 treasuryBTCBefore = btc.balanceOf(treasury);
+
+        vm.prank(mockDualAsset);
+        uint256 sellAmountOut = doppiLP.swap(SWAP_AMOUNT_BTC, currentPrice, false);
+        uint256 expectedSellFee = SWAP_AMOUNT_BTC * LIQUIDITY_FEE / 1000000;
+        uint256 expectedSellAmountOut = (SWAP_AMOUNT_BTC - expectedSellFee) * currentPrice / 10 ** 18;
+        // extra fee + slippage when swap outside of doppiLP (-1%)
+        uint256 expectedSellAmountOutAfterDexFee = expectedSellAmountOut * 9900 / 10000;
+        assertEq(sellAmountOut, expectedSellAmountOutAfterDexFee, "Sell swap output should match calculation");
     }
 
     // ===== HEDGE SWAP FUNCTIONALITY TESTS =====

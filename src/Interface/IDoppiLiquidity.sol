@@ -11,7 +11,6 @@ interface IDoppiLiquidity is IShares {
     function treasury() external view returns (address);
     function router() external view returns (address);
     function pancakeV3Pool() external view returns (address);
-    function twapDuration() external view returns (uint32);
     function poolFee() external view returns (uint24);
     function slippage() external view returns (uint24);
     function liquidityFee() external view returns (uint24);
