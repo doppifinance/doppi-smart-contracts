@@ -34,6 +34,7 @@ interface IDoppiLiquidity is IShares {
     function getBalanceAssetA() external view returns (uint256);
     function getBalanceAssetB() external view returns (uint256);
 
+    function assetRatio() external view returns (uint256 ratioA, uint256 ratioB);
     function totalAssetsInAssetA() external view returns (uint256);
     function totalAssetsInAssetB() external view returns (uint256);
 }

@@ -214,4 +214,6 @@ interface IERC7575 {
      * Those methods should be performed separately.
      */
     function redeem(uint256 shares, address receiver, address owner) external returns (uint256 assets);
+
+    function assetRatio() external view returns (uint256 ratioA, uint256 ratioB);
 }

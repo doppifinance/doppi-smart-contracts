@@ -9,6 +9,7 @@ import {IDoppiLiquidity} from "../Interface/IDoppiLiquidity.sol";
 import {IShares} from "../Interface/IShares.sol";
 import {IERC7575, ERC7575} from "./ERC7575.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
+import "forge-std/console.sol";
 
 contract DoppiLiquidityRouter is Ownable, IDoppiLiquidityRouter {
     using SafeERC20 for IERC20;
@@ -41,18 +42,15 @@ contract DoppiLiquidityRouter is Ownable, IDoppiLiquidityRouter {
         }
     }
 
-    function redeem(address _asset, uint256 _amount) external {
-        // TODO: might not need this line
+    function redeem(uint256 _amount) external {
         IERC20(doppiLP).safeTransferFrom(msg.sender, address(this), _amount);
-
-        if (_asset == assetA) {
-            entryPointA.redeem(_amount, msg.sender, address(this));
-        } else if (_asset == assetB) {
-            entryPointB.redeem(_amount, msg.sender, address(this));
-        } else {
-            assert(false);
-        }
+        (uint256 ratioA, uint256 ratioB) = entryPointB.assetRatio();
+        uint256 firstHalf = _amount * ratioA / (ratioA + ratioB);
+        uint256 secondHalf = _amount - firstHalf;        
+        entryPointA.redeem(firstHalf, msg.sender, address(this));
+        entryPointB.redeem(secondHalf, msg.sender, address(this));
     }
+
 }
 
 contract EntryPointAssetA is ERC7575 {
@@ -61,6 +59,11 @@ contract EntryPointAssetA is ERC7575 {
     function totalAssets() public view override returns (uint256) {
         return IDoppiLiquidity(shareToken()).totalAssetsInAssetA();
     }
+
+    function assetRatio() public view returns (uint256, uint256) {
+        return IDoppiLiquidity(shareToken()).assetRatio();
+    }
+
 }
 
 contract EntryPointAssetB is ERC7575 {
@@ -68,5 +71,9 @@ contract EntryPointAssetB is ERC7575 {
 
     function totalAssets() public view override returns (uint256) {
         return IDoppiLiquidity(shareToken()).totalAssetsInAssetB();
+    }
+
+    function assetRatio() public view returns (uint256, uint256) {
+        return IDoppiLiquidity(shareToken()).assetRatio();
     }
 }

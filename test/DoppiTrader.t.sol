@@ -72,8 +72,6 @@ contract DoppiTraderTest is Test {
         doppiCore = new DoppiCore(address(usdt), address(btc), doppiLP, impliedVol);
 
         opportunityBot = new DoppiOpportunity(address(doppiCore), address(doppiLP));
-        // console.log(doppiCore.owner(), "doppiCore.owner()");
-        // console.log(opportunityBot.owner(), "opportunityBot.owner()");
         doppiCore.setAdmin(address(opportunityBot), true);
         doppiCore.setForwarderAddress(mockForwarder);
         opportunityBot.setForwarderAddress(mockForwarder);
@@ -158,29 +156,60 @@ contract DoppiTraderTest is Test {
 
         uint256 totalAssetsA = doppiRouter.entryPointA().totalAssets();
         uint256 totalAssetsB = doppiRouter.entryPointB().totalAssets();
-        // console.log(totalAssetsA, totalAssetsB);
-
+        
         // Check BTC balance decreased
         assertLt(btc.balanceOf(address(trader)), 1 ether);
         assertLt(usdt.balanceOf(address(trader)), 100_000 ether);
-        assertEq(trader.ratio_assetA(), 5000);
-        assertEq(trader.ratio_assetB(), 5000);
 
-        // Check that tokens were transferred (some goes to LP, so balance increases)
-        // assertGe(usdt.balanceOf(address(trader)), 200_000 ether);
+    }
+
+    function test_stop() public {
+        
+        uint256 startBTC = btc.balanceOf(address(owner));        
+        uint256 startUSDT = usdt.balanceOf(address(owner));        
+        vm.startPrank(owner);
+        _start();
+        vm.stopPrank();
+        uint256 afterBTC = btc.balanceOf(address(owner));        
+        uint256 afterUSDT = usdt.balanceOf(address(owner));        
+                
+        // ***** START doppiCore settle buy and sell order
+        vm.warp(block.timestamp + 1 days + 1);
+        oracle.setPrice(int256(98_000 ether));
+        (bool upkeepNeeded, bytes memory performData) = doppiCore.checkUpkeep("");
+        assertTrue(upkeepNeeded);
+        
+        vm.prank(mockForwarder);
+        doppiCore.performUpkeep(performData);
+        vm.stopPrank();
+        
+        // ***** END 
+        
+        // stop trader bot
+        vm.startPrank(owner);
+        trader.setPause();
+        trader.stop();
+        vm.stopPrank();
+
+        uint256 finalBTC = btc.balanceOf(address(owner));        
+        uint256 finalUSDT = usdt.balanceOf(address(owner));        
+        assertGt(finalUSDT, afterUSDT);
+        assertGt(finalBTC, afterBTC);
+        
+
     }
 
     function test_stop_not_yet_settle() public {
         vm.startPrank(owner);
         _start();
-        trader.pauseTrades();
+        trader.setPause();
         // vm.warp(block.timestamp + 1 days);
         vm.expectRevert("active order exist");
         trader.stop();
         vm.stopPrank();
     }
 
-    function test_checkUpkeep_performUpKeep_settleNoTrade() public {
+    function test_checkUpkeep_performUpKeep_settle_place_new_orders() public {
         vm.startPrank(owner);
         _start();
         vm.stopPrank();
@@ -301,26 +330,9 @@ contract DoppiTraderTest is Test {
         // ***** END    
     }
 
-    function test_opportunity_bot_trader_buyUndo() public {
-        
-        vm.startPrank(owner);
-        _start();
-        vm.stopPrank();
-
-        // ***** doppiCore settle buy and sell order
-        vm.warp(block.timestamp + 1 days + 1);
-        oracle.setPrice(int256(98_500 ether)); // settled buy + no traded + strike
-        (bool upkeepNeeded, bytes memory performData) = doppiCore.checkUpkeep("");
-        assertTrue(upkeepNeeded);
-        vm.prank(mockForwarder);
-        doppiCore.performUpkeep(performData);        
-        // ***** END  
-
-    }
-
     function test_pauseTrades_onlyOwner() public {
         vm.expectRevert();
-        trader.pauseTrades();
+        trader.setPause();
     }
 
     function test_createUnwindPosition_onlyDualAsset() public {
@@ -432,7 +444,7 @@ contract DoppiTraderTest is Test {
         // Set price to trigger
         oracle.setPrice(int256(103_000 ether));
         int256 pnl = trader.get_buy_unrealized_PNL();
-        // console.log(pnl);
+        assertEq(pnl, 404040404040404030000);
         (bool upkeepNeeded, bytes memory performData) = trader.checkUpkeep("");
         assertTrue(upkeepNeeded);
         assertGt(performData.length, 0);
@@ -447,121 +459,45 @@ contract DoppiTraderTest is Test {
         trader.start(amountUSDT, amountBTC);
     }
 
-    
+    function test_performUpkeep_priceOutsideTolerance() public {
+        // Create buy unwind position
+        vm.startPrank(address(doppiCore));
+        trader.createUnwindPosition(100_000 ether, 100_000 ether, true);
+        vm.stopPrank();
 
-    // function test_opportunity_bot_trader_sellUndo() public {
-    //     // Create an unwind position with very small amount
-    //     vm.startPrank(address(doppiCore));
-    //     trader.createUnwindPosition(0.01 ether, 100_000 ether, false);
-    //     vm.stopPrank();
+        oracle.setPrice(int256(100_500 ether));
+        (bool upkeepNeeded, bytes memory performData) = trader.checkUpkeep("");
 
-    //     // Add more USDT to trader for swapping
-    //     usdt.mint(address(trader), 1_000_000 ether);
+        // Change price significantly
+        oracle.setPrice(int256(102_000 ether));
 
-    //     uint256 triggerPrice = 50_000 ether; // 50% below strike for extreme profit
+        // Should not execute due to price tolerance
+        vm.prank(mockForwarder);
+        trader.performUpkeep(performData);
 
-    //     oracle.setPrice(int256(triggerPrice));
+        // Trade should not have been executed
+        assertEq(trader.buy_undo_profit(), 0);
+        assertEq(trader.get_buy_undos().length, 1);
+    }
 
-    //     trader.opportunity_bot_trader(triggerPrice, 0, false);
-    //     console.log("Sell trade executed successfully");
-    //     assertEq(trader.get_sell_undos().length, 0);
-    // }
 
-    // function test_performUpkeep_PlaceNewOrder() public {
-    //     (bool upkeepNeeded, bytes memory performData) = trader.checkUpkeep("");
-    //     assertTrue(upkeepNeeded);
-    //     // Change price significantly
-    //     oracle.setPrice(int256(100_000 ether));
-    //     trader.performUpkeep(performData);
-    //     assertEq(doppiCore.getBuyPositionCount(address(trader)), 5);
-    //     assertEq(doppiCore.getSellPositionCount(address(trader)), 5);
-    //     // assertEq(doppiCore.get_buy(address(this)), 0);
-    // }
+    function test_multiple_unwind_positions() public {
+        vm.startPrank(address(doppiCore));
 
-    // function test_performUpkeep() public {
-    //     // Create buy unwind position with very small amount
-    //     vm.startPrank(address(doppiCore));
-    //     trader.createUnwindPosition(1000 ether, 100_000 ether, true);
-    //     vm.stopPrank();
+        // Create multiple buy unwind positions
+        trader.createUnwindPosition(50_000 ether, 100_000 ether, true);
+        trader.createUnwindPosition(75_000 ether, 101_000 ether, true);
+        trader.createUnwindPosition(100_000 ether, 99_000 ether, true);
 
-    //     // Add more BTC to trader for swapping
-    //     btc.mint(address(trader), 10 ether);
+        // Create multiple sell unwind positions
+        trader.createUnwindPosition(0.5 ether, 100_000 ether, false);
+        trader.createUnwindPosition(0.7 ether, 101_000 ether, false);
 
-    //     // Set price to trigger with extreme margin
-    //     oracle.setPrice(int256(200_000 ether));
+        vm.stopPrank();
 
-    //     (bool upkeepNeeded, bytes memory performData) = trader.checkUpkeep("");
-    //     assertTrue(upkeepNeeded);
-
-    //     // Try performUpkeep and handle potential underflow
-    //     trader.performUpkeep(performData);
-    //     console.log("PerformUpkeep executed successfully");
-    //     assertEq(trader.get_buy_undos().length, 0);
-    // }
-
-    // function test_performUpkeep_priceOutsideTolerance() public {
-    //     // Create buy unwind position
-    //     vm.startPrank(address(doppiCore));
-    //     trader.createUnwindPosition(100_000 ether, 100_000 ether, true);
-    //     vm.stopPrank();
-
-    //     oracle.setPrice(int256(100_500 ether));
-    //     (bool upkeepNeeded, bytes memory performData) = trader.checkUpkeep("");
-
-    //     // Change price significantly
-    //     oracle.setPrice(int256(102_000 ether));
-
-    //     // Should not execute due to price tolerance
-    //     trader.performUpkeep(performData);
-
-    //     // Trade should not have been executed
-    //     assertEq(trader.buy_undo_profit(), 0);
-    //     assertEq(trader.get_buy_undos().length, 1);
-    // }
-
-    // function testFuzz_place_buys_withDifferentAmounts(uint256 amount) public {
-    //     amount = bound(amount, 1000 ether, 500_000 ether);
-
-    //     // Mint additional tokens
-    //     usdt.mint(address(trader), amount);
-
-    //     bool success = trader.place_buys();
-    //     assertTrue(success);
-
-    //     DoppiCore.DualAssetPosition[] memory positions = doppiCore.get_positions_buy();
-    //     assertEq(positions.length, 5);
-    // }
-
-    // function testFuzz_place_sells_withDifferentAmounts(uint256 amount) public {
-    //     amount = bound(amount, 1 ether, 10 ether);
-
-    //     // Mint additional tokens
-    //     btc.mint(address(trader), amount);
-
-    //     bool success = trader.place_sells();
-    //     assertTrue(success);
-
-    //     DoppiCore.DualAssetPosition[] memory positions = doppiCore.get_positions_sell();
-    //     assertEq(positions.length, 5);
-    // }
-
-    // function test_multiple_unwind_positions() public {
-    //     vm.startPrank(address(doppiCore));
-
-    //     // Create multiple buy unwind positions
-    //     trader.createUnwindPosition(50_000 ether, 100_000 ether, true);
-    //     trader.createUnwindPosition(75_000 ether, 101_000 ether, true);
-    //     trader.createUnwindPosition(100_000 ether, 99_000 ether, true);
-
-    //     // Create multiple sell unwind positions
-    //     trader.createUnwindPosition(0.5 ether, 100_000 ether, false);
-    //     trader.createUnwindPosition(0.7 ether, 101_000 ether, false);
-
-    //     vm.stopPrank();
-
-    //     assertEq(trader.get_buy_undos().length, 3);
-    //     assertEq(trader.get_sell_undos().length, 2);
-    //     assertGt(trader.undo_assetB(), 0);
-    //     assertGt(trader.undo_assetA(), 0);
-    // }
+        assertEq(trader.get_buy_undos().length, 3);
+        assertEq(trader.get_sell_undos().length, 2);
+        assertGt(trader.undo_assetB(), 0);
+        assertGt(trader.undo_assetA(), 0);
+    }
 }

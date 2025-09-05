@@ -2,6 +2,7 @@
 pragma solidity ^0.8.26;
 
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
+import {Pausable} from "@openzeppelin/contracts/utils/Pausable.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
@@ -13,7 +14,7 @@ import {DoppiTraderFactory} from "./DoppiTraderFactory.sol";
 import {IImpliedVol} from "../Interface/IImpliedVol.sol";
 import "forge-std/console.sol";
 
-contract DoppiCore is Ownable, AutomationCompatibleInterface {
+contract DoppiCore is Ownable, Pausable, AutomationCompatibleInterface {
     struct DualAssetPosition {
         uint256 amount;
         uint256 price;
@@ -105,7 +106,7 @@ contract DoppiCore is Ownable, AutomationCompatibleInterface {
     }
 
     // Single deposit functionality (enhanced from both contracts)
-    function deposit_buy(DepositParams calldata params) external {
+    function deposit_buy(DepositParams calldata params) external whenNotPaused {
         DualAssetOffer memory buyOffer = getOffer(true, params.numDays, params.strikeZone);
         require(buyOffer.strikePrice == params.strikePrice, "incorrect strikePrice");
         require(buyOffer.apr == params.apr, "incorrect apr");
@@ -113,7 +114,7 @@ contract DoppiCore is Ownable, AutomationCompatibleInterface {
         _depositBuy(params, buyOffer);
     }
 
-    function deposit_sell(DepositParams calldata params) external {
+    function deposit_sell(DepositParams calldata params) external whenNotPaused {
         DualAssetOffer memory sellOffer = getOffer(false, params.numDays, params.strikeZone);
         require(sellOffer.strikePrice == params.strikePrice, "incorrect strikePrice");
         require(sellOffer.apr == params.apr, "incorrect apr");
@@ -122,7 +123,7 @@ contract DoppiCore is Ownable, AutomationCompatibleInterface {
     }
 
     // check not required to save gas as it is called internally from trader bot
-    function bulkDepositBuys(DepositParams[] calldata params, DualAssetOffer[] memory _buyOffers) external onlyTraderBot {
+    function bulkDepositBuys(DepositParams[] calldata params, DualAssetOffer[] memory _buyOffers) external onlyTraderBot whenNotPaused {
         for (uint256 i = 0; i < params.length; i++) {
             DualAssetOffer memory buyOffer = _buyOffers[params[i].strikeZone];
             _depositBuy(params[i], buyOffer);
@@ -130,36 +131,19 @@ contract DoppiCore is Ownable, AutomationCompatibleInterface {
     }
 
     // check not required to save gas as it is called internally from trader bot
-    function bulkDepositSells(DepositParams[] calldata params, DualAssetOffer[] memory _sellOffers) external onlyTraderBot {
+    function bulkDepositSells(DepositParams[] calldata params, DualAssetOffer[] memory _sellOffers) external onlyTraderBot whenNotPaused {
         for (uint256 i = 0; i < params.length; i++) {
             DualAssetOffer memory sellOffer = _sellOffers[params[i].strikeZone];
             _depositSell(params[i], sellOffer);
         }
     }
 
-    function settle_buys(uint256[] memory _indexes) public {
-        require(_indexes.length > 0, "empty array");
-        require(_isDescending(_indexes), "not descending");
-        for (uint256 i = 0; i < _indexes.length; i++) {
-            uint256 idx = _indexes[i];
-            require(idx < buyPositionKeys.length, "index out of bounds");
-            KeyPosition memory pos = buyPositionKeys[idx];
-            _settlePosition(pos, true);
-            _removeBuyPosition(idx, pos);
-        }
+    function settle_buys(uint256[] memory _indexes) public onlyOwner {
+        _settle_buys(_indexes);
     }
 
-    function settle_sells(uint256[] memory _indexes) public {
-        require(_indexes.length > 0, "empty array");
-        require(_isDescending(_indexes), "not descending");
-
-        for (uint256 i = 0; i < _indexes.length; i++) {
-            uint256 idx = _indexes[i];
-            require(idx < sellPositionKeys.length, "index out of bounds");
-            KeyPosition memory pos = sellPositionKeys[idx];
-            _settlePosition(pos, false);
-            _removeSellPosition(idx, pos);
-        }
+    function settle_sells(uint256[] memory _indexes) public onlyOwner{
+        _settle_sells(_indexes);
     }
 
     // Admin functions
@@ -194,17 +178,22 @@ contract DoppiCore is Ownable, AutomationCompatibleInterface {
         bool buyReady = buys.length > 0;
         bool sellReady = sells.length > 0;
 
-        return (buyReady || sellReady, abi.encode(buyReady, buys, sellReady, sells));
+        // if paused and no more buy and sell orders
+        if (buys.length == 0 && sells.length == 0 && paused()) {
+            return (false, bytes(""));
+        }else{
+            return (buyReady || sellReady, abi.encode(buyReady, buys, sellReady, sells));
+        }
     }
 
     function performUpkeep(bytes calldata performData) external onlyForwarder {
         (bool buyReady, uint256[] memory buyIndexes, bool sellReady, uint256[] memory sellIndexes) =
             abi.decode(performData, (bool, uint256[], bool, uint256[]));
         if (buyReady) {
-            settle_buys(buyIndexes);
+            _settle_buys(buyIndexes);
         }
         if (sellReady) {
-            settle_sells(sellIndexes);
+            _settle_sells(sellIndexes);
         }
     }
 
@@ -438,7 +427,41 @@ contract DoppiCore is Ownable, AutomationCompatibleInterface {
         s_forwarderAddress = forwarderAddress;
     }
 
+    function setPause() external onlyOwner {
+        _pause();
+    }
+
+    function setUnPause() external onlyOwner {
+        _unpause();
+    }
+    
+
     // Internal functions
+    function _settle_buys(uint256[] memory _indexes) internal {
+        require(_indexes.length > 0, "empty array");
+        require(_isDescending(_indexes), "not descending");
+        for (uint256 i = 0; i < _indexes.length; i++) {
+            uint256 idx = _indexes[i];
+            require(idx < buyPositionKeys.length, "index out of bounds");
+            KeyPosition memory pos = buyPositionKeys[idx];
+            _settlePosition(pos, true);
+            _removeBuyPosition(idx, pos);
+        }
+    }
+
+    function _settle_sells(uint256[] memory _indexes) internal {
+        require(_indexes.length > 0, "empty array");
+        require(_isDescending(_indexes), "not descending");
+
+        for (uint256 i = 0; i < _indexes.length; i++) {
+            uint256 idx = _indexes[i];
+            require(idx < sellPositionKeys.length, "index out of bounds");
+            KeyPosition memory pos = sellPositionKeys[idx];
+            _settlePosition(pos, false);
+            _removeSellPosition(idx, pos);
+        }
+    }
+
     function _depositBuy(DepositParams calldata params, DualAssetOffer memory _buyOffer) internal {
         
         uint256 price = doppiLP.getPrice();

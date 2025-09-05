@@ -158,7 +158,7 @@ abstract contract ERC7575 is IERC7575 {
         }
 
         uint256 shares = previewWithdraw(assets);
-        _withdraw(msg.sender, receiver, owner, assets, shares);
+        _withdraw(msg.sender, receiver, msg.sender, assets, shares);
 
         return shares;
     }

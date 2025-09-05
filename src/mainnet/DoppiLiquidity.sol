@@ -46,10 +46,7 @@ contract DoppiLiquidity is ERC20, Ownable, IDoppiLiquidity, AutomationCompatible
     uint256[] public toSellPrices;
 
     modifier onlyDoppiCore() {
-        require(
-            msg.sender == doppiCore || IDoppiTraderFactory(doppiTraderFactory).isTraderBot(msg.sender),
-            "Not privileged"
-        );
+        require(msg.sender == doppiCore, "Not privileged");
         _;
     }
 
@@ -99,6 +96,15 @@ contract DoppiLiquidity is ERC20, Ownable, IDoppiLiquidity, AutomationCompatible
 
     function transfer(IERC20 token, uint256 amount, address recipient) external onlyDoppiCore {
         token.safeTransfer(recipient, amount);
+    }
+
+    function assetRatio() external view returns (uint256 ratioA, uint256 ratioB) {
+        uint256 price = DALiquidityLib.getPrice(chainLinkFeed);
+        uint8 priceDecimals = DALiquidityLib.getPriceDecimals(chainLinkFeed);
+        uint256 assetBInAValue = assetB.balanceOf(address(this)).mulDiv(price, 10 ** priceDecimals);
+        uint256 assetAvalue = assetA.balanceOf(address(this));
+        ratioA = assetAvalue * 1e18 / (assetBInAValue + assetAvalue);
+        ratioB = 1e18 - ratioA;
     }
 
     function totalAssetsInAssetA() public view override returns (uint256) {

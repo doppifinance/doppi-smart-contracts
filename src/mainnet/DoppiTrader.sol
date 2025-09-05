@@ -39,8 +39,6 @@ contract DoppiTrader is Ownable, Pausable, AutomationCompatibleInterface {
     uint32 public ratioLP = 5000;
     uint256 public undo_assetB;
     uint256 public undo_assetA;
-    uint256 public ratio_assetB;
-    uint256 public ratio_assetA;
     uint256 public buy_undo_profit;
     uint256 public sell_undo_profit;
     uint24[] public orderWeights;
@@ -64,8 +62,12 @@ contract DoppiTrader is Ownable, Pausable, AutomationCompatibleInterface {
         _pause();
     }
 
-    function pauseTrades() external onlyOwner {
+    function setPause() external onlyOwner {
         _pause();
+    }
+
+    function setUnPause() external onlyOwner {
+        _unpause();
     }
 
     function start(uint256 _amountA, uint256 _amountB) external onlyOwner whenPaused {
@@ -76,11 +78,9 @@ contract DoppiTrader is Ownable, Pausable, AutomationCompatibleInterface {
         defaultassetBAmount = _amountB;
         uint256 assetAToLP = _amountA.mulDiv(ratioLP, 10000);
         uint256 assetBToLP = _amountB.mulDiv(ratioLP, 10000);
-        uint256 shareA = _deposit(address(assetA), assetAToLP);
-        uint256 shareB = _deposit(address(assetB), assetBToLP);
-        uint256 total = shareA + shareB;
-        ratio_assetA = shareA * 10000 / total;
-        ratio_assetB = 10000 - ratio_assetA;
+        _deposit(address(assetA), assetAToLP);
+        _deposit(address(assetB), assetBToLP);
+        
         _place_buys();
         _place_sells();
     }
@@ -91,10 +91,8 @@ contract DoppiTrader is Ownable, Pausable, AutomationCompatibleInterface {
         require(buyPosCount == 0 && sellPosCount == 0, "active order exist");
 
         uint256 totalBal = doppiLP.balanceOf(address(this));
-        uint256 shareA = totalBal * ratio_assetA / 10000;
-
-        _withdrawFromLP(address(assetA), shareA);
-        _withdrawFromLP(address(assetB), totalBal - shareA);
+        _withdrawFromLP(totalBal);
+        
         IERC20(assetA).safeTransfer(msg.sender, assetA.balanceOf(address(this)));
         IERC20(assetB).safeTransfer(msg.sender, assetB.balanceOf(address(this)));
 
@@ -114,18 +112,6 @@ contract DoppiTrader is Ownable, Pausable, AutomationCompatibleInterface {
             uint256 assetAAmount = _amount.mulDiv(_strikePrice, 10 ** priceDecimals);
             sell_undo_list.push(Trade(assetAAmount, _amount, _strikePrice));
             undo_assetA += assetAAmount;
-        }
-    }
-
-    function opportunity_bot_trader(uint256 price, uint256 index, bool isBuyUndo) public {
-        if (isBuyUndo) {
-            _performUnwind(isBuyUndo, buy_undo_list[index], price);
-            buy_undo_list[index] = buy_undo_list[buy_undo_list.length - 1];
-            buy_undo_list.pop();
-        } else {
-            _performUnwind(isBuyUndo, sell_undo_list[index], price);
-            sell_undo_list[index] = sell_undo_list[sell_undo_list.length - 1];
-            sell_undo_list.pop();
         }
     }
 
@@ -217,11 +203,23 @@ contract DoppiTrader is Ownable, Pausable, AutomationCompatibleInterface {
             if (priceChance > 10000 + price_tolerance || priceChance < 10000 - price_tolerance) {
                 return; // price change outside tolerance
             }
-            opportunity_bot_trader(currentPrice, index, isBuyUndo);
+            _opportunity_bot_trader(currentPrice, index, isBuyUndo);
         }
     }
 
     // internal function
+    function _opportunity_bot_trader(uint256 price, uint256 index, bool isBuyUndo) internal {
+        if (isBuyUndo) {
+            _performUnwind(isBuyUndo, buy_undo_list[index], price);
+            buy_undo_list[index] = buy_undo_list[buy_undo_list.length - 1];
+            buy_undo_list.pop();
+        } else {
+            _performUnwind(isBuyUndo, sell_undo_list[index], price);
+            sell_undo_list[index] = sell_undo_list[sell_undo_list.length - 1];
+            sell_undo_list.pop();
+        }
+    }
+
     function _place_buys() public returns (bool) {
         uint256 order_amt = assetA.balanceOf(address(this)) - undo_assetA;
         if (order_amt == 0) return false;
@@ -287,8 +285,9 @@ contract DoppiTrader is Ownable, Pausable, AutomationCompatibleInterface {
         return doppiRouter.deposit(_token, _amount);
     }
 
-    function _withdrawFromLP(address _token, uint256 _shares) internal {
-        doppiRouter.redeem(_token, _shares);
+    function _withdrawFromLP(uint256 _shares) internal {
+        IERC20(doppiLP).safeIncreaseAllowance(address(doppiRouter), _shares);
+        doppiRouter.redeem(_shares);
     }
 
     function _performUnwind(bool _isBuy, Trade memory _trade, uint256 _price) internal {

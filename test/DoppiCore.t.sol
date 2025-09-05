@@ -369,6 +369,7 @@ contract DoppiCoreTest is Test {
         uint256[] memory readyPositions = doppiCore.getReadyBuyPositions();
         uint256 initialBalance = usdt.balanceOf(user1);
 
+        vm.startPrank(owner);
         doppiCore.settle_buys(readyPositions);
 
         // Should receive original amount + interest
@@ -388,6 +389,7 @@ contract DoppiCoreTest is Test {
         uint256 initialBtcBalance = btc.balanceOf(user1);
         uint256 initialUsdtBalance = usdt.balanceOf(user1);
 
+        vm.startPrank(owner);
         doppiCore.settle_buys(readyPositions);
 
         // Should receive BTC (converted at strike price) + interest in USDT
@@ -407,6 +409,7 @@ contract DoppiCoreTest is Test {
         uint256[] memory readyPositions = doppiCore.getReadySellPositions();
         uint256 initialBalance = btc.balanceOf(user1);
 
+        vm.startPrank(owner);
         doppiCore.settle_sells(readyPositions);
 
         // Should receive original amount + interest
@@ -426,6 +429,7 @@ contract DoppiCoreTest is Test {
         uint256 initialUsdtBalance = usdt.balanceOf(user1);
         uint256 initialBtcBalance = btc.balanceOf(user1);
 
+        vm.startPrank(owner);
         doppiCore.settle_sells(readyPositions);
 
         // Should receive USDT (converted at strike price) + interest in BTC

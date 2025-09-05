@@ -12,5 +12,5 @@ interface IDoppiLiquidityRouter {
     function assetB() external view returns (address);
 
     function deposit(address _asset, uint256 _amount) external returns (uint256 shares);
-    function redeem(address _asset, uint256 _amount) external;
+    function redeem(uint256 _amount) external;
 }
