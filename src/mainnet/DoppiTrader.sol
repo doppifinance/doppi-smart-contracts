@@ -89,7 +89,7 @@ contract DoppiTrader is Ownable, Pausable, AutomationCompatibleInterface {
         delete sell_undo_list;
     }
 
-    function createUnwindPosition(uint256 _amount, uint256 _strikePrice, bool _isBuyUndo) external onlyDualAsset {
+    function createUnwindPosition(uint256 _amount, uint256 _strikePrice, bool _isBuyUndo) external onlyDoppiCore {
         uint8 priceDecimals = doppiLP.getPriceDecimals();
 
         if (_isBuyUndo) {
@@ -316,8 +316,8 @@ contract DoppiTrader is Ownable, Pausable, AutomationCompatibleInterface {
         }
     }
     
-    modifier onlyDualAsset() {
-        require(msg.sender == address(doppiCore), "only Dual Asset");
+    modifier onlyDoppiCore() {
+        require(msg.sender == address(doppiCore), "only doppicore");
         _;
     }
 

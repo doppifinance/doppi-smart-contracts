@@ -113,9 +113,9 @@ contract DoppiOpportunity is Ownable, AutomationCompatibleInterface {
                 uint256 buffer = _orders[i].strikePrice * doppiConfig.tolerance() / 10000;
                 
                 if (_isNotTradedTriggered(_isBuy, _orders[i], price, buffer)) {
-                    doppiCore.adminSwap(_orders[i].owner, _orders[i].amount, price, i, _isBuy);
+                    doppiCore.opportunitySwap(_orders[i].owner, _orders[i].amount, price, i, _isBuy);
                 } else if (_isTradedTriggered(_isBuy, _orders[i], price, buffer)) {
-                    (, uint256 profit) = doppiCore.adminUnwind(_orders[i].owner, _orders[i].swappedAmount, price, i, !_isBuy);
+                    (, uint256 profit) = doppiCore.opportunityUnwind(_orders[i].owner, _orders[i].swappedAmount, price, i, !_isBuy);
                     if (_isBuy) {
                         profitAssetA += profit;
                     } else {

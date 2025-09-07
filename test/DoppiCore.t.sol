@@ -440,12 +440,12 @@ contract DoppiCoreTest is Test {
         assertEq(doppiCore.getSellPositionCount(), 0);
     }
 
-    function test_adminSwap() public {
+    function test_opportunitySwap() public {
         // Deposit a buy position
         _depositUSDT();
 
         vm.startPrank(admin);
-        (uint256 amountOut, ) = doppiCore.adminSwap(user1, 25_000 ether, INITIAL_PRICE, 0, true);
+        (uint256 amountOut, ) = doppiCore.opportunitySwap(user1, 25_000 ether, INITIAL_PRICE, 0, true);
         vm.stopPrank();
 
         assertGt(amountOut, 0);
@@ -456,20 +456,20 @@ contract DoppiCoreTest is Test {
         assertEq(position.swappedAmount, amountOut);
     }
 
-    function test_adminUnwind() public {
+    function test_opportunityUnwind() public {
         // First setup a position and trade it
         _depositUSDT();
 
         oracle.setPrice(int256(98_000 ether));
         // Admin swaps first
         vm.startPrank(admin);
-        (uint256 swappedAmount,) = doppiCore.adminSwap(user1, 50_000 ether, 98_000 ether, 0, true);
+        (uint256 swappedAmount,) = doppiCore.opportunitySwap(user1, 50_000 ether, 98_000 ether, 0, true);
         vm.stopPrank();
 
         oracle.setPrice(int256(102_000 ether));
         // Then admin unwinds
         vm.startPrank(admin);
-        (uint256 amountOut,) = doppiCore.adminUnwind(user1, swappedAmount, 102_000 ether, 0, false);
+        (uint256 amountOut,) = doppiCore.opportunityUnwind(user1, swappedAmount, 102_000 ether, 0, false);
         vm.stopPrank();
 
         assertGt(amountOut, 0);

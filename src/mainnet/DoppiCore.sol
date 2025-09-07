@@ -158,24 +158,24 @@ contract DoppiCore is Ownable, Pausable, AutomationCompatibleInterface {
     }
 
     // Admin functions
-    function adminSwap(address _owner, uint256 _amountPay, uint256 _price, uint256 _keyIndex, bool _isBuy)
+    function opportunitySwap(address _owner, uint256 _amountPay, uint256 _price, uint256 _keyIndex, bool _isBuy)
         external
-        onlyAdmin
+        onlyOpportunityBot
         returns (uint256 amountOut, uint256 profit)
     {
         uint256 price = doppiLP.getPrice();
         require(price == _price, "price mismatch");
-        return _adminTrade(_owner, _amountPay, _price, _keyIndex, _isBuy, false);
+        return _oppTrade(_owner, _amountPay, _price, _keyIndex, _isBuy, false);
     }
 
-    function adminUnwind(address _owner, uint256 _amountPay, uint256 _price, uint256 _keyIndex, bool _isBuy)
+    function opportunityUnwind(address _owner, uint256 _amountPay, uint256 _price, uint256 _keyIndex, bool _isBuy)
         external
-        onlyAdmin
+        onlyOpportunityBot
         returns (uint256 amountOut, uint256 profit)
     {
         uint256 price = doppiLP.getPrice();
         require(price == _price, "price mismatch");
-        return _adminTrade(_owner, _amountPay, _price, _keyIndex, _isBuy, true);
+        return _oppTrade(_owner, _amountPay, _price, _keyIndex, _isBuy, true);
     }
 
     // Chainlink Keepers integration
@@ -773,7 +773,7 @@ contract DoppiCore is Ownable, Pausable, AutomationCompatibleInterface {
         (swappedHedgeAmount, hedgePrice) = doppiLP.hedgeSwap(amountInHedgeAsset, _price, !isBuy);
     }
 
-    function _adminTrade(
+    function _oppTrade(
         address _owner,
         uint256 _amountPay,
         uint256 _price,
@@ -832,7 +832,7 @@ contract DoppiCore is Ownable, Pausable, AutomationCompatibleInterface {
         return true;
     }
 
-    modifier onlyAdmin() {
+    modifier onlyOpportunityBot() {
         require(admins[msg.sender], "only admin");
         _;
     }

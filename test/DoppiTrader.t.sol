@@ -331,8 +331,8 @@ contract DoppiTraderTest is Test {
         trader.setPause();
     }
 
-    function test_createUnwindPosition_onlyDualAsset() public {
-        vm.expectRevert("only Dual Asset");
+    function test_createUnwindPosition_onlyDoppiCore() public {
+        vm.expectRevert("only doppicore");
         trader.createUnwindPosition(100_000 ether, 99_000 ether, true);
     }
 
