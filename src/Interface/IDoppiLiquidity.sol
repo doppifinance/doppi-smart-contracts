@@ -8,33 +8,18 @@ interface IDoppiLiquidity is IShares {
     function assetA() external view returns (IERC20);
     function assetB() external view returns (IERC20);
     function doppiCore() external view returns (address);
-    function treasury() external view returns (address);
-    function router() external view returns (address);
-    function pancakeV3Pool() external view returns (address);
-    function poolFee() external view returns (uint24);
-    function slippage() external view returns (uint24);
-    function liquidityFee() external view returns (uint24);
-    function swapMargin() external view returns (uint32);
-
     function amountToBuy(uint256 price) external view returns (uint256);
     function amountToSell(uint256 price) external view returns (uint256);
     function toBuyPrices(uint256 index) external view returns (uint256);
     function toSellPrices(uint256 index) external view returns (uint256);
     function hedgeSwap(uint256 _amountIn, uint256 _price, bool _isBuy) external returns (uint256 amountOut, uint256 tradedPrice);
-
     function swap(uint256 _amountIn, uint256 _price, bool _isBuy) external returns (uint256 amountOut) ;
     function settle(uint256 _amountIn, uint256 _price, bool _isBuy) external returns (uint256 amountOut);
-    
     function transfer(IERC20 token, uint256 amount, address recipient) external;
-
-    // function unwindSwapOrder(uint256 _index, bool _isBuy) external;
-
     function getPrice() external view returns (uint256);
     function getPriceDecimals() external view returns (uint8);
-    function getBalanceAssetA() external view returns (uint256);
-    function getBalanceAssetB() external view returns (uint256);
-
     function assetRatio() external view returns (uint256 ratioA, uint256 ratioB);
     function totalAssetsInAssetA() external view returns (uint256);
     function totalAssetsInAssetB() external view returns (uint256);
+    function getDoppiConfig() external view returns (address);
 }

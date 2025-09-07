@@ -6,7 +6,7 @@ import {DoppiOpportunity} from "../src/mainnet/DoppiOpportunity.sol";
 import {DoppiCore} from "../src/mainnet/DoppiCore.sol";
 import {DoppiLiquidity} from "../src/mainnet/DoppiLiquidity.sol";
 import {DoppiLiquidityRouter} from "../src/mainnet/DoppiLiquidityRouter.sol";
-
+import {DoppiConfig} from "../src/mainnet/DoppiConfig.sol";
 import {BlackScholes} from "../src/mainnet/BlackScholes.sol";
 import {ImpliedVol} from "../src/mainnet/ImpliedVol.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
@@ -19,6 +19,7 @@ contract DoppiOpportunityTest is Test {
     DoppiCore doppiCore;
     DoppiLiquidity doppiLP;
     DoppiLiquidityRouter doppiRouter;
+    DoppiConfig doppiConfig;
     BlackScholes blackScholes;
     ImpliedVol impliedVol;
     MockToken usdt;
@@ -52,18 +53,22 @@ contract DoppiOpportunityTest is Test {
         impliedVol = new ImpliedVol(blackScholes);
         impliedVol.setRegression(86400, a_buy, b_buy, c_buy, a_sell, b_sell, c_sell);
 
+        // deploy doppiConfig
+        doppiConfig = new DoppiConfig();
+
         // Deploy Swapper that will act as both router and pool
         swapper = new Swapper(MockToken(usdt), MockToken(btc));
         swapper.setOracle(MockOracle(oracle));    
+        doppiConfig.setRouter(address(swapper));
+        doppiConfig.setQuoter(address(swapper));
+        doppiConfig.setTreasury(treasury);
+        doppiConfig.setOracle(address(oracle));
 
         doppiLP =
-            new DoppiLiquidity("Dual Asset Liquidity Pool", "DALP", IERC20(usdt), IERC20(btc), treasury);
-        doppiLP.setOracle(address(oracle));
-        doppiLP.setRouter(address(swapper));
-        doppiLP.setPancakeV3Pool(address(swapper));
-        doppiLP.setQuoter(address(swapper));
+            new DoppiLiquidity("Dual Asset Liquidity Pool", "DALP", IERC20(usdt), IERC20(btc));
+        doppiLP.setDoppiConfig(doppiConfig);
         doppiLP.approveRouter();
-
+        
         // Create router and set entry points
         doppiRouter = new DoppiLiquidityRouter(IERC20(usdt), IERC20(btc), doppiLP);
         doppiLP.setEntryPoint(address(doppiRouter.entryPointA()), true);
@@ -73,11 +78,12 @@ contract DoppiOpportunityTest is Test {
 
         doppiCore = new DoppiCore(address(usdt), address(btc), doppiLP, impliedVol);
 
-        doppiLP.setDualAsset(address(doppiCore));
+        doppiLP.setDoppiCore(address(doppiCore));
 
         doppiOpportunity = new DoppiOpportunity(address(doppiCore), address(doppiLP));
         doppiCore.setAdmin(address(doppiOpportunity), true);
         doppiOpportunity.setForwarderAddress(mockForwarder);
+        doppiOpportunity.setDoppiConfig(doppiConfig);
 
         // Mint tokens to a liquidity provider and properly deposit into LP
         address liquidityProvider = address(0x999);

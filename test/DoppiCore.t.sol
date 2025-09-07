@@ -7,6 +7,7 @@ import {DoppiLiquidity} from "../src/mainnet/DoppiLiquidity.sol";
 import {DoppiLiquidityRouter} from "../src/mainnet/DoppiLiquidityRouter.sol";
 import {DoppiTraderFactory} from "../src/mainnet/DoppiTraderFactory.sol";
 import {DoppiTrader} from "../src/mainnet/DoppiTrader.sol";
+import {DoppiConfig} from "../src/mainnet/DoppiConfig.sol";
 import {BlackScholes} from "../src/mainnet/BlackScholes.sol";
 import {ImpliedVol} from "../src/mainnet/ImpliedVol.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
@@ -18,6 +19,7 @@ import {Swapper} from "../src/test/Swapper.sol";
 contract DoppiCoreTest is Test {
     DoppiCore doppiCore;
     DoppiLiquidity doppiLP;
+    DoppiConfig doppiConfig;
     DoppiLiquidityRouter doppiRouter;
     DoppiTraderFactory traderFactory;
     BlackScholes blackScholes;
@@ -58,21 +60,25 @@ contract DoppiCoreTest is Test {
         impliedVol = new ImpliedVol(blackScholes);
         impliedVol.setRegression(86400, a_buy, b_buy, c_buy, a_sell, b_sell, c_sell);
 
+        // deploy doppiConfig
+        doppiConfig = new DoppiConfig();
+        
         // Deploy Swapper that will act as both router and pool
         swapper = new Swapper(MockToken(usdt), MockToken(btc));
         swapper.setOracle(MockOracle(oracle));    
+        doppiConfig.setRouter(address(swapper));
+        doppiConfig.setQuoter(address(swapper));
+        doppiConfig.setTreasury(treasury);
+        doppiConfig.setOracle(address(oracle));
         
         doppiLP =
-            new DoppiLiquidity("Dual Asset Liquidity Pool", "DALP", IERC20(usdt), IERC20(btc), treasury);
-        doppiLP.setOracle(address(oracle));
-        doppiLP.setRouter(address(swapper));
-        doppiLP.setPancakeV3Pool(address(swapper));
-        doppiLP.setQuoter(address(swapper));
+            new DoppiLiquidity("Dual Asset Liquidity Pool", "DALP", IERC20(usdt), IERC20(btc));
+        doppiLP.setDoppiConfig(doppiConfig);
         doppiLP.approveRouter();
-
+        
         doppiCore = new DoppiCore(address(usdt), address(btc), doppiLP, impliedVol);
 
-        doppiLP.setDualAsset(address(doppiCore));
+        doppiLP.setDoppiCore(address(doppiCore));
 
         // Create router and set entry points
         doppiRouter = new DoppiLiquidityRouter(IERC20(usdt), IERC20(btc), doppiLP);
@@ -80,6 +86,7 @@ contract DoppiCoreTest is Test {
         doppiLP.setEntryPoint(address(doppiRouter.entryPointB()), true);
         doppiLP.approveEntryPoint(address(doppiRouter.entryPointA()), address(usdt));
         doppiLP.approveEntryPoint(address(doppiRouter.entryPointB()), address(btc));
+        doppiLP.setDoppiConfig(doppiConfig);
 
         traderFactory =
             new DoppiTraderFactory(IERC20(usdt), IERC20(btc), doppiCore, doppiLP, doppiRouter, mockForwarder);
@@ -134,11 +141,6 @@ contract DoppiCoreTest is Test {
             new DoppiTraderFactory(IERC20(usdt), IERC20(btc), doppiCore, doppiLP, doppiRouter, mockForwarder);
         doppiCore.setDoppiTraderFactory(newFactory);
         assertEq(address(doppiCore.doppiTraderFactory()), address(newFactory));
-    }
-
-    function test_setPriceGap() public {
-        doppiCore.setPriceGap(1000);
-        assertEq(doppiCore.PRICE_GAP_PEROFFER(), 1000);
     }
 
     function test_getBuyOffers() public view {
@@ -542,16 +544,18 @@ contract DoppiCoreTest is Test {
         doppiCore.performUpkeep(performData);
 
         // profit in hedging position (earn BTC)
-        assertGt(doppiCore.settleHedgeProfitAssetB(), 0);
-        
-        assertEq(doppiCore.settleHedgeProfitAssetA(), 0);
-        assertEq(doppiCore.settleHedgeLossAssetA(), 0);
-        assertEq(doppiCore.settleHedgeLossAssetB(), 0);
+        (
+            uint128 settleHedgeProfitAssetA,
+            uint128 settleHedgeProfitAssetB,
+            uint128 settleHedgeLossAssetA,
+            uint128 settleHedgeLossAssetB
+        ) = doppiCore.hedgeStats();
 
-        // console.log(doppiCore.settleHedgeProfitAssetA(), "settleHedgeProfitAssetA");
-        // console.log(doppiCore.settleHedgeProfitAssetB(), "settleHedgeProfitAssetB");
-        // console.log(doppiCore.settleHedgeLossAssetA(), "settleHedgeLossAssetA");
-        // console.log(doppiCore.settleHedgeLossAssetB(), "settleHedgeLossAssetB");
+        assertGt(settleHedgeProfitAssetB, 0);
+        assertEq(settleHedgeProfitAssetA, 0);
+        assertEq(settleHedgeLossAssetA, 0);
+        assertEq(settleHedgeLossAssetB, 0);
+
     }
 
     function test_performUpkeep_sell_hedge_profit() public {
@@ -566,16 +570,18 @@ contract DoppiCoreTest is Test {
         doppiCore.performUpkeep(performData);
 
         // profit in hedging position (earn BTC)
-        assertGt(doppiCore.settleHedgeProfitAssetA(), 0);
 
-        assertEq(doppiCore.settleHedgeProfitAssetB(), 0);
-        assertEq(doppiCore.settleHedgeLossAssetA(), 0);
-        assertEq(doppiCore.settleHedgeLossAssetB(), 0);
+        (
+            uint128 settleHedgeProfitAssetA,
+            uint128 settleHedgeProfitAssetB,
+            uint128 settleHedgeLossAssetA,
+            uint128 settleHedgeLossAssetB
+        ) = doppiCore.hedgeStats();
 
-        // console.log(doppiCore.settleHedgeProfitAssetA(), "settleHedgeProfitAssetA");
-        // console.log(doppiCore.settleHedgeProfitAssetB(), "settleHedgeProfitAssetB");
-        // console.log(doppiCore.settleHedgeLossAssetA(), "settleHedgeLossAssetA");
-        // console.log(doppiCore.settleHedgeLossAssetB(), "settleHedgeLossAssetB");
+        assertGt(settleHedgeProfitAssetA, 0);
+        assertEq(settleHedgeProfitAssetB, 0);
+        assertEq(settleHedgeLossAssetA, 0);
+        assertEq(settleHedgeLossAssetB, 0);
     }
 
     function test_performUpkeep_buy_hedge_loss() public {
@@ -590,16 +596,17 @@ contract DoppiCoreTest is Test {
         doppiCore.performUpkeep(performData);
 
         // loss in hedging position (loss BTC)
-        assertGt(doppiCore.settleHedgeLossAssetB(), 0);
-        
-        assertEq(doppiCore.settleHedgeProfitAssetA(), 0);
-        assertEq(doppiCore.settleHedgeLossAssetA(), 0);
-        assertEq(doppiCore.settleHedgeProfitAssetB(), 0);
+        (
+            uint128 settleHedgeProfitAssetA,
+            uint128 settleHedgeProfitAssetB,
+            uint128 settleHedgeLossAssetA,
+            uint128 settleHedgeLossAssetB
+        ) = doppiCore.hedgeStats();
 
-        // console.log(doppiCore.settleHedgeProfitAssetA(), "settleHedgeProfitAssetA");
-        // console.log(doppiCore.settleHedgeProfitAssetB(), "settleHedgeProfitAssetB");
-        // console.log(doppiCore.settleHedgeLossAssetA(), "settleHedgeLossAssetA");
-        // console.log(doppiCore.settleHedgeLossAssetB(), "settleHedgeLossAssetB");
+        assertGt(settleHedgeLossAssetB, 0);
+        assertEq(settleHedgeProfitAssetA, 0);
+        assertEq(settleHedgeLossAssetA, 0);
+        assertEq(settleHedgeProfitAssetB, 0);
     }
 
     function test_performUpkeep_sell_hedge_loss() public {
@@ -614,16 +621,17 @@ contract DoppiCoreTest is Test {
         doppiCore.performUpkeep(performData);
 
         // profit in hedging position (earn BTC)
-        assertGt(doppiCore.settleHedgeLossAssetA(), 0);
+        (
+            uint128 settleHedgeProfitAssetA,
+            uint128 settleHedgeProfitAssetB,
+            uint128 settleHedgeLossAssetA,
+            uint128 settleHedgeLossAssetB
+        ) = doppiCore.hedgeStats();
 
-        assertEq(doppiCore.settleHedgeProfitAssetB(), 0);
-        assertEq(doppiCore.settleHedgeProfitAssetA(), 0);
-        assertEq(doppiCore.settleHedgeLossAssetB(), 0);
-
-        // console.log(doppiCore.settleHedgeProfitAssetA(), "settleHedgeProfitAssetA");
-        // console.log(doppiCore.settleHedgeProfitAssetB(), "settleHedgeProfitAssetB");
-        // console.log(doppiCore.settleHedgeLossAssetA(), "settleHedgeLossAssetA");
-        // console.log(doppiCore.settleHedgeLossAssetB(), "settleHedgeLossAssetB");
+        assertGt(settleHedgeLossAssetA, 0);
+        assertEq(settleHedgeProfitAssetB, 0);
+        assertEq(settleHedgeProfitAssetA, 0);
+        assertEq(settleHedgeLossAssetB, 0);
     }
 
     function testFuzz_deposit_buy_amounts(uint256 amount) public {

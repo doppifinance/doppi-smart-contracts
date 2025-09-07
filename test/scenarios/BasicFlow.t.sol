@@ -14,6 +14,7 @@ import {MockToken} from "../../src/test/MockToken.sol";
 import {MockOracle} from "../../src/test/MockOracle.sol";
 import {DoppiOpportunity} from "../../src/mainnet/DoppiOpportunity.sol";
 import {Swapper} from "../../src/test/Swapper.sol";
+import {DoppiConfig} from "../../src/mainnet/DoppiConfig.sol";
 
 
 contract BasicFlowTest is Test {
@@ -29,7 +30,8 @@ contract BasicFlowTest is Test {
     MockOracle oracle;
     DoppiOpportunity opportunityBot;
     Swapper public swapper;
-
+    DoppiConfig doppiConfig;
+    
     address owner = address(0x1);
     address treasury = address(0x3);
     address admin = address(0x4);
@@ -46,9 +48,15 @@ contract BasicFlowTest is Test {
         btc = new MockToken("Bitcoin", "BTC");
         oracle = new MockOracle(int256(100_000 ether), 18);
 
-        vm.prank(owner);
-        // Deploy Swapper that will act as both router and pool
         swapper = _setupMockSwapper(address(usdt), address(btc), address(oracle));        
+        
+        doppiConfig = new DoppiConfig();
+        doppiConfig.setRouter(address(swapper));
+        doppiConfig.setQuoter(address(swapper));
+        doppiConfig.setTreasury(treasury);
+        doppiConfig.setPancakeV3Pool(address(swapper)); 
+        doppiConfig.setOracle(address(oracle));
+        
         impliedVol = _setupIV();
         doppiLP = _setupLP(address(usdt), address(btc), address(oracle), address(swapper));
         doppiCore = new DoppiCore(address(usdt), address(btc), doppiLP, impliedVol);
@@ -56,17 +64,18 @@ contract BasicFlowTest is Test {
         doppiRouter = new DoppiLiquidityRouter(IERC20(usdt), IERC20(btc), doppiLP);
         doppiFactory = new DoppiTraderFactory(IERC20(usdt), IERC20(btc), doppiCore, doppiLP, doppiRouter, mockForwarder);
 
-        // Setup initial setting
         opportunityBot.setForwarderAddress(mockForwarder);
+        opportunityBot.setDoppiConfig(doppiConfig);
         doppiCore.setForwarderAddress(mockForwarder);
-        doppiLP.setForwarderAddress(mockForwarder);
         doppiCore.setAdmin(address(opportunityBot), true);
-        doppiLP.setDualAsset(address(doppiCore));
+        doppiLP.setForwarderAddress(mockForwarder);
+        doppiLP.setDoppiCore(address(doppiCore));
         doppiLP.setEntryPoint(address(doppiRouter.entryPointA()), true);
         doppiLP.setEntryPoint(address(doppiRouter.entryPointB()), true);
         doppiLP.approveEntryPoint(address(doppiRouter.entryPointA()), address(usdt));
         doppiLP.approveEntryPoint(address(doppiRouter.entryPointB()), address(btc));
         doppiLP.setDoppiTraderFactory(address(doppiFactory));
+        doppiCore.setDoppiTraderFactory(doppiFactory);
 
         vm.prank(owner);
         trader = _setupTraderBot();
@@ -157,6 +166,7 @@ contract BasicFlowTest is Test {
     // internal
     function _start() internal {
 
+        console.log("start");
         vm.startPrank(owner);
         uint256 amountUSDT = 100_000 ether;
         uint256 amountBTC = 1 ether;
@@ -181,14 +191,10 @@ contract BasicFlowTest is Test {
 
     function _setupLP(address _assetA, address _assetB, address _oracle, address _swapper) internal returns (DoppiLiquidity _doppiLP) {
         _doppiLP =
-            new DoppiLiquidity("Dual Asset Liquidity Pool", "DALP", IERC20(_assetA), IERC20(_assetB), treasury);
-        _doppiLP.setOracle(address(_oracle));
+            new DoppiLiquidity("Dual Asset Liquidity Pool", "DALP", IERC20(_assetA), IERC20(_assetB));
         // Set the mock oracle, router, pool, and quoter
-        _doppiLP.setOracle(address(_oracle));
-        // setup mock pancakeswap router
-        _doppiLP.setRouter(address(_swapper));
-        _doppiLP.setPancakeV3Pool(address(_swapper));
-        _doppiLP.setQuoter(address(_swapper));
+        // _doppiLP.setOracle(address(_oracle));
+        _doppiLP.setDoppiConfig(doppiConfig); 
         _doppiLP.approveRouter();
     }
     

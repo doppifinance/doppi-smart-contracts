@@ -1,24 +1,23 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.26;
 
-import {IERC20, ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
+import {Pausable} from "@openzeppelin/contracts/utils/Pausable.sol";
 import {IDoppiLiquidityRouter} from "../Interface/IDoppiLiquidityRouter.sol";
 import {IDoppiLiquidity} from "../Interface/IDoppiLiquidity.sol";
 import {IShares} from "../Interface/IShares.sol";
 import {IERC7575, ERC7575} from "./ERC7575.sol";
-import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
-import "forge-std/console.sol";
 
-contract DoppiLiquidityRouter is Ownable, IDoppiLiquidityRouter {
+contract DoppiLiquidityRouter is Ownable, Pausable, IDoppiLiquidityRouter {
     using SafeERC20 for IERC20;
 
-    IDoppiLiquidity public doppiLP;
-    IERC7575 public entryPointA;
-    IERC7575 public entryPointB;
-    address public assetA;
-    address public assetB;
+    IDoppiLiquidity public immutable doppiLP;
+    IERC7575 public immutable entryPointA;
+    IERC7575 public immutable entryPointB;
+    address public immutable assetA;
+    address public immutable assetB;
 
     constructor(IERC20 _assetA, IERC20 _assetB, IDoppiLiquidity _doppiLP) Ownable(msg.sender) {
         doppiLP = _doppiLP;
@@ -28,7 +27,7 @@ contract DoppiLiquidityRouter is Ownable, IDoppiLiquidityRouter {
         assetB = address(_assetB);
     }
 
-    function deposit(address _asset, uint256 _amount) external returns (uint256 shares) {
+    function deposit(address _asset, uint256 _amount) external whenNotPaused returns (uint256 shares) {
         IERC20(_asset).safeTransferFrom(msg.sender, address(this), _amount);
 
         if (_asset == assetA) {
@@ -38,7 +37,7 @@ contract DoppiLiquidityRouter is Ownable, IDoppiLiquidityRouter {
             IERC20(_asset).safeIncreaseAllowance(address(entryPointB), _amount);
             shares = entryPointB.deposit(_amount, msg.sender);
         } else {
-            assert(false);
+            revert("Invalid asset");
         }
     }
 
@@ -51,6 +50,13 @@ contract DoppiLiquidityRouter is Ownable, IDoppiLiquidityRouter {
         entryPointB.redeem(secondHalf, msg.sender, address(this));
     }
 
+    function setPause() external onlyOwner {
+        _pause();
+    }
+
+    function setUnPause() external onlyOwner {
+        _unpause();
+    }
 }
 
 contract EntryPointAssetA is ERC7575 {
@@ -63,7 +69,6 @@ contract EntryPointAssetA is ERC7575 {
     function assetRatio() public view returns (uint256, uint256) {
         return IDoppiLiquidity(shareToken()).assetRatio();
     }
-
 }
 
 contract EntryPointAssetB is ERC7575 {

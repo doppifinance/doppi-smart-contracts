@@ -58,7 +58,7 @@
 
 //         // Deploy doppiCore
 //         doppiCore = new DoppiCore(address(usdt), address(btc), doppiLP, impliedVol);
-//         doppiLP.setDualAsset(address(doppiCore));
+//         doppiLP.setDoppiCore(address(doppiCore));
 
 //         // Create router and set entry points
 //         doppiRouter = new DoppiLiquidityRouter(IERC20(usdt), IERC20(btc), doppiLP);

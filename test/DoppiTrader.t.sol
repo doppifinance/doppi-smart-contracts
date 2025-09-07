@@ -14,12 +14,14 @@ import {MockToken} from "../src/test/MockToken.sol";
 import {MockOracle} from "../src/test/MockOracle.sol";
 import {DoppiOpportunity} from "../src/mainnet/DoppiOpportunity.sol";
 import {Swapper} from "../src/test/Swapper.sol";
+import {DoppiConfig} from "../src/mainnet/DoppiConfig.sol";
 
 contract DoppiTraderTest is Test {
     DoppiTraderFactory doppiFactory;
     DoppiTrader trader;
     DoppiCore doppiCore;
     DoppiLiquidity doppiLP;
+    DoppiConfig doppiConfig;
     DoppiLiquidityRouter doppiRouter;
     BlackScholes blackScholes;
     ImpliedVol impliedVol;
@@ -57,26 +59,30 @@ contract DoppiTraderTest is Test {
         impliedVol = new ImpliedVol(blackScholes);
         impliedVol.setRegression(86400, a_buy, b_buy, c_buy, a_sell, b_sell, c_sell);
 
+        // deploy doppiConfig
+        doppiConfig = new DoppiConfig();
+
         // Deploy Swapper that will act as both router and pool
         swapper = new Swapper(MockToken(usdt), MockToken(btc));
         swapper.setOracle(MockOracle(oracle));    
+        doppiConfig.setRouter(address(swapper));
+        doppiConfig.setQuoter(address(swapper));
+        doppiConfig.setTreasury(treasury);
+        doppiConfig.setOracle(address(oracle));
 
         doppiLP =
-            new DoppiLiquidity("Dual Asset Liquidity Pool", "DALP", IERC20(usdt), IERC20(btc), treasury);
-        doppiLP.setOracle(address(oracle));
-        doppiLP.setRouter(address(swapper));
-        doppiLP.setPancakeV3Pool(address(swapper));
-        doppiLP.setQuoter(address(swapper));
+            new DoppiLiquidity("Dual Asset Liquidity Pool", "DALP", IERC20(usdt), IERC20(btc));
+        doppiLP.setDoppiConfig(doppiConfig);
         doppiLP.approveRouter();
-
         doppiCore = new DoppiCore(address(usdt), address(btc), doppiLP, impliedVol);
 
         opportunityBot = new DoppiOpportunity(address(doppiCore), address(doppiLP));
         doppiCore.setAdmin(address(opportunityBot), true);
         doppiCore.setForwarderAddress(mockForwarder);
         opportunityBot.setForwarderAddress(mockForwarder);
+        opportunityBot.setDoppiConfig(doppiConfig);
 
-        doppiLP.setDualAsset(address(doppiCore));
+        doppiLP.setDoppiCore(address(doppiCore));
 
         weights.push(500);
         weights.push(1000);
@@ -100,23 +106,13 @@ contract DoppiTraderTest is Test {
         uint256 id = doppiFactory.deployTraderBot(weights);
         trader = doppiFactory.traderBots(id);
         vm.stopPrank();
-        // console.log("setup", trader.owner(), owner);
-        // vm.prank(owner2);
-        // trader.setForwarderAddress(mockForwarder);
-        // vm.stopPrank();
-
+        
         usdt.mint(owner, 10_000_000 ether);
         btc.mint(owner, 100 ether);
 
         usdt.mint(admin, 1_000_000 ether);
         btc.mint(admin, 20 ether);
         
-        // vm.startPrank(admin);
-        // usdt.approve(address(doppiRouter), 1_000_000 ether);
-        // btc.approve(address(doppiRouter), 20 ether);
-        // doppiRouter.deposit(address(usdt), 1_000_000 ether);
-        // doppiRouter.deposit(address(btc), 20 ether);
-        // vm.stopPrank();
     }
 
     function test_constructor() public view {
@@ -125,7 +121,7 @@ contract DoppiTraderTest is Test {
         assertEq(address(trader.assetB()), address(btc));
         assertEq(address(trader.doppiLP()), address(doppiLP));
         assertEq(address(trader.doppiCore()), address(doppiCore));
-        assertEq(trader.DEFAULT_DAYS(), 1);
+        assertEq(trader.doppiConfig().DEFAULT_DAYS(), 1);
         assertEq(trader.defaultassetAAmount(), 0 ether);
         assertEq(trader.defaultassetBAmount(), 0 ether);
     }
@@ -204,7 +200,7 @@ contract DoppiTraderTest is Test {
         _start();
         trader.setPause();
         // vm.warp(block.timestamp + 1 days);
-        vm.expectRevert("active order exist");
+        vm.expectRevert("active orders");
         trader.stop();
         vm.stopPrank();
     }

@@ -2,6 +2,7 @@
 pragma solidity ^0.8.26;
 
 import "forge-std/Test.sol";
+import {DoppiConfig} from "../src/mainnet/DoppiConfig.sol";
 import {DoppiLiquidity} from "../src/mainnet/DoppiLiquidity.sol";
 import {DoppiLiquidityRouter} from "../src/mainnet/DoppiLiquidityRouter.sol";
 import {MockToken} from "../src/test/MockToken.sol";
@@ -12,6 +13,7 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 contract DoppiLiquidityTest is Test {
     DoppiLiquidity public doppiLP;
     DoppiLiquidityRouter public router;
+    DoppiConfig public doppiConfig;
     MockToken public usdt;
     MockToken public btc;
     MockOracle public oracle;
@@ -43,23 +45,27 @@ contract DoppiLiquidityTest is Test {
         // Deploy mock oracle with 100,000 USDT per BTC price
         oracle = new MockOracle(int256(100_000 ether), 18);
 
+        // deploy doppiConfig
+        doppiConfig = new DoppiConfig();
+
         // Deploy Swapper that will act as both router and pool
         swapper = new Swapper(usdt, btc);
         swapper.setOracle(oracle);
+        doppiConfig.setRouter(address(swapper));
+        doppiConfig.setQuoter(address(swapper));
+        doppiConfig.setTreasury(treasury);
+        doppiConfig.setOracle(address(oracle));
 
         // Deploy doppiLP
         doppiLP =
-            new DoppiLiquidity("Dual Asset LP", "DALP", IERC20(address(usdt)), IERC20(address(btc)), treasury);
+            new DoppiLiquidity("Dual Asset LP", "DALP", IERC20(address(usdt)), IERC20(address(btc)));
 
         // Set the mock oracle, router, pool, and quoter
-        doppiLP.setOracle(address(oracle));
-        doppiLP.setRouter(address(swapper));
-        doppiLP.setPancakeV3Pool(address(swapper));
-        doppiLP.setQuoter(address(swapper));
-        doppiLP.setDualAsset(mockDualAsset);
+        doppiLP.setDoppiConfig(doppiConfig);
+        doppiLP.setDoppiCore(mockDualAsset);
         doppiLP.approveRouter();
         doppiLP.setForwarderAddress(mockForwarder);
-
+        
         // Deploy doppiLPRouter
         router = new DoppiLiquidityRouter(IERC20(address(usdt)), IERC20(address(btc)), doppiLP);
 
