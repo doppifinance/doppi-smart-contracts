@@ -11,8 +11,9 @@ import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {DALiquidityLib} from "../Library/DALiquidityLib.sol";
 import {AutomationCompatibleInterface} from "../Interface/AutomationCompatibleInterface.sol";
 import {DoppiConfig} from "./DoppiConfig.sol";
+import {Pausable} from "@openzeppelin/contracts/utils/Pausable.sol";
 
-contract DoppiLiquidity is ERC20, Ownable, IDoppiLiquidity, AutomationCompatibleInterface {
+contract DoppiLiquidity is ERC20, Ownable, Pausable, IDoppiLiquidity, AutomationCompatibleInterface {
     using SafeERC20 for IERC20;
     using Math for uint256;
 
@@ -140,6 +141,14 @@ contract DoppiLiquidity is ERC20, Ownable, IDoppiLiquidity, AutomationCompatible
         validEntryPoints[entryPoint] = isValid;
     }
 
+    function setPause() external onlyOwner {
+        _pause();
+    }
+
+    function setUnPause() external onlyOwner {
+        _unpause();
+    }
+
     function approveEntryPoint(address entryPoint, address token) external onlyOwner {
         require(validEntryPoints[entryPoint], "Invalid entry");
         IERC20(token).approve(entryPoint, type(uint256).max);
@@ -168,6 +177,8 @@ contract DoppiLiquidity is ERC20, Ownable, IDoppiLiquidity, AutomationCompatible
         override
         returns (bool upkeepNeeded, bytes memory performData)
     {
+        if(paused()) return (false, bytes(""));
+
         uint8 priceDecimals = DALiquidityLib.getPriceDecimals(doppiConfig.chainLinkFeed());
         uint256 currentPrice = DALiquidityLib.getPrice(doppiConfig.chainLinkFeed());
 
@@ -193,10 +204,12 @@ contract DoppiLiquidity is ERC20, Ownable, IDoppiLiquidity, AutomationCompatible
             return (true, abi.encode(false, true, buyindexes, sellindexes, totalSellAmount, totalSellAmountOut));
         }
 
-        return (false, "0x");
+        return (false, bytes(""));
     }
 
     function performUpkeep(bytes calldata performData) external override onlyForwarder {
+        
+        if(paused()) return;
         (bool toBuy, bool toSell, uint256[] memory buyindexes, uint256[] memory sellindexes, uint256 totalAmount, uint256 totalAmountOut) = 
             abi.decode(performData, (bool, bool, uint256[], uint256[], uint256, uint256));
         

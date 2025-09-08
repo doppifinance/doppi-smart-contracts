@@ -63,6 +63,7 @@ contract ImpliedVol is IImpliedVol, Ownable {
         returns (uint32 sellapr, uint256 delta)
     {
         uint256 vsell = _getImpliedVol(timeToExpiry, _strikeSell, false);
+        if(vsell == 0) return (0, 0);
         IBlackScholes.PricesDeltaStdVega memory data =
             blackScholes.pricesDeltaStdVega(timeToExpiry, vsell, _spot, _strikeSell, 0);
         delta = blackScholes.abs(data.callDelta / 1e14);
@@ -76,6 +77,7 @@ contract ImpliedVol is IImpliedVol, Ownable {
         returns (uint32 buyapr, uint256 delta)
     {
         uint256 vbuy = _getImpliedVol(timeToExpiry, _strikeBuy, true);
+        if(vbuy == 0) return (0, 0);
         IBlackScholes.PricesDeltaStdVega memory data =
             blackScholes.pricesDeltaStdVega(timeToExpiry, vbuy, _spot, _strikeBuy, 0);
 

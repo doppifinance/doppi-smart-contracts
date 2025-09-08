@@ -12,6 +12,7 @@ import {IDoppiTrader} from "../Interface/IDoppiTrader.sol";
 import {DoppiTraderFactory} from "./DoppiTraderFactory.sol";
 import {DoppiConfig} from "./DoppiConfig.sol";
 import {IImpliedVol} from "../Interface/IImpliedVol.sol";
+import "forge-std/console.sol";
 
 contract DoppiCore is Ownable, Pausable, AutomationCompatibleInterface {
     using SafeERC20 for IERC20;
@@ -119,6 +120,7 @@ contract DoppiCore is Ownable, Pausable, AutomationCompatibleInterface {
         DualAssetOffer memory buyOffer = getOffer(true, params.numDays, params.strikeZone);
         require(buyOffer.strikePrice == params.strikePrice, "incorrect strikePrice");
         require(buyOffer.apr == params.apr, "incorrect apr");
+        require(buyOffer.apr > 0, "apr not available");
         require(params.validityTime >= block.timestamp, "offer expired");
         _depositBuy(params, buyOffer);
     }
@@ -127,6 +129,7 @@ contract DoppiCore is Ownable, Pausable, AutomationCompatibleInterface {
         DualAssetOffer memory sellOffer = getOffer(false, params.numDays, params.strikeZone);
         require(sellOffer.strikePrice == params.strikePrice, "incorrect strikePrice");
         require(sellOffer.apr == params.apr, "incorrect apr");
+        require(sellOffer.apr > 0, "apr not available");
         require(params.validityTime >= block.timestamp, "offer expired");
         _depositSell(params, sellOffer);
     }
@@ -134,6 +137,8 @@ contract DoppiCore is Ownable, Pausable, AutomationCompatibleInterface {
     function bulkDepositBuys(DepositParams[] calldata params, DualAssetOffer[] memory _buyOffers) external onlyTraderBot whenNotPaused {
         uint256 length = params.length;
         for (uint256 i = 0; i < length; ) {
+            require(params[i].amount > 0, "amount less than 0");
+            require(params[i].apr > 0, "apr not available");
             DualAssetOffer memory buyOffer = _buyOffers[params[i].strikeZone];
             _depositBuy(params[i], buyOffer);
             unchecked { ++i; }
@@ -143,6 +148,8 @@ contract DoppiCore is Ownable, Pausable, AutomationCompatibleInterface {
     function bulkDepositSells(DepositParams[] calldata params, DualAssetOffer[] memory _sellOffers) external onlyTraderBot whenNotPaused {
         uint256 length = params.length;
         for (uint256 i = 0; i < length; ) {
+            require(params[i].amount > 0, "amount less than 0");
+            require(params[i].apr > 0, "apr not available");
             DualAssetOffer memory sellOffer = _sellOffers[params[i].strikeZone];
             _depositSell(params[i], sellOffer);
             unchecked { ++i; }
@@ -197,6 +204,9 @@ contract DoppiCore is Ownable, Pausable, AutomationCompatibleInterface {
     }
 
     function performUpkeep(bytes calldata performData) external onlyForwarder {
+        
+        if(paused()) return;
+        
         (bool buyReady, uint256[] memory buyIndexes, bool sellReady, uint256[] memory sellIndexes) =
             abi.decode(performData, (bool, uint256[], bool, uint256[]));
         if (buyReady) {
@@ -517,7 +527,6 @@ contract DoppiCore is Ownable, Pausable, AutomationCompatibleInterface {
 
         // Calculate interest using precomputed values
         uint256 interest = params.amount * _buyOffer.apr / (BASIS_POINTS * (SECONDS_PER_YEAR / (SECONDS_PER_DAY * params.numDays)));
-
         positions_buy[msg.sender][positionId] = DualAssetPosition(
             params.amount,
             _buyOffer.price,

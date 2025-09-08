@@ -5,8 +5,9 @@ import "./DoppiCore.sol";
 import "../Interface/AutomationCompatibleInterface.sol";
 import {IDoppiLiquidity} from "../Interface/IDoppiLiquidity.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
+import {Pausable} from "@openzeppelin/contracts/utils/Pausable.sol";
 
-contract DoppiOpportunity is Ownable, AutomationCompatibleInterface {
+contract DoppiOpportunity is Ownable, Pausable, AutomationCompatibleInterface {
     DoppiCore public immutable doppiCore;
     IDoppiLiquidity public immutable doppiLP;
     DoppiConfig public doppiConfig;
@@ -28,6 +29,9 @@ contract DoppiOpportunity is Ownable, AutomationCompatibleInterface {
     }
 
     function checkUpkeep(bytes calldata) external view override returns (bool upkeepNeeded, bytes memory performData) {
+        
+        if(paused()) return (false, bytes(""));
+
         uint256 price = doppiLP.getPrice();
         DoppiCore.DualAssetPosition[] memory buys = doppiCore.get_positions_buy();
         DoppiCore.DualAssetPosition[] memory sells = doppiCore.get_positions_sell();
@@ -40,13 +44,16 @@ contract DoppiOpportunity is Ownable, AutomationCompatibleInterface {
         if (upkeepNeeded) {
             performData = abi.encode(price, _trimArray(buyIndexes, buyCount), _trimArray(sellIndexes, sellCount));
         } else {
-            performData = "";
+            performData = bytes("");
         }
         
         return (upkeepNeeded, performData);
     }
 
     function performUpkeep(bytes calldata performData) external override onlyForwarder {
+        
+        if(paused()) return;
+        
         (uint256 price, uint256[] memory buyIndexes, uint256[] memory sellIndexes) =
             abi.decode(performData, (uint256, uint256[], uint256[]));
 
@@ -58,6 +65,14 @@ contract DoppiOpportunity is Ownable, AutomationCompatibleInterface {
         }
         
         _opportunity_bot(price, buyIndexes, sellIndexes);
+    }
+
+    function setPause() external onlyOwner {
+        _pause();
+    }
+
+    function setUnPause() external onlyOwner {
+        _unpause();
     }
 
     function _opportunity_bot(uint256 price, uint256[] memory buyIndexes, uint256[] memory sellIndexes) internal {

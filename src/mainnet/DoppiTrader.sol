@@ -11,6 +11,7 @@ import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {AutomationCompatibleInterface} from "../Interface/AutomationCompatibleInterface.sol";
 import {DoppiConfig} from "./DoppiConfig.sol";
+import "forge-std/console.sol";
 
 contract DoppiTrader is Ownable, Pausable, AutomationCompatibleInterface {
     using SafeERC20 for IERC20;
@@ -183,6 +184,9 @@ contract DoppiTrader is Ownable, Pausable, AutomationCompatibleInterface {
     }
 
     function performUpkeep(bytes calldata performData) external override onlyForwarder {
+        
+        if(paused()) return;
+
         (bool performUnwind, uint256 price, uint256 index, 
         bool isBuyUndo, bool placeBuy, bool placeSell) = abi.decode(performData, (bool, uint256, uint256, bool, bool, bool));
         
@@ -224,10 +228,9 @@ contract DoppiTrader is Ownable, Pausable, AutomationCompatibleInterface {
         assetA.safeIncreaseAllowance(address(doppiCore), order_amt);
         
         DoppiCore.DualAssetOffer[] memory offers = doppiCore.getBuyOffers(doppiConfig.DEFAULT_DAYS());
-        uint256 offersLength = offers.length;
-        DoppiCore.DepositParams[] memory deposits = new DoppiCore.DepositParams[](offersLength);
-        
-        for (uint8 i = 0; i < offersLength; ) {
+        uint256 length = offers.length > orderWeights.length? orderWeights.length : offers.length;
+        DoppiCore.DepositParams[] memory deposits = new DoppiCore.DepositParams[](length);
+        for (uint8 i = 0; i < length; ) {
             deposits[i] = DoppiCore.DepositParams(
                 order_amt * orderWeights[i] / 10000,
                 i,
@@ -249,10 +252,10 @@ contract DoppiTrader is Ownable, Pausable, AutomationCompatibleInterface {
         assetB.safeIncreaseAllowance(address(doppiCore), order_amt);
         
         DoppiCore.DualAssetOffer[] memory offers = doppiCore.getSellOffers(doppiConfig.DEFAULT_DAYS());
-        uint256 offersLength = offers.length;
-        DoppiCore.DepositParams[] memory deposits = new DoppiCore.DepositParams[](offersLength);
+        uint256 length = offers.length > orderWeights.length? orderWeights.length : offers.length;
+        DoppiCore.DepositParams[] memory deposits = new DoppiCore.DepositParams[](length);
         
-        for (uint8 i = 0; i < offersLength; ) {
+        for (uint8 i = 0; i < length; ) {
             deposits[i] = DoppiCore.DepositParams(
                 order_amt * orderWeights[i] / 10000,
                 i,

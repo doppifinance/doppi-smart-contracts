@@ -142,12 +142,12 @@ contract DoppiLiquidityTest is Test {
             "User should have total shares from both deposits"
         );
 
-        // Log the results for verification
-        emit log_named_uint("USDT shares received", usdtShares);
-        emit log_named_uint("BTC shares received", btcShares);
-        emit log_named_uint("Price used (8 decimals)", uint256(ORACLE_PRICE));
-        emit log_named_uint("USDT deposit amount", USDT_DEPOSIT);
-        emit log_named_uint("BTC deposit amount", BTC_DEPOSIT);
+        // // Log the results for verification
+        // emit log_named_uint("USDT shares received", usdtShares);
+        // emit log_named_uint("BTC shares received", btcShares);
+        // emit log_named_uint("Price used (8 decimals)", uint256(ORACLE_PRICE));
+        // emit log_named_uint("USDT deposit amount", USDT_DEPOSIT);
+        // emit log_named_uint("BTC deposit amount", BTC_DEPOSIT);
     }
 
     // ===== SWAP FUNCTIONALITY TESTS =====
@@ -280,7 +280,7 @@ contract DoppiLiquidityTest is Test {
         (bool upkeepNeeded, bytes memory performData) = doppiLP.checkUpkeep("");
 
         assertFalse(upkeepNeeded, "Should not need upkeep with no price orders");
-        assertEq(performData, "0x", "PerformData should be empty");
+        assertEq(performData, bytes(""), "PerformData should be empty");
     }
 
     // ===== UTILITY FUNCTION TESTS =====
@@ -304,8 +304,8 @@ contract DoppiLiquidityTest is Test {
         assertEq(totalInAssetA, expectedTotalInAssetA, "Total assets in USDT should be correct");
         assertEq(totalInAssetB, expectedTotalInAssetB, "Total assets in BTC should be correct");
 
-        emit log_named_uint("Total assets in USDT", totalInAssetA);
-        emit log_named_uint("Total assets in BTC", totalInAssetB);
+        // emit log_named_uint("Total assets in USDT", totalInAssetA);
+        // emit log_named_uint("Total assets in BTC", totalInAssetB);
     }
     // ===== INTEGRATION TESTS =====
     function testCheckUpkeep_performUp_buy() public {

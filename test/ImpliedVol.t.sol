@@ -35,6 +35,13 @@ contract ImpliedVolTest is Test {
         assertEq((sell.c), 1485.8762857142906 * 1e27);
     }
 
+    function test_getNotAvailImpliedVol() public view {
+        uint256 ivSell_1 = markIV.getImpliedVol(86400 * 2, 121000 * 1e18, false);
+        uint256 ivBuy_2 = markIV.getImpliedVol(86400 * 2, 112000 * 1e18, true);
+        assertEq(ivSell_1, 0);
+        assertEq(ivBuy_2, 0);
+    }
+
     function test_getImpliedVol() public view {
         uint256 ivSell_1 = markIV.getImpliedVol(86400, 121000 * 1e18, false);
         uint256 ivBuy_2 = markIV.getImpliedVol(86400, 112000 * 1e18, true);
@@ -60,5 +67,25 @@ contract ImpliedVolTest is Test {
         // console.log(sellapr, delta);
         assertEq(sellapr, 14081); // 140.81%
         assertEq(delta, 3979); // 0.3979
+    }
+
+    function test_buyapr_notavailable() public view {
+        uint256 spot = 116500 * 1e18;
+        uint256 timeToExpiry = 86400 * 2;
+        uint256 strike = 115500 * 1e18;
+        (uint256 buyapr, uint256 delta) = markIV.getBuyAPR(timeToExpiry, spot, strike);
+        // console.log(buyapr, delta);
+        assertEq(buyapr, 0); 
+        assertEq(delta, 0); 
+    }
+
+    function test_getSellAPR_notavailable() public view {
+        uint256 spot = 116500 * 1e18;
+        uint256 timeToExpiry = 86400 * 2;
+        uint256 strike = 117000 * 1e18;
+        (uint256 sellapr, uint256 delta) = markIV.getSellAPR(timeToExpiry, spot, strike);
+        // console.log(sellapr, delta);
+        assertEq(sellapr, 0);
+        assertEq(delta, 0); 
     }
 }
