@@ -9,6 +9,7 @@ import {DoppiConfig} from "./DoppiConfig.sol";
 import {DoppiLiquidity} from "./DoppiLiquidity.sol";
 import {IDoppiLiquidityRouter} from "../Interface/IDoppiLiquidityRouter.sol";
 import {DoppiTrader} from "./DoppiTrader.sol";
+import "forge-std/console.sol";
 
 contract DoppiTraderFactory is Ownable, IDoppiTraderFactory {
     IERC20 public immutable assetA;
@@ -42,14 +43,24 @@ contract DoppiTraderFactory is Ownable, IDoppiTraderFactory {
     function deployTraderBot(uint24[] calldata _weights) external returns (uint256) {
         uint256 id = traderBots.length;
         DoppiTrader newTrader = new DoppiTrader(
-            address(this), assetA, assetB, doppiLP, doppiRouter, doppiCore, _weights
+            address(this), msg.sender, assetA, assetB, doppiLP, doppiRouter, doppiCore, _weights
         );
         newTrader.setForwarderAddress(DEFAULT_FORWARDER_ADDRESS);
-        newTrader.setDoppiConfig(DoppiConfig(doppiLP.getDoppiConfig()));
-        newTrader.transferOwnership(msg.sender);
         traderBots.push(newTrader);
         traderBotId[address(newTrader)] = id;
         return id;
+    }
+
+    function setTraderBotForwarderAddress(address _forwarderAddress, address _botAddr) external onlyOwner {
+        uint256 id = traderBotId[_botAddr];
+        DoppiTrader traderBot = traderBots[id];
+        traderBot.setForwarderAddress(_forwarderAddress);
+    }
+
+    function setTraderBotDoppiConfig(address _doppiConfig, address _botAddr) external onlyOwner {
+        uint256 id = traderBotId[_botAddr];
+        DoppiTrader traderBot = traderBots[id];
+        traderBot.setDoppiConfig(DoppiConfig(_doppiConfig));
     }
 
     function isTraderBot(address _botAddr) external view returns (bool) {

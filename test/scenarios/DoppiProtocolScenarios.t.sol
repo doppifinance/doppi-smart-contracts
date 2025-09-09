@@ -423,21 +423,11 @@ contract DoppiProtocolScenariosTest is Test {
 
     function test_Scenario6_NotAPR_Available() public {
         
-        vm.startPrank(owner);
-        DoppiConfig doppiConfig2 = new DoppiConfig();
-        doppiConfig2.setRouter(address(swapper));
-        doppiConfig2.setQuoter(address(swapper));
-        doppiConfig2.setTreasury(treasury);
-        doppiConfig2.setPancakeV3Pool(address(swapper)); 
-        doppiConfig2.setOracle(address(oracle));
-        doppiConfig2.setDefault_days(2);
-        vm.stopPrank();
-
         // Phase 2: Trader Bot Creation
         vm.startPrank(trader1);
         uint256 traderId = doppiFactory.deployTraderBot(defaultWeights);
         DoppiTrader traderBot = doppiFactory.traderBots(traderId);
-        traderBot.setDoppiConfig(doppiConfig2);
+        traderBot.setDefaultDay(2);
         vm.stopPrank();
 
         // Phase 3: Trader Bot Funding and Trading
@@ -446,7 +436,7 @@ contract DoppiProtocolScenariosTest is Test {
         btc.mint(address(traderBot), 2 * 10 ** btc.decimals());
         usdt.approve(address(traderBot), 1000 * 10 ** usdt.decimals());
         btc.approve(address(traderBot), 2 * 10 ** btc.decimals());
-        vm.expectRevert("apr not available");
+        vm.expectRevert("Zero APR");
         traderBot.start(1000 ether, 2 ether);
         vm.stopPrank();
 

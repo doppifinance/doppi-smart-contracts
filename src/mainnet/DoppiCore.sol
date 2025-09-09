@@ -135,33 +135,19 @@ contract DoppiCore is Ownable, Pausable, AutomationCompatibleInterface {
     }
 
     function bulkDepositBuys(DepositParams[] calldata params, DualAssetOffer[] memory _buyOffers) external onlyTraderBot whenNotPaused {
-        uint256 length = params.length;
-        for (uint256 i = 0; i < length; ) {
-            require(params[i].amount > 0, "amount less than 0");
-            require(params[i].apr > 0, "apr not available");
-            DualAssetOffer memory buyOffer = _buyOffers[params[i].strikeZone];
-            _depositBuy(params[i], buyOffer);
-            unchecked { ++i; }
-        }
+        _bulkDeposit(params, _buyOffers, true);
     }
 
     function bulkDepositSells(DepositParams[] calldata params, DualAssetOffer[] memory _sellOffers) external onlyTraderBot whenNotPaused {
-        uint256 length = params.length;
-        for (uint256 i = 0; i < length; ) {
-            require(params[i].amount > 0, "amount less than 0");
-            require(params[i].apr > 0, "apr not available");
-            DualAssetOffer memory sellOffer = _sellOffers[params[i].strikeZone];
-            _depositSell(params[i], sellOffer);
-            unchecked { ++i; }
-        }
+        _bulkDeposit(params, _sellOffers, false);
     }
 
     function settle_buys(uint256[] memory _indexes) external onlyOwner {
-        _settle_buys(_indexes);
+        _settle_positions(_indexes, true);
     }
 
     function settle_sells(uint256[] memory _indexes) external onlyOwner {
-        _settle_sells(_indexes);
+        _settle_positions(_indexes, false);
     }
 
     // Admin functions
@@ -210,10 +196,10 @@ contract DoppiCore is Ownable, Pausable, AutomationCompatibleInterface {
         (bool buyReady, uint256[] memory buyIndexes, bool sellReady, uint256[] memory sellIndexes) =
             abi.decode(performData, (bool, uint256[], bool, uint256[]));
         if (buyReady) {
-            _settle_buys(buyIndexes);
+            _settle_positions(buyIndexes, true);
         }
         if (sellReady) {
-            _settle_sells(sellIndexes);
+            _settle_positions(sellIndexes, false);
         }
     }
 
@@ -486,36 +472,6 @@ contract DoppiCore is Ownable, Pausable, AutomationCompatibleInterface {
     }
 
     // Internal functions
-    function _settle_buys(uint256[] memory _indexes) internal {
-        uint256 length = _indexes.length;
-        require(length > 0, "empty array");
-        require(_isDescending(_indexes), "not descending");
-        
-        for (uint256 i = 0; i < length; ) {
-            uint256 idx = _indexes[i];
-            require(idx < buyPositionKeys.length, "index out of bounds");
-            KeyPosition memory pos = buyPositionKeys[idx];
-            _settlePosition(pos, true);
-            _removeBuyPosition(idx, pos);
-            unchecked { ++i; }
-        }
-    }
-
-    function _settle_sells(uint256[] memory _indexes) internal {
-        uint256 length = _indexes.length;
-        require(length > 0, "empty array");
-        require(_isDescending(_indexes), "not descending");
-
-        for (uint256 i = 0; i < length; ) {
-            uint256 idx = _indexes[i];
-            require(idx < sellPositionKeys.length, "index out of bounds");
-            KeyPosition memory pos = sellPositionKeys[idx];
-            _settlePosition(pos, false);
-            _removeSellPosition(idx, pos);
-            unchecked { ++i; }
-        }
-    }
-
     function _depositBuy(DepositParams calldata params, DualAssetOffer memory _buyOffer) internal {
         uint256 price = doppiLP.getPrice();
         assetA.safeTransferFrom(msg.sender, address(this), params.amount);
@@ -827,6 +783,41 @@ contract DoppiCore is Ownable, Pausable, AutomationCompatibleInterface {
                 p.isTraded = true;
                 p.swappedAmount = amountOut;
             }
+        }
+    }
+
+    function _bulkDeposit(
+        DepositParams[] calldata params, 
+        DualAssetOffer[] memory offers, 
+        bool isBuy) internal {
+        
+        uint256 length = params.length;
+        require(length == offers.length, "Array length mismatch");
+        
+        for (uint256 i = 0; i < length; ) {
+            DepositParams calldata param = params[i];
+            require(param.amount > 0, "Zero amount");
+            require(param.apr > 0, "Zero APR");
+            isBuy ? _depositBuy(param, offers[i]) : _depositSell(param, offers[i]);
+            unchecked { ++i; }
+        }
+    }
+
+    function _settle_positions(uint256[] memory _indexes, bool isBuy) internal {
+        uint256 length = _indexes.length;
+        require(length > 0, "empty array");
+        require(_isDescending(_indexes), "not descending");
+        
+        for (uint256 i = 0; i < length; ) {
+            uint256 idx = _indexes[i];
+            KeyPosition[] storage positionKeys = isBuy ? buyPositionKeys : sellPositionKeys;
+            require(idx < positionKeys.length, "index out of bounds");
+            
+            KeyPosition memory pos = positionKeys[idx];
+            _settlePosition(pos, isBuy);
+            isBuy ? _removeBuyPosition(idx, pos) : _removeSellPosition(idx, pos);
+            
+            unchecked { ++i; }
         }
     }
 

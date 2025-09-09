@@ -22,11 +22,16 @@ contract DoppiConfig is Ownable {
     uint32 public DEFAULT_DAYS = 1;
     uint256 public PRICE_GAP_PEROFFER = 500;
     address public treasury;
-
+    uint24 public MAX_ORDER = 5;
+    
     constructor() Ownable(msg.sender) {
     }
 
     // Configuration functions
+    function setMaxOrder(uint24 _maxOrder) external onlyOwner {
+        MAX_ORDER = _maxOrder;
+    }
+
     function setPoolFee(uint24 _poolFee) external onlyOwner {
         poolFee = _poolFee;
     }

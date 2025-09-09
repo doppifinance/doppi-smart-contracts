@@ -22,6 +22,10 @@ contract DoppiTrader is Ownable, Pausable, AutomationCompatibleInterface {
         uint256 origAmount;
         uint256 origStrikePrice;
     }
+    struct OrderConfig {
+        uint8 strikeZone;
+        uint24 weight;
+    }
 
     DoppiCore public immutable doppiCore;
     IERC20 public immutable assetA;
@@ -30,7 +34,8 @@ contract DoppiTrader is Ownable, Pausable, AutomationCompatibleInterface {
     IDoppiLiquidityRouter public immutable doppiRouter;
     DoppiConfig public doppiConfig;
     address public s_forwarderAddress;
-
+    address public validTrader;
+    uint32 public traderDefaultDay = 1;
     uint256 public defaultassetAAmount;
     uint256 public defaultassetBAmount;
 
@@ -40,27 +45,34 @@ contract DoppiTrader is Ownable, Pausable, AutomationCompatibleInterface {
     uint256 public undo_assetA;
     uint256 public buy_undo_profit;
     uint256 public sell_undo_profit;
-    uint24[] public orderWeights;
+
+    OrderConfig[] public orderConfigs;
+    bool public useCustomConfig;
 
     constructor(
         address _owner,
+        address _trader,
         IERC20 _assetA,
         IERC20 _assetB,
         IDoppiLiquidity _doppiLP,
         IDoppiLiquidityRouter _doppiRouter,
         DoppiCore _da,
         uint24[] memory _weights
-    ) Ownable(_owner) {
+    ) Ownable(msg.sender) {
         assetA = _assetA;
         assetB = _assetB;
         doppiLP = _doppiLP;
         doppiRouter = _doppiRouter;
         doppiCore = _da;
-        orderWeights = _weights;
+        validTrader = _trader;
+        doppiConfig = DoppiConfig(_doppiLP.getDoppiConfig());
         _pause();
+
+        // Initialize with default weights
+        _initializeOrderConfigs(_weights);
     }
 
-    function start(uint256 _amountA, uint256 _amountB) external onlyOwner whenPaused {
+    function start(uint256 _amountA, uint256 _amountB) external onlyTrader whenPaused {
         _unpause();
         assetA.safeTransferFrom(msg.sender, address(this), _amountA);
         assetB.safeTransferFrom(msg.sender, address(this), _amountB);
@@ -75,7 +87,7 @@ contract DoppiTrader is Ownable, Pausable, AutomationCompatibleInterface {
         _place_sells();
     }
 
-    function stop() external onlyOwner whenPaused {
+    function stop() external onlyTrader whenPaused {
         uint256 buyPosCount = doppiCore.getBuyPositionCount(address(this));
         uint256 sellPosCount = doppiCore.getSellPositionCount(address(this));
         require(buyPosCount == 0 && sellPosCount == 0, "active orders");
@@ -88,6 +100,55 @@ contract DoppiTrader is Ownable, Pausable, AutomationCompatibleInterface {
 
         delete buy_undo_list;
         delete sell_undo_list;
+    }
+
+    function setMultipleOrderConfigs(
+        uint8[] calldata strikeZones, 
+        uint24[] calldata weights
+    ) external onlyTrader {
+        require(
+            strikeZones.length == weights.length, 
+            "Array length mismatch"
+        );
+        require(
+            strikeZones.length <= doppiConfig.MAX_ORDER() && weights.length <= doppiConfig.MAX_ORDER(), 
+            "not more than max"
+        );
+        uint24 sum = _sumArray(weights);
+        require(sum == 10000, "sum must equal 100%");
+
+        delete orderConfigs;
+        for (uint256 i = 0; i < weights.length; i++) {
+            require(strikeZones[i] < doppiConfig.MAX_ORDER(), "not more than max zone");
+            orderConfigs.push(OrderConfig({
+                strikeZone: strikeZones[i],
+                weight: weights[i]
+            }));
+        }
+    }
+
+    function setUseCustomConfig(bool _useCustom) external onlyTrader {
+        useCustomConfig = _useCustom;
+    }
+
+    function getOrderConfigs() external view returns (OrderConfig[] memory) {
+        return orderConfigs;
+    }
+
+    function resetToDefaultConfig() external onlyTrader {
+        delete orderConfigs;
+        // Reinitialize with default equal weights
+        uint24[] memory defaultWeights = new uint24[](doppiConfig.MAX_ORDER());
+        uint24 total = 0;
+        for (uint8 i = 0; i < doppiConfig.MAX_ORDER() - 1; i++) {
+            uint24 weight = 10000 / doppiConfig.MAX_ORDER();
+            defaultWeights[i] = weight;
+            total += weight;
+        }
+        defaultWeights[doppiConfig.MAX_ORDER() - 1] = 10000 - total;
+        _initializeOrderConfigs(defaultWeights);
+        
+        useCustomConfig = false;
     }
 
     function createUnwindPosition(uint256 _amount, uint256 _strikePrice, bool _isBuyUndo) external onlyDoppiCore {
@@ -143,16 +204,16 @@ contract DoppiTrader is Ownable, Pausable, AutomationCompatibleInterface {
         return pnl;
     }
 
-    function setPause() external onlyOwner {
+    function setPause() external onlyTrader {
         _pause();
     }
 
-    function setUnPause() external onlyOwner {
+    function setUnPause() external onlyTrader {
         _unpause();
     }
 
-    function setWeight(uint24[] memory _weights) external onlyOwner {
-        orderWeights = _weights;
+    function setDefaultDay(uint32 _day) external onlyTrader {
+        traderDefaultDay = _day;
     }
 
     function setForwarderAddress(address forwarderAddress) external onlyOwner {
@@ -222,51 +283,59 @@ contract DoppiTrader is Ownable, Pausable, AutomationCompatibleInterface {
     }
 
     function _place_buys() internal returns (bool) {
-        uint256 order_amt = assetA.balanceOf(address(this)) - undo_assetA;
-        if (order_amt == 0) return false;
-        order_amt = order_amt > defaultassetAAmount ? defaultassetAAmount : order_amt;
-        assetA.safeIncreaseAllowance(address(doppiCore), order_amt);
+        uint256 availableAmount = assetA.balanceOf(address(this)) - undo_assetA;
+        if (availableAmount == 0) return false;
         
-        DoppiCore.DualAssetOffer[] memory offers = doppiCore.getBuyOffers(doppiConfig.DEFAULT_DAYS());
-        uint256 length = offers.length > orderWeights.length? orderWeights.length : offers.length;
-        DoppiCore.DepositParams[] memory deposits = new DoppiCore.DepositParams[](length);
-        for (uint8 i = 0; i < length; ) {
-            deposits[i] = DoppiCore.DepositParams(
-                order_amt * orderWeights[i] / 10000,
-                i,
-                offers[i].strikePrice,
-                doppiConfig.DEFAULT_DAYS(),
-                offers[i].apr,
-                offers[i].validUntilTimestamp
-            );
-            unchecked { ++i; }
-        }
-        doppiCore.bulkDepositBuys(deposits, offers);
-        return true;
+        uint256 orderAmount = availableAmount > defaultassetAAmount ? defaultassetAAmount : availableAmount;
+        return _placeOrders(true, orderAmount);
     }
 
     function _place_sells() internal returns (bool) {
-        uint256 order_amt = assetB.balanceOf(address(this)) - undo_assetB;
-        if (order_amt == 0) return false;
-        order_amt = order_amt > defaultassetBAmount ? defaultassetBAmount : order_amt;
-        assetB.safeIncreaseAllowance(address(doppiCore), order_amt);
+        uint256 availableAmount = assetB.balanceOf(address(this)) - undo_assetB;
+        if (availableAmount == 0) return false;
         
-        DoppiCore.DualAssetOffer[] memory offers = doppiCore.getSellOffers(doppiConfig.DEFAULT_DAYS());
-        uint256 length = offers.length > orderWeights.length? orderWeights.length : offers.length;
+        uint256 orderAmount = availableAmount > defaultassetBAmount ? defaultassetBAmount : availableAmount;
+        return _placeOrders(false, orderAmount);
+    }
+
+    function _placeOrders(bool isBuy, uint256 totalAmount) internal returns (bool) {
+        uint256 length = orderConfigs.length;
+        if (length == 0) return false;
+
+        IERC20 token = isBuy ? assetA : assetB;
+        token.safeIncreaseAllowance(address(doppiCore), totalAmount);
+        
         DoppiCore.DepositParams[] memory deposits = new DoppiCore.DepositParams[](length);
+        DoppiCore.DualAssetOffer[] memory offers = new DoppiCore.DualAssetOffer[](length);
+        
+        uint256 totalWeight = 10000;
         
         for (uint8 i = 0; i < length; ) {
+            OrderConfig memory config = orderConfigs[i];
+            DoppiCore.DualAssetOffer memory offer = doppiCore.getOffer(
+                isBuy, 
+                traderDefaultDay, 
+                config.strikeZone
+            );
+            offers[i] = offer;
+            
             deposits[i] = DoppiCore.DepositParams(
-                order_amt * orderWeights[i] / 10000,
-                i,
-                offers[i].strikePrice,
-                doppiConfig.DEFAULT_DAYS(),
-                offers[i].apr,
-                offers[i].validUntilTimestamp
+                totalAmount * config.weight / totalWeight, // More precise calculation
+                config.strikeZone,
+                offer.strikePrice,
+                traderDefaultDay,
+                offer.apr,
+                offer.validUntilTimestamp
             );
             unchecked { ++i; }
         }
-        doppiCore.bulkDepositSells(deposits, offers);
+        
+        if (isBuy) {
+            doppiCore.bulkDepositBuys(deposits, offers);
+        } else {
+            doppiCore.bulkDepositSells(deposits, offers);
+        }
+        
         return true;
     }
 
@@ -318,6 +387,28 @@ contract DoppiTrader is Ownable, Pausable, AutomationCompatibleInterface {
             }
         }
     }
+
+    function _initializeOrderConfigs(uint24[] memory _weights) internal {
+        
+        // Initialize buy order configs for all 5 strike zones
+        uint256 length = _weights.length;
+        for (uint8 i = 0; i < length; ) {
+            orderConfigs.push(OrderConfig({
+                strikeZone: i,
+                weight: _weights[i]
+            }));
+            unchecked { ++i; }
+        }
+    }
+
+    function _sumArray(uint24[] calldata arr) private pure returns(uint24) {
+        uint24 i;
+        uint24 sum = 0;
+            
+        for(i = 0; i < arr.length; i++)
+            sum = sum + arr[i];
+        return sum;
+    }
     
     modifier onlyDoppiCore() {
         require(msg.sender == address(doppiCore), "only doppicore");
@@ -326,6 +417,11 @@ contract DoppiTrader is Ownable, Pausable, AutomationCompatibleInterface {
 
     modifier onlyForwarder() {
         require(msg.sender == s_forwarderAddress, "invalid forwarder");
+        _;
+    }
+
+    modifier onlyTrader() {
+        require(msg.sender == validTrader, "invalid trader");
         _;
     }
 }
