@@ -43,7 +43,7 @@ contract DoppiTraderFactory is Ownable, IDoppiTraderFactory {
     function deployTraderBot(uint24[] calldata _weights) external returns (uint256) {
         uint256 id = traderBots.length;
         DoppiTrader newTrader = new DoppiTrader(
-            address(this), msg.sender, assetA, assetB, doppiLP, doppiRouter, doppiCore, _weights
+            msg.sender, assetA, assetB, doppiLP, doppiRouter, doppiCore, _weights
         );
         newTrader.setForwarderAddress(DEFAULT_FORWARDER_ADDRESS);
         traderBots.push(newTrader);

@@ -50,7 +50,6 @@ contract DoppiTrader is Ownable, Pausable, AutomationCompatibleInterface {
     bool public useCustomConfig;
 
     constructor(
-        address _owner,
         address _trader,
         IERC20 _assetA,
         IERC20 _assetB,

@@ -23,11 +23,21 @@ contract DoppiConfig is Ownable {
     uint256 public PRICE_GAP_PEROFFER = 500;
     address public treasury;
     uint24 public MAX_ORDER = 5;
+    uint24 public treasury_fee = 1000;
     
     constructor() Ownable(msg.sender) {
     }
 
+    function getAmountFee(uint256 _amount) external view returns (uint256 amountAfterFee, uint256 amountFee) {
+        amountFee = _amount * treasury_fee / 10000;
+        amountAfterFee = _amount - amountFee;
+    }
+
     // Configuration functions
+    function setTreasuryFee(uint24 _treasury_fee) external onlyOwner {
+        treasury_fee = _treasury_fee;
+    }
+
     function setMaxOrder(uint24 _maxOrder) external onlyOwner {
         MAX_ORDER = _maxOrder;
     }

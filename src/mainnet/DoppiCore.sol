@@ -71,6 +71,7 @@ contract DoppiCore is Ownable, Pausable, AutomationCompatibleInterface {
     IImpliedVol public immutable impliedVol; // Made immutable
     IDoppiLiquidity public immutable doppiLP; // Made immutable
     DoppiTraderFactory public doppiTraderFactory;
+    DoppiConfig public immutable doppiConfig;
     
     mapping(address => bool) public admins;
     uint256 private constant SECONDS_PER_YEAR = 31536000;
@@ -111,6 +112,7 @@ contract DoppiCore is Ownable, Pausable, AutomationCompatibleInterface {
         assetA = IERC20(_assetA);
         assetB = IERC20(_assetB);
         doppiLP = _doppiLP;
+        doppiConfig = DoppiConfig(doppiLP.getDoppiConfig());
         impliedVol = _impliedVol;
         admins[msg.sender] = true;
     }
@@ -593,7 +595,7 @@ contract DoppiCore is Ownable, Pausable, AutomationCompatibleInterface {
 
     function _getStrikePrice(uint256 _price, uint8 _strikeZone, bool _isBuy) internal view returns (uint256) {
         uint8 priceDecimals = doppiLP.getPriceDecimals();
-        uint256 priceGapWithDecimals = DoppiConfig(doppiLP.getDoppiConfig()).PRICE_GAP_PEROFFER() * (10 ** priceDecimals);
+        uint256 priceGapWithDecimals = doppiConfig.PRICE_GAP_PEROFFER() * (10 ** priceDecimals);
         _price = (_price / priceGapWithDecimals) * priceGapWithDecimals;
         return _isBuy ? _price - (priceGapWithDecimals * _strikeZone) : _price + (priceGapWithDecimals * _strikeZone);
     }
@@ -618,10 +620,11 @@ contract DoppiCore is Ownable, Pausable, AutomationCompatibleInterface {
         }
 
         if (profit > 0) {
-            payoutToken.safeTransfer(address(doppiLP), profit);
+            _safeTransferWithFee(payoutToken, address(doppiLP), profit);
         }
         payoutToken.safeTransfer(p.owner, _payout);
-        interestToken.safeTransfer(p.owner, p.interest);
+        _safeTransferWithFee(interestToken, p.owner, p.interest);
+            
     }
 
     function _settleStrikeTraded(DualAssetPosition memory p, uint256 _payout, bool _isBuy) internal {
@@ -645,7 +648,7 @@ contract DoppiCore is Ownable, Pausable, AutomationCompatibleInterface {
             } else {
                 dualStats[p.owner].opportunityProfit_assetA += profitOrLoss;
             }
-            profitToken.safeTransfer(address(doppiLP), profitOrLoss);
+            _safeTransferWithFee(profitToken, address(doppiLP), profitOrLoss);
         } else {
             profitOrLoss = _payout - p.swappedAmount;
             if (_isBuy) {
@@ -657,7 +660,8 @@ contract DoppiCore is Ownable, Pausable, AutomationCompatibleInterface {
         }
 
         payoutToken.safeTransfer(p.owner, _payout);
-        interestToken.safeTransfer(p.owner, p.interest);
+        _safeTransferWithFee(interestToken, p.owner, p.interest);
+
     }
 
     function _settleNoStrikeTraded(DualAssetPosition memory p, uint256 _price, bool _isBuy) internal {
@@ -684,7 +688,7 @@ contract DoppiCore is Ownable, Pausable, AutomationCompatibleInterface {
             } else {
                 dualStats[p.owner].opportunityProfit_assetB += profitOrLoss;
             }
-            profitLossToken.safeTransfer(address(doppiLP), profitOrLoss);
+            _safeTransferWithFee(profitLossToken, address(doppiLP), profitOrLoss);
         } else {
             profitOrLoss = p.amount - amountOut;
             if (_isBuy) {
@@ -695,7 +699,8 @@ contract DoppiCore is Ownable, Pausable, AutomationCompatibleInterface {
             doppiLP.transfer(profitLossToken, profitOrLoss, address(this));
         }
 
-        profitLossToken.safeTransfer(p.owner, p.amount + p.interest);
+        profitLossToken.safeTransfer(p.owner, p.amount);
+        _safeTransferWithFee(profitLossToken, p.owner, p.interest);
     }
 
     function _settleNoStrikeNoTraded(DualAssetPosition memory p, bool _isBuy) internal {
@@ -707,7 +712,8 @@ contract DoppiCore is Ownable, Pausable, AutomationCompatibleInterface {
             dualStats[p.owner].interestPaid_assetB += p.interest;
         }
         
-        token.safeTransfer(p.owner, p.amount + p.interest);
+        token.safeTransfer(p.owner, p.amount);
+        _safeTransferWithFee(token, p.owner, p.interest);
     }
 
     function _settleHedgeSwap(DualAssetPosition memory p, uint256 price, bool isBuy) internal {
@@ -734,7 +740,7 @@ contract DoppiCore is Ownable, Pausable, AutomationCompatibleInterface {
     function _hedgeSwap(uint256 _amount, uint256 _delta, uint256 _price, bool isBuy) internal returns (uint256 amountInHedgeAsset, uint256 swappedHedgeAmount, uint256 hedgePrice) {
         uint256 priceDecimals = doppiLP.getPriceDecimals();
         uint256 hedgeAmount = _amount * _delta / BASIS_POINTS;
-        amountInHedgeAsset = hedgeAmount * (10 ** priceDecimals) / _price;
+        amountInHedgeAsset = isBuy ? hedgeAmount * (10 ** priceDecimals) / _price : hedgeAmount * _price / (10 ** priceDecimals);
         (swappedHedgeAmount, hedgePrice) = doppiLP.hedgeSwap(amountInHedgeAsset, _price, !isBuy);
     }
 
@@ -761,7 +767,7 @@ contract DoppiCore is Ownable, Pausable, AutomationCompatibleInterface {
                 p.isTraded = false;
                 p.swappedAmount = 0;
                 profit = amountOut - p.amount;
-                assetB.safeTransfer(address(doppiLP), profit);
+                _safeTransferWithFee(assetB, address(doppiLP), profit);
             } else {
                 p.isTraded = true;
                 p.swappedAmount = amountOut;
@@ -778,7 +784,7 @@ contract DoppiCore is Ownable, Pausable, AutomationCompatibleInterface {
                 p.isTraded = false;
                 p.swappedAmount = 0;
                 profit = amountOut - p.amount;
-                assetA.safeTransfer(address(doppiLP), profit);
+                _safeTransferWithFee(assetA, address(doppiLP), profit);
             } else {
                 p.isTraded = true;
                 p.swappedAmount = amountOut;
@@ -820,6 +826,15 @@ contract DoppiCore is Ownable, Pausable, AutomationCompatibleInterface {
             unchecked { ++i; }
         }
     }
+
+    function _safeTransferWithFee(IERC20 _asset, address _to, uint256 _amount) internal {
+        
+        (uint256 amountAfterFee, uint256 amountFee) = doppiConfig.getAmountFee(_amount);
+        _asset.safeTransfer(_to, amountAfterFee);
+        _asset.safeTransfer(doppiConfig.treasury(), amountFee);
+
+    }
+
 
     function _isDescending(uint256[] memory arr) internal pure returns (bool) {
         if (arr.length < 2) return true;

@@ -749,6 +749,181 @@ contract DoppiCoreTest is Test {
         assertEq(positions.length, 1);
     }
 
+    function test_settle_buys_interestFee() public {
+        // Deposit a buy position
+        _depositUSDT();
+
+        // Fast forward time and keep price above strike
+        vm.warp(block.timestamp + 1 days + 1);
+        oracle.setPrice(int256(INITIAL_PRICE)); // Price stays same, above strike
+
+        uint256[] memory readyPositions = doppiCore.getReadyBuyPositions();
+        uint256 initialBalance = usdt.balanceOf(user1);
+
+        vm.startPrank(owner);
+        doppiCore.settle_buys(readyPositions);
+        assertEq(usdt.balanceOf(doppiConfig.treasury()), 43012328767123287671); // 50000 * 313.99% / 365 * 10%
+    }
+
+    function test_opportunity_profit_fee() public {
+        // First setup a position and trade it
+        _depositUSDT();
+
+        oracle.setPrice(int256(98_000 ether));
+        // Admin swaps first
+        vm.startPrank(admin);
+        (uint256 swappedAmount,) = doppiCore.opportunitySwap(user1, 50_000 ether, 98_000 ether, 0, true);
+        vm.stopPrank();
+
+        oracle.setPrice(int256(102_000 ether));
+        // Then admin unwinds
+        vm.startPrank(admin);
+        (uint256 amountOut, uint256 profit) = doppiCore.opportunityUnwind(user1, swappedAmount, 102_000 ether, 0, false);
+        vm.stopPrank();
+
+        // Check position is marked as not traded
+        assertGt(amountOut, 0);
+        // console.log(amountOut, "amountOut");
+        uint256 fee = profit * 1000 / 10000;
+        assertEq(usdt.balanceOf(doppiConfig.treasury()), fee); 
+    }
+
+    function test_settle_buys_strike_profit_fee() public {
+        // Deposit a buy position
+        DoppiCore.DualAssetOffer memory buyOffer = _depositUSDT();
+
+        // Fast forward time and set price below strike
+        vm.warp(block.timestamp + 1 days + 1);
+        oracle.setPrice(int256(buyOffer.strikePrice - 1000 ether));
+
+        uint256[] memory readyPositions = doppiCore.getReadyBuyPositions();
+        
+        uint256 userUSDTbefore = usdt.balanceOf(user1);
+        uint256 userBTCbefore = btc.balanceOf(user1);
+        uint256 tresuryUSDTbefore = usdt.balanceOf(doppiConfig.treasury());
+        uint256 tresuryBTCbefore = btc.balanceOf(doppiConfig.treasury());
+        uint256 lpBTCbefore = btc.balanceOf(address(doppiLP));
+        uint256 lpUSDTbefore = usdt.balanceOf(address(doppiLP));
+        
+        // settlement in doppiCore
+        vm.startPrank(owner);
+        doppiCore.settle_buys(readyPositions);
+
+        
+        uint256 userUSDTafter = usdt.balanceOf(user1);
+        uint256 userBTCafter = btc.balanceOf(user1);
+        uint256 tresuryUSDTafter = usdt.balanceOf(doppiConfig.treasury());
+        uint256 tresuryBTCafter = btc.balanceOf(doppiConfig.treasury());
+        uint256 lpBTCafter = btc.balanceOf(address(doppiLP));
+        uint256 lpUSDTafter = usdt.balanceOf(address(doppiLP));
+        
+        uint256 APR_BASIS_POINTS = 31399; // 313.99% APR in basis points
+        uint256 PRINCIPAL = 50_000 ether; // 50,000 USDT
+        uint256 BASIS_POINTS_DENOMINATOR = 10000;
+        uint256 DAYS_IN_YEAR = 365;
+
+        uint256 usdtInterestReceived = APR_BASIS_POINTS * PRINCIPAL / BASIS_POINTS_DENOMINATOR / DAYS_IN_YEAR;
+        
+        uint256 btcPayout = 50_000 ether * 1e18 / buyOffer.strikePrice;
+        uint256 btcPayoutSettle = 50_000 ether * 1e18 / (buyOffer.strikePrice - 1000 ether);
+        uint256 btcPayoutSettleProfit = btcPayoutSettle - btcPayout;
+        
+        uint256 usdtFee = usdtInterestReceived * 1000 / 10000;
+        uint256 btcFee = btcPayoutSettleProfit * 1000 / 10000;
+        
+        // hedge position: selling 0.21465 btc into usdt
+        // unwind hedge position: get back 0.21358 btc into usdt
+        uint256 hedgeSoldBTC = 214650000000000000;
+        uint256 hedgeSoldBTCunwind = 213582197969543146;
+        
+        (,,, uint128 settleHedgeLossAssetB) = doppiCore.hedgeStats();        
+        assertEq(settleHedgeLossAssetB, hedgeSoldBTC - hedgeSoldBTCunwind);
+
+        // confirm doppi LP usdt balance = APR payout in USDT + strike on receiving 50000 USDT 
+        // confirm doppi LP btc balance = loss in hedge position + btc payout to trader + settlement profit gained in BTC minus 10% fee 
+        uint256 expectedUSDTLPBal = 100_000 ether + 50_000 ether -  usdtInterestReceived;
+        uint256 expectedBTCLPBal = 1 ether - hedgeSoldBTC + hedgeSoldBTCunwind - btcPayoutSettle + btcPayoutSettleProfit - btcFee;
+        assertEq(lpBTCafter, expectedBTCLPBal);
+        assertEq(lpUSDTafter, expectedUSDTLPBal);
+        
+        // confirm tresury wallet balance = 10% fee from APR received in USDT and 10% of settlement profit in BTC 
+        assertEq(usdtFee, tresuryUSDTafter - tresuryUSDTbefore);
+        assertEq(btcFee, tresuryBTCafter - tresuryBTCbefore);
+
+        // confirm user wallet balance = interest received in USDT and payout in BTC 
+        assertEq(usdtInterestReceived - usdtFee, userUSDTafter - userUSDTbefore);
+        assertEq(btcPayout, userBTCafter - userBTCbefore);
+        
+    }
+
+    function test_settle_sell_strike_profit_fee() public {
+        // Deposit a buy position
+        DoppiCore.DualAssetOffer memory sellOffer = _depositBTC();
+
+        // Fast forward time and set price below strike
+        vm.warp(block.timestamp + 1 days + 1);
+        oracle.setPrice(int256(sellOffer.strikePrice + 1000 ether));
+
+        uint256[] memory readyPositions = doppiCore.getReadySellPositions();
+        
+        uint256 userUSDTbefore = usdt.balanceOf(user1);
+        uint256 userBTCbefore = btc.balanceOf(user1);
+        uint256 tresuryUSDTbefore = usdt.balanceOf(doppiConfig.treasury());
+        uint256 tresuryBTCbefore = btc.balanceOf(doppiConfig.treasury());
+        uint256 lpBTCbefore = btc.balanceOf(address(doppiLP));
+        uint256 lpUSDTbefore = usdt.balanceOf(address(doppiLP));
+        
+        // settlement in doppiCore
+        vm.startPrank(owner);
+        doppiCore.settle_sells(readyPositions);
+
+        
+        uint256 userUSDTafter = usdt.balanceOf(user1);
+        uint256 userBTCafter = btc.balanceOf(user1);
+        uint256 tresuryUSDTafter = usdt.balanceOf(doppiConfig.treasury());
+        uint256 tresuryBTCafter = btc.balanceOf(doppiConfig.treasury());
+        uint256 lpBTCafter = btc.balanceOf(address(doppiLP));
+        uint256 lpUSDTafter = usdt.balanceOf(address(doppiLP));
+        
+        // console.log(sellOffer.apr, sellOffer.strikePrice);
+        uint256 APR_BASIS_POINTS = 35700; // 313.99% APR in basis points
+        uint256 PRINCIPAL = 0.5 ether; // 50,000 USDT
+        uint256 BASIS_POINTS_DENOMINATOR = 10000;
+        uint256 DAYS_IN_YEAR = 365;
+
+        uint256 btcInterestReceived = APR_BASIS_POINTS * PRINCIPAL / BASIS_POINTS_DENOMINATOR / DAYS_IN_YEAR;
+        uint256 usdtPayout = 0.5 ether * sellOffer.strikePrice / 1e18;
+        uint256 usdtPayoutSettle = 0.5 ether * (sellOffer.strikePrice + 1000 ether) / 1e18;
+        uint256 usdtPayoutSettleProfit = usdtPayoutSettle - usdtPayout;
+        
+        uint256 usdtFee = usdtPayoutSettleProfit * 1000 / 10000;
+        uint256 btcFee = btcInterestReceived * 1000 / 10000;
+        
+        // hedge position: selling 22435 usdt into btc
+        // unwind hedge position: get back 22318 usdt into btc
+        uint256 hedgeSoldUSDT = 22435000000000000000000;
+        uint256 hedgeSoldUSDTunwind = 22318371652500000000000;
+        
+        (,,uint128 settleHedgeLossAssetA, ) = doppiCore.hedgeStats();
+        assertEq(settleHedgeLossAssetA, hedgeSoldUSDT - hedgeSoldUSDTunwind);
+        
+        // confirm doppi LP btc balance = APR payout in btc + strike on receiving 0.5 btc 
+        // confirm doppi LP usdt balance = loss in hedge position + usdt payout to trader + settlement profit gained in usdt minus 10% fee 
+        uint256 expectedUSDTLPBal = 100_000 ether - hedgeSoldUSDT + hedgeSoldUSDTunwind - usdtPayoutSettle + usdtPayoutSettleProfit - usdtFee;
+        uint256 expectedBTCLPBal = 1 ether + 0.5 ether - btcInterestReceived; 
+
+        assertEq(lpBTCafter, expectedBTCLPBal);
+        assertEq(lpUSDTafter, expectedUSDTLPBal);
+        
+        // confirm tresury wallet balance = 10% fee from APR received in btc and 10% of settlement profit in usdt 
+        assertEq(usdtFee, tresuryUSDTafter - tresuryUSDTbefore);
+        assertEq(btcFee, tresuryBTCafter - tresuryBTCbefore);
+
+        // confirm user wallet balance = interest received in btc and payout in usdt 
+        assertEq(btcInterestReceived - btcFee, userBTCafter - userBTCbefore);
+        assertEq(usdtPayout, userUSDTafter - userUSDTbefore);
+        
+    }
 
     function _depositBTC() internal returns (DoppiCore.DualAssetOffer memory) {
 
@@ -768,6 +943,7 @@ contract DoppiCoreTest is Test {
         vm.stopPrank();
         return sellOffer;
     }
+
     function _depositUSDT() internal returns (DoppiCore.DualAssetOffer memory) {
 
         // Deposit a position
