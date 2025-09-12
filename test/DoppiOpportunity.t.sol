@@ -33,9 +33,9 @@ contract DoppiOpportunityTest is Test {
     address treasury = address(0x3);
     address mockForwarder = address(0x5);
 
-    event Paused(address account);
-    event Unpaused(address account);
-
+    event OppPerformed(bool isBuy, address indexed trader, uint256 price, uint256 amount, uint256 amountOut);
+    event OppUnwindPerformed(bool isBuy, address indexed trader, uint256 price, uint256 swappedAmount, uint256 amountOut, uint256 profit, address profitToken);
+    
     function setUp() public {
         int256 a_buy = 0.0000000807142857142833 * 1e27;
         int256 b_buy = -0.019095857142856592 * 1e27;
@@ -142,13 +142,22 @@ contract DoppiOpportunityTest is Test {
         // unwind for profit opportunity
         oracle.setPrice(int256(98_500 ether));
         (upkeepNeeded, performData) = doppiOpportunity.checkUpkeep("");
+        
+        vm.expectEmit(true, true, true, true);
+        emit OppUnwindPerformed(
+            false,
+            user1,
+            98_500 ether,
+            110389500000000000000000,
+            1119584878172588832,
+            119584878172588832, // profit
+            address(btc) // profit in asset A
+        );
+
         vm.prank(mockForwarder);
         doppiOpportunity.performUpkeep(performData);
         pos = doppiCore.get_sell(user2, 1); // refresh position
         assertEq(pos.isTraded, false); // unwind successfully
-        assertGt(doppiOpportunity.profitAssetB(), 0); // profit recorded on BTC
-        assertEq(doppiOpportunity.profitAssetA(), 0);
-        // assertEq(doppiOpportunity.profitAssetB(), 119584878172588832);
     }
 
     function test_checkUpkeep_opportunityTakeBuyProfit() public {
@@ -163,13 +172,66 @@ contract DoppiOpportunityTest is Test {
         // unwind for profit opportunity
         oracle.setPrice(int256(100_500 ether));
         (upkeepNeeded, performData) = doppiOpportunity.checkUpkeep("");
+        
+        vm.expectEmit(true, true, true, true);
+        emit OppUnwindPerformed(
+            true,
+            user1,
+            100_500 ether,
+            507106598984771573,
+            50913248984771573601000,
+            913248984771573601000, // profit
+            address(usdt) // profit in asset A
+        );
+
         vm.prank(mockForwarder);
         doppiOpportunity.performUpkeep(performData);
         pos = doppiCore.get_sell(user1, 1); // refresh position
         assertEq(pos.isTraded, false); // unwind successfully
-        assertEq(doppiOpportunity.profitAssetB(), 0);
-        assertGt(doppiOpportunity.profitAssetA(), 0); // profit recorded on USDT
-            // assertEq(doppiOpportunity.profitAssetA(), 913248984771573601000);
+    }
+
+     // Event emit test
+    function test_OpportunityOppPerformed_EmitsEvent() public {
+        
+        depositUSDT();
+        oracle.setPrice(int256(98_500 ether));
+        (, bytes memory performData) = doppiOpportunity.checkUpkeep("");
+        vm.expectEmit(true, true, true, true);
+        emit OppPerformed(
+            true,
+            user1,
+            98_500 ether,
+            50_000 ether,
+            507106598984771573
+        );    
+        vm.prank(mockForwarder);
+        doppiOpportunity.performUpkeep(performData);
+    }
+
+    function test_OpportunityOppUnwindPerformed_EmitsEvent() public {
+        
+        depositUSDT();
+        oracle.setPrice(int256(98_500 ether));
+        (, bytes memory performData) = doppiOpportunity.checkUpkeep("");
+        vm.prank(mockForwarder);
+        doppiOpportunity.performUpkeep(performData);
+
+        oracle.setPrice(int256(100_500 ether));
+        (, performData) = doppiOpportunity.checkUpkeep("");
+
+        vm.expectEmit(true, true, true, true);
+        emit OppUnwindPerformed(
+            true,
+            user1,
+            100_500 ether,
+            507106598984771573,
+            50913248984771573601000,
+            913248984771573601000,
+            address(usdt)
+        );    
+
+        vm.prank(mockForwarder);
+        doppiOpportunity.performUpkeep(performData);
     }
 
     // internal function
@@ -206,4 +268,6 @@ contract DoppiOpportunityTest is Test {
         doppiCore.deposit_sell(params);
         vm.stopPrank();
     }
+
+    
 }

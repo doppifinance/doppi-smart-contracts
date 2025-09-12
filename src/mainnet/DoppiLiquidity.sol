@@ -7,11 +7,13 @@ import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {ISwapRouter} from "../Interface/ISwapRouter.sol";
 import {IQuoterV2} from "@uniswap/v3-periphery/contracts/interfaces/IQuoterV2.sol";
 import {IDoppiLiquidity} from "../Interface/IDoppiLiquidity.sol";
+import {IDoppiTraderFactory} from "../Interface/IDoppiTraderFactory.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {DALiquidityLib} from "../Library/DALiquidityLib.sol";
 import {AutomationCompatibleInterface} from "../Interface/AutomationCompatibleInterface.sol";
 import {DoppiConfig} from "./DoppiConfig.sol";
 import {Pausable} from "@openzeppelin/contracts/utils/Pausable.sol";
+import "forge-std/console.sol";
 
 contract DoppiLiquidity is ERC20, Ownable, Pausable, IDoppiLiquidity, AutomationCompatibleInterface {
     using SafeERC20 for IERC20;
@@ -31,8 +33,11 @@ contract DoppiLiquidity is ERC20, Ownable, Pausable, IDoppiLiquidity, Automation
     uint256[] public toBuyPrices;
     uint256[] public toSellPrices;
 
+    event Swapped(address indexed trader, address assetIn, address assetOut, uint256 amountIn, uint256 amountOut, uint256 price, bool isDEX);
+    event UnwindPerformed(bool isNetBuy, uint256 totalAmount, uint256 totalAmountOut);
+    
     modifier onlyDoppiCore() {
-        require(msg.sender == doppiCore, "Not privileged");
+        require(msg.sender == doppiCore || IDoppiTraderFactory(doppiTraderFactory).isTraderBot(msg.sender), "only doppicore or trader bot");
         _;
     }
 
@@ -192,16 +197,16 @@ contract DoppiLiquidity is ERC20, Ownable, Pausable, IDoppiLiquidity, Automation
                 _netoutBuySell(totalSellAmount, totalSellAmountOut, totalBuyAmount, totalBuyAmountOut);
             
             if (_canSwapPancake(netAmount, netAmountOut, isNetBuy)) {
-                return (true, abi.encode(isNetBuy, !isNetBuy, buyindexes, sellindexes, netAmount, netAmountOut));
+                return (true, abi.encode(isNetBuy, buyindexes, sellindexes, netAmount, netAmountOut));
             }
         }
 
         if (totalBuyAmount > 0 && _canSwapPancake(totalBuyAmount, totalBuyAmountOut, true)) {
-            return (true, abi.encode(true, false, buyindexes, sellindexes, totalBuyAmount, totalBuyAmountOut));
+            return (true, abi.encode(true, buyindexes, sellindexes, totalBuyAmount, totalBuyAmountOut));
         }
         
         if (totalSellAmount > 0 && _canSwapPancake(totalSellAmount, totalSellAmountOut, false)) {
-            return (true, abi.encode(false, true, buyindexes, sellindexes, totalSellAmount, totalSellAmountOut));
+            return (true, abi.encode(false, buyindexes, sellindexes, totalSellAmount, totalSellAmountOut));
         }
 
         return (false, bytes(""));
@@ -210,13 +215,14 @@ contract DoppiLiquidity is ERC20, Ownable, Pausable, IDoppiLiquidity, Automation
     function performUpkeep(bytes calldata performData) external override onlyForwarder {
         
         if(paused()) return;
-        (bool toBuy, bool toSell, uint256[] memory buyindexes, uint256[] memory sellindexes, uint256 totalAmount, uint256 totalAmountOut) = 
-            abi.decode(performData, (bool, bool, uint256[], uint256[], uint256, uint256));
+        (bool isNetBuy, uint256[] memory buyindexes, uint256[] memory sellindexes, uint256 totalAmount, uint256 totalAmountOut) = 
+            abi.decode(performData, (bool, uint256[], uint256[], uint256, uint256));
         
-        _swapPancake(totalAmount, totalAmountOut, toBuy);
-        
+        uint out = _swapPancake(totalAmount, totalAmountOut, isNetBuy);
         _clearBuyOrders(buyindexes);
         _clearSellOrders(sellindexes);
+
+        emit UnwindPerformed(isNetBuy, totalAmount, out);
     }
 
     function canSwapPancake(uint256 _amount, uint256 _amountOutQuote, bool _isBuy) external view returns (bool) {
@@ -394,16 +400,22 @@ contract DoppiLiquidity is ERC20, Ownable, Pausable, IDoppiLiquidity, Automation
 
         assetIn.safeTransferFrom(msg.sender, address(this), _amountIn);
 
+        uint256 amountInAfterfee = _amountIn - _fee;
         uint256 amountOut = _isBuy
-            ? (_amountIn - _fee) * (10 ** priceDecimals) / _price
-            : (_amountIn - _fee) * _price / (10 ** priceDecimals);
+            ? (amountInAfterfee) * (10 ** priceDecimals) / _price
+            : (amountInAfterfee) * _price / (10 ** priceDecimals);
 
         uint256 balance = assetOut.balanceOf(address(this));
+        bool isDEX = false;
+        uint256 tradedPrice = _price;
         if(amountOut > balance){
-            amountOut = _swapExactInputV3(_amountIn - _fee, address(assetIn), address(assetOut), msg.sender, amountOut);
+            isDEX = true;
+            amountOut = _swapExactInputV3(amountInAfterfee, address(assetIn), address(assetOut), msg.sender, amountOut);
+            tradedPrice = _isBuy
+                ? amountInAfterfee * (10 ** priceDecimals) / amountOut 
+                : amountOut * (10 ** priceDecimals) / amountInAfterfee;
         } else {
             assetOut.safeTransfer(msg.sender, amountOut);
-            
             uint256 targetPrice = _isBuy
                 ? _price * (1_000_000 - doppiConfig.swapMargin()) / 1_000_000
                 : _price * (1_000_000 + doppiConfig.swapMargin()) / 1_000_000;
@@ -418,6 +430,8 @@ contract DoppiLiquidity is ERC20, Ownable, Pausable, IDoppiLiquidity, Automation
                 if (!exists) DALiquidityLib.sortedInsert(toSellPrices, index, targetPrice);
             }
         }
+
+        emit Swapped(msg.sender, address(assetIn), address(assetOut), _amountIn, amountOut, tradedPrice, isDEX);
         return amountOut;
     }
 

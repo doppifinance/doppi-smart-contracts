@@ -9,6 +9,7 @@ import {IDoppiLiquidityRouter} from "../Interface/IDoppiLiquidityRouter.sol";
 import {IDoppiLiquidity} from "../Interface/IDoppiLiquidity.sol";
 import {IShares} from "../Interface/IShares.sol";
 import {IERC7575, ERC7575} from "./ERC7575.sol";
+import "forge-std/console.sol";
 
 contract DoppiLiquidityRouter is Ownable, Pausable, IDoppiLiquidityRouter {
     using SafeERC20 for IERC20;
@@ -19,6 +20,9 @@ contract DoppiLiquidityRouter is Ownable, Pausable, IDoppiLiquidityRouter {
     address public immutable assetA;
     address public immutable assetB;
 
+    event Deposited(address indexed user, uint256 amount, address asset, uint256 shares);
+    event Redeemed(address indexed user, uint256 shares, uint256 assetsA, uint256 assetsB);
+    
     constructor(IERC20 _assetA, IERC20 _assetB, IDoppiLiquidity _doppiLP) Ownable(msg.sender) {
         doppiLP = _doppiLP;
         entryPointA = new EntryPointAssetA(_assetA, IShares(address(_doppiLP)));
@@ -39,15 +43,17 @@ contract DoppiLiquidityRouter is Ownable, Pausable, IDoppiLiquidityRouter {
         } else {
             revert("Invalid asset");
         }
+        emit Deposited(msg.sender, _amount, _asset, shares);
     }
 
-    function redeem(uint256 _amount) external {
-        IERC20(doppiLP).safeTransferFrom(msg.sender, address(this), _amount);
+    function redeem(uint256 _shares) external {
+        IERC20(doppiLP).safeTransferFrom(msg.sender, address(this), _shares);
         (uint256 ratioA, uint256 ratioB) = entryPointB.assetRatio();
-        uint256 firstHalf = _amount * ratioA / (ratioA + ratioB);
-        uint256 secondHalf = _amount - firstHalf;        
-        entryPointA.redeem(firstHalf, msg.sender, address(this));
-        entryPointB.redeem(secondHalf, msg.sender, address(this));
+        uint256 firstHalf = _shares * ratioA / (ratioA + ratioB);
+        uint256 secondHalf = _shares - firstHalf;        
+        uint256 assetsA = entryPointA.redeem(firstHalf, msg.sender, address(this));
+        uint256 assetsB = entryPointB.redeem(secondHalf, msg.sender, address(this));
+        emit Redeemed(msg.sender, _shares, assetsA, assetsB);
     }
 
     function setPause() external onlyOwner {

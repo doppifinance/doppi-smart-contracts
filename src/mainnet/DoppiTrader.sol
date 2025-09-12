@@ -27,6 +27,11 @@ contract DoppiTrader is Ownable, Pausable, AutomationCompatibleInterface {
         uint24 weight;
     }
 
+    struct UndoStat {
+        uint256 undo_assetB;
+        uint256 undo_assetA;
+    }
+
     DoppiCore public immutable doppiCore;
     IERC20 public immutable assetA;
     IERC20 public immutable assetB;
@@ -36,18 +41,18 @@ contract DoppiTrader is Ownable, Pausable, AutomationCompatibleInterface {
     address public s_forwarderAddress;
     address public validTrader;
     uint32 public traderDefaultDay = 1;
-    uint256 public defaultassetAAmount;
-    uint256 public defaultassetBAmount;
+    uint256 public minAssetAAmount;
+    uint256 public minAssetBAmount;
 
     Trade[] public buy_undo_list;
     Trade[] public sell_undo_list;
-    uint256 public undo_assetB;
-    uint256 public undo_assetA;
-    uint256 public buy_undo_profit;
-    uint256 public sell_undo_profit;
 
     OrderConfig[] public orderConfigs;
     bool public useCustomConfig;
+    UndoStat public undoStat;
+
+    event BulkDeposited(address indexed trader, uint256 totalAmount, bool isBuy);
+    event UnwindPerformed(address indexed trader, bool isBuy, uint256 amountOut, uint256 profit, address profitToken);
 
     constructor(
         address _trader,
@@ -66,17 +71,26 @@ contract DoppiTrader is Ownable, Pausable, AutomationCompatibleInterface {
         validTrader = _trader;
         doppiConfig = DoppiConfig(_doppiLP.getDoppiConfig());
         _pause();
+        assetA.safeIncreaseAllowance(address(doppiCore), type(uint256).max);
+        assetB.safeIncreaseAllowance(address(doppiCore), type(uint256).max);
+        assetB.safeIncreaseAllowance(address(doppiRouter), type(uint256).max);
+        assetA.safeIncreaseAllowance(address(doppiRouter), type(uint256).max);
+        assetA.safeIncreaseAllowance(address(doppiLP), type(uint256).max);
+        assetB.safeIncreaseAllowance(address(doppiLP), type(uint256).max);
 
         // Initialize with default weights
         _initializeOrderConfigs(_weights);
     }
 
     function start(uint256 _amountA, uint256 _amountB) external onlyTrader whenPaused {
+        
         _unpause();
         assetA.safeTransferFrom(msg.sender, address(this), _amountA);
         assetB.safeTransferFrom(msg.sender, address(this), _amountB);
-        defaultassetAAmount = _amountA;
-        defaultassetBAmount = _amountB;
+
+        minAssetAAmount = _amountA / 10;
+        minAssetBAmount = _amountB / 10;
+
         uint256 assetAToLP = _amountA * doppiConfig.ratioLP() / 10000;
         uint256 assetBToLP = _amountB * doppiConfig.ratioLP() / 10000;
         _deposit(address(assetA), assetAToLP);
@@ -156,11 +170,11 @@ contract DoppiTrader is Ownable, Pausable, AutomationCompatibleInterface {
         if (_isBuyUndo) {
             uint256 assetBAmount = _amount * (10 ** priceDecimals) / _strikePrice;
             buy_undo_list.push(Trade(assetBAmount, _amount, _strikePrice));
-            undo_assetB += assetBAmount;
+            undoStat.undo_assetB += assetBAmount;
         } else {
             uint256 assetAAmount = _amount * _strikePrice / (10 ** priceDecimals);
             sell_undo_list.push(Trade(assetAAmount, _amount, _strikePrice));
-            undo_assetA += assetAAmount;
+            undoStat.undo_assetA += assetAAmount;
         }
     }
 
@@ -229,8 +243,11 @@ contract DoppiTrader is Ownable, Pausable, AutomationCompatibleInterface {
         if (!paused()) {
             uint256 buyPosCount = doppiCore.getBuyPositionCount(address(this));
             uint256 sellPosCount = doppiCore.getSellPositionCount(address(this));
-            if(buyPosCount == 0 && sellPosCount == 0){
-                return (true, abi.encode(false, price, 0, false, buyPosCount == 0, sellPosCount == 0));
+            bool toBuy = buyPosCount == 0 && _availableBalance(true) > 0;
+            bool toSell = sellPosCount == 0 && _availableBalance(false) > 0;
+            
+            if(toBuy || toSell){
+                return (true, abi.encode(false, price, 0, false, toBuy, toSell));
             }
         }
 
@@ -244,12 +261,10 @@ contract DoppiTrader is Ownable, Pausable, AutomationCompatibleInterface {
     }
 
     function performUpkeep(bytes calldata performData) external override onlyForwarder {
-        
         if(paused()) return;
 
         (bool performUnwind, uint256 price, uint256 index, 
         bool isBuyUndo, bool placeBuy, bool placeSell) = abi.decode(performData, (bool, uint256, uint256, bool, bool, bool));
-        
         if(placeBuy) _place_buys();
         if (placeSell) _place_sells();
         
@@ -282,19 +297,17 @@ contract DoppiTrader is Ownable, Pausable, AutomationCompatibleInterface {
     }
 
     function _place_buys() internal returns (bool) {
-        uint256 availableAmount = assetA.balanceOf(address(this)) - undo_assetA;
-        if (availableAmount == 0) return false;
         
-        uint256 orderAmount = availableAmount > defaultassetAAmount ? defaultassetAAmount : availableAmount;
-        return _placeOrders(true, orderAmount);
+        uint256 availableAmount = _availableBalance(true);
+        if (availableAmount == 0) return false;
+        return _placeOrders(true, availableAmount);
     }
 
     function _place_sells() internal returns (bool) {
-        uint256 availableAmount = assetB.balanceOf(address(this)) - undo_assetB;
+
+        uint256 availableAmount = _availableBalance(false);
         if (availableAmount == 0) return false;
-        
-        uint256 orderAmount = availableAmount > defaultassetBAmount ? defaultassetBAmount : availableAmount;
-        return _placeOrders(false, orderAmount);
+        return _placeOrders(false, availableAmount);
     }
 
     function _placeOrders(bool isBuy, uint256 totalAmount) internal returns (bool) {
@@ -302,25 +315,23 @@ contract DoppiTrader is Ownable, Pausable, AutomationCompatibleInterface {
         if (length == 0) return false;
 
         IERC20 token = isBuy ? assetA : assetB;
-        token.safeIncreaseAllowance(address(doppiCore), totalAmount);
         
         DoppiCore.DepositParams[] memory deposits = new DoppiCore.DepositParams[](length);
         DoppiCore.DualAssetOffer[] memory offers = new DoppiCore.DualAssetOffer[](length);
         
         uint256 totalWeight = 10000;
         
-        for (uint8 i = 0; i < length; ) {
-            OrderConfig memory config = orderConfigs[i];
+        for (uint256 i = 0; i < length; ) {
             DoppiCore.DualAssetOffer memory offer = doppiCore.getOffer(
                 isBuy, 
                 traderDefaultDay, 
-                config.strikeZone
+                orderConfigs[i].strikeZone
             );
             offers[i] = offer;
-            
+            uint256 depositAmount = (totalAmount * orderConfigs[i].weight) / totalWeight;
             deposits[i] = DoppiCore.DepositParams(
-                totalAmount * config.weight / totalWeight, // More precise calculation
-                config.strikeZone,
+                depositAmount, // More precise calculation
+                orderConfigs[i].strikeZone,
                 offer.strikePrice,
                 traderDefaultDay,
                 offer.apr,
@@ -335,6 +346,7 @@ contract DoppiTrader is Ownable, Pausable, AutomationCompatibleInterface {
             doppiCore.bulkDepositSells(deposits, offers);
         }
         
+        emit BulkDeposited(msg.sender, totalAmount, isBuy);
         return true;
     }
 
@@ -358,7 +370,6 @@ contract DoppiTrader is Ownable, Pausable, AutomationCompatibleInterface {
     }
 
     function _deposit(address _token, uint256 _amount) internal returns (uint256 shares) {
-        IERC20(_token).safeIncreaseAllowance(address(doppiRouter), _amount);
         return doppiRouter.deposit(_token, _amount);
     }
 
@@ -368,21 +379,25 @@ contract DoppiTrader is Ownable, Pausable, AutomationCompatibleInterface {
     }
 
     function _performUnwind(bool _isBuy, Trade memory _trade, uint256 _price) internal {
+        
+        uint256 tol = doppiConfig.tolerance();
         uint256 triggerPrice = _isBuy 
-            ? _trade.origStrikePrice + (_trade.origStrikePrice * doppiConfig.tolerance() / 10000)
-            : _trade.origStrikePrice - (_trade.origStrikePrice * doppiConfig.tolerance() / 10000);
+            ? _trade.origStrikePrice + (_trade.origStrikePrice * tol / 10000)
+            : _trade.origStrikePrice - (_trade.origStrikePrice * tol / 10000);
             
+        IERC20 token = _isBuy ? assetB : assetA;
+         
         if ((_isBuy && _price >= triggerPrice) || (!_isBuy && _price <= triggerPrice)) {
-            IERC20 token = _isBuy ? assetB : assetA;
-            token.safeIncreaseAllowance(address(doppiLP), _trade.payoutAmount);
             uint256 amountOut = doppiLP.swap(_trade.payoutAmount, _price, !_isBuy);
-            
+            uint256 profit;
+            unchecked { profit = amountOut >= _trade.origAmount ? amountOut - _trade.origAmount : 0; }
+
             if (_isBuy) {
-                buy_undo_profit += amountOut - _trade.origAmount;
-                undo_assetB -= _trade.payoutAmount;
+                undoStat.undo_assetB -= _trade.payoutAmount;
+                emit UnwindPerformed(address(this), _isBuy, amountOut, profit, address(assetA));
             } else {
-                sell_undo_profit += amountOut - _trade.origAmount;
-                undo_assetA -= _trade.payoutAmount;
+                undoStat.undo_assetA -= _trade.payoutAmount;
+                emit UnwindPerformed(address(this), _isBuy, amountOut, profit, address(assetB));
             }
         }
     }
@@ -408,6 +423,14 @@ contract DoppiTrader is Ownable, Pausable, AutomationCompatibleInterface {
             sum = sum + arr[i];
         return sum;
     }
+
+    function _availableBalance(bool _isBuy) private view returns (uint256 availableAmount) {
+        
+        availableAmount = _isBuy ? assetA.balanceOf(address(this)) : assetB.balanceOf(address(this));
+        availableAmount = availableAmount > (_isBuy ? undoStat.undo_assetA : undoStat.undo_assetB) ? availableAmount - (_isBuy ? undoStat.undo_assetA : undoStat.undo_assetB) : 0;
+        availableAmount = availableAmount > (_isBuy ? minAssetAAmount : minAssetBAmount) ? availableAmount : 0;
+    }
+    
     
     modifier onlyDoppiCore() {
         require(msg.sender == address(doppiCore), "only doppicore");

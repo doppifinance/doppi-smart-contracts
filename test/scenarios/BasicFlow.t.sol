@@ -93,12 +93,6 @@ contract BasicFlowTest is Test {
         // ***** doppiCore settle buy and sell order
         _doppiCoreCheckUpkeep_performUpkeep(126_500 ether);     
         // ***** END  
-        assertGt(doppiCore.get_stats(address(trader)).settleProfit_assetA, 0); // profit on sell and profit in USDT
-        assertEq(doppiCore.get_stats(address(trader)).settleProfit_assetB, 0); // no profit on buy
-        assertGt(doppiCore.get_stats(address(trader)).interestPaid_assetA, 0); 
-        assertGt(doppiCore.get_stats(address(trader)).interestPaid_assetB, 0); 
-
-        
     }
 
     function test_lp_swapfallback_buy() public {
@@ -108,17 +102,6 @@ contract BasicFlowTest is Test {
         // ***** doppiCore settle buy and sell order
         _doppiCoreCheckUpkeep_performUpkeep(96_500 ether);     
         // ***** END  
-        assertEq(doppiCore.get_stats(address(trader)).settleProfit_assetA, 0); // no profit on buy
-        assertGt(doppiCore.get_stats(address(trader)).settleProfit_assetB, 0); // profit on buy and profit in BTC
-        assertGt(doppiCore.get_stats(address(trader)).interestPaid_assetA, 0); 
-        assertGt(doppiCore.get_stats(address(trader)).interestPaid_assetB, 0); 
-
-        // console.log(doppiCore.get_stats(address(trader)).opportunityProfit_assetB);
-        // console.log(doppiCore.get_stats(address(trader)).opportunityProfit_assetA);
-        // console.log(doppiCore.get_stats(address(trader)).settleProfit_assetA);
-        // console.log(doppiCore.get_stats(address(trader)).settleProfit_assetB);
-        // console.log(doppiCore.get_stats(address(trader)).interestPaid_assetA);
-        // console.log(doppiCore.get_stats(address(trader)).interestPaid_assetB);
     }
 
     function test_lp_swapfallback_sell_with_opportunity() public {
@@ -145,8 +128,6 @@ contract BasicFlowTest is Test {
         for(uint8 i=0; i< keyPositions.length; i++){
             DoppiCore.DualAssetPosition memory pos = doppiCore.get_sell(address(trader), keyPositions[i].positionId);
             assertEq(pos.isTraded, false);
-            assertGt(opportunityBot.profitAssetB(), 0); // profit recorded on BTC
-            assertEq(opportunityBot.profitAssetA(), 0);
         
         }
         // ***** END 
@@ -155,10 +136,6 @@ contract BasicFlowTest is Test {
         _doppiCoreCheckUpkeep_performUpkeep(105_500 ether);    
         assertEq(doppiCore.getBuyPositionCount(), 0); 
         assertEq(doppiCore.getSellPositionCount(), 0);
-        assertGt(doppiCore.get_stats(address(trader)).settleProfit_assetA, 0); // profit on sell and profit in USDT
-        assertEq(doppiCore.get_stats(address(trader)).settleProfit_assetB, 0); // no profit on buy
-        assertGt(doppiCore.get_stats(address(trader)).interestPaid_assetA, 0); 
-        assertGt(doppiCore.get_stats(address(trader)).interestPaid_assetB, 0); 
         // ***** END  
         
     }
@@ -233,7 +210,6 @@ contract BasicFlowTest is Test {
         
         oracle.setPrice(int256(_price));
         (bool upkeepNeeded, bytes memory performData) = opportunityBot.checkUpkeep("");
-        // console.log(upkeepNeeded, "upkeepNeeded");
         assertTrue(upkeepNeeded);
         assertGt(performData.length, 0);
         vm.prank(mockForwarder);

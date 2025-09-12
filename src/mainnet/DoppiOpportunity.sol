@@ -11,10 +11,11 @@ contract DoppiOpportunity is Ownable, Pausable, AutomationCompatibleInterface {
     DoppiCore public immutable doppiCore;
     IDoppiLiquidity public immutable doppiLP;
     DoppiConfig public doppiConfig;
-    uint256 public profitAssetA;
-    uint256 public profitAssetB;
     address public s_forwarderAddress;
 
+    event OppPerformed(bool isBuy, address indexed trader, uint256 price, uint256 amount, uint256 amountOut);
+    event OppUnwindPerformed(bool isBuy, address indexed trader, uint256 price, uint256 swappedAmount, uint256 amountOut, uint256 profit, address profitToken);
+    
     constructor(address _doppiCore, address _doppiLP) Ownable(msg.sender) {
         doppiCore = DoppiCore(_doppiCore);
         doppiLP = IDoppiLiquidity(_doppiLP);
@@ -122,20 +123,18 @@ contract DoppiOpportunity is Ownable, Pausable, AutomationCompatibleInterface {
         DoppiCore.DualAssetPosition[] memory _orders,
         bool _isBuy
     ) internal {
+        
         for (uint256 j = 0; j < _indexes.length; ) {
             uint256 i = _indexes[j];
             if (i < _orders.length) {
                 uint256 buffer = _orders[i].strikePrice * doppiConfig.tolerance() / 10000;
                 
                 if (_isNotTradedTriggered(_isBuy, _orders[i], price, buffer)) {
-                    doppiCore.opportunitySwap(_orders[i].owner, _orders[i].amount, price, i, _isBuy);
+                    (uint256 amountOut, ) = doppiCore.opportunitySwap(_orders[i].owner, _orders[i].amount, price, i, _isBuy);
+                    emit OppPerformed(_isBuy, _orders[i].owner, price, _orders[i].amount, amountOut);
                 } else if (_isTradedTriggered(_isBuy, _orders[i], price, buffer)) {
-                    (, uint256 profit) = doppiCore.opportunityUnwind(_orders[i].owner, _orders[i].swappedAmount, price, i, !_isBuy);
-                    if (_isBuy) {
-                        profitAssetA += profit;
-                    } else {
-                        profitAssetB += profit;
-                    }
+                    (uint256 amountOut, uint256 profit) = doppiCore.opportunityUnwind(_orders[i].owner, _orders[i].swappedAmount, price, i, !_isBuy);
+                    emit OppUnwindPerformed(_isBuy, _orders[i].owner, price, _orders[i].swappedAmount, amountOut, profit, _isBuy ? address(doppiCore.assetA()): address(doppiCore.assetB()));
                 }
             }
             unchecked { ++j; }

@@ -40,8 +40,8 @@ contract DoppiTraderTest is Test {
 
     uint24[] defaultweights;
 
-    event Paused(address account);
-    event Unpaused(address account);
+    event BulkDeposited(address indexed trader, uint256 totalAmount, bool isBuy);
+    event UnwindPerformed(address indexed trader, bool isBuy, uint256 amountOut, uint256 profit, address token);
 
     function setUp() public {
         int256 a_buy = 0.0000000807142857142833 * 1e27;
@@ -129,8 +129,8 @@ contract DoppiTraderTest is Test {
         assertEq(address(doppiTrader.doppiLP()), address(doppiLP));
         assertEq(address(doppiTrader.doppiCore()), address(doppiCore));
         assertEq(doppiTrader.doppiConfig().DEFAULT_DAYS(), 1);
-        assertEq(doppiTrader.defaultassetAAmount(), 0 ether);
-        assertEq(doppiTrader.defaultassetBAmount(), 0 ether);
+        assertEq(doppiTrader.minAssetAAmount(), 0 ether);
+        assertEq(doppiTrader.minAssetBAmount(), 0 ether);
     }
 
     function test_start() public {
@@ -308,9 +308,6 @@ contract DoppiTraderTest is Test {
         DoppiCore.DualAssetPosition[] memory positions = doppiCore.get_positions_buy();
         assertEq(positions.length, 0);
 
-        assertGt(doppiCore.get_stats(address(doppiTrader)).opportunityProfit_assetB, 0);
-        assertEq(doppiCore.get_stats(address(doppiTrader)).opportunityProfit_assetA, 0); 
-
         // ***** END 
         
     }
@@ -348,9 +345,6 @@ contract DoppiTraderTest is Test {
         DoppiCore.DualAssetPosition[] memory positions = doppiCore.get_positions_buy();
         assertEq(positions.length, 0);
 
-        assertEq(doppiCore.get_stats(address(doppiTrader)).opportunityProfit_assetB, 0);
-        assertGt(doppiCore.get_stats(address(doppiTrader)).opportunityProfit_assetA, 0); // sell btc oppotunity profit in usdt
-
         // ***** END    
     }
 
@@ -376,7 +370,8 @@ contract DoppiTraderTest is Test {
         assertEq(trades.length, 1);
         assertEq(trades[0].origAmount, amount);
         assertEq(trades[0].origStrikePrice, strikePrice);
-        assertGt(doppiTrader.undo_assetB(), 0);
+        (uint256 undo_assetB,)= doppiTrader.undoStat();
+        assertGt(undo_assetB, 0);
     }
 
     function test_createUnwindPosition_sell() public {
@@ -391,7 +386,8 @@ contract DoppiTraderTest is Test {
         assertEq(trades.length, 1);
         assertEq(trades[0].origAmount, amount);
         assertEq(trades[0].origStrikePrice, strikePrice);
-        assertGt(doppiTrader.undo_assetA(), 0);
+        (,uint256 undo_assetA)= doppiTrader.undoStat();
+        assertGt(undo_assetA, 0);
     }
 
     function test_get_buy_unrealized_PNLPositive() public {
@@ -489,7 +485,8 @@ contract DoppiTraderTest is Test {
         doppiTrader.performUpkeep(performData);
 
         // Trade should not have been executed
-        assertEq(doppiTrader.buy_undo_profit(), 0);
+        // (,,uint256 buy_undo_profit,)= doppiTrader.undoStat();
+        // assertEq(buy_undo_profit, 0);
         assertEq(doppiTrader.get_buy_undos().length, 1);
     }
 
@@ -510,8 +507,9 @@ contract DoppiTraderTest is Test {
 
         assertEq(doppiTrader.get_buy_undos().length, 3);
         assertEq(doppiTrader.get_sell_undos().length, 2);
-        assertGt(doppiTrader.undo_assetB(), 0);
-        assertGt(doppiTrader.undo_assetA(), 0);
+        (uint256 undo_assetB, uint256 undo_assetA)= doppiTrader.undoStat();
+        assertGt(undo_assetB, 0);
+        assertGt(undo_assetA, 0);
     }
 
     function test_MultipleOrderConfigs() public {
@@ -592,11 +590,13 @@ contract DoppiTraderTest is Test {
         DoppiTrader.OrderConfig[] memory orderConfig = doppiTrader.getOrderConfigs();
         assertEq(orderConfig.length, 6);
         for (uint8 i = 0; i < 6; i++) {
-            console.log(i, orderConfig[i].weight);
-            // assertEq(orderConfig[i].weight, 2000);
+            if(i==5){
+                assertEq(orderConfig[i].weight, 1670);
+            }else{
+                assertEq(orderConfig[i].weight, 1666);
+            }
         }
         assertFalse(doppiTrader.useCustomConfig());
-        
         vm.stopPrank();
     }
 
@@ -703,6 +703,61 @@ contract DoppiTraderTest is Test {
         vm.stopPrank();
     }
 
+    // Event emit test
+    function test_BulkDeposit_EmitsEvent() public {
+        
+        uint256 amountUSDT = 100_000 ether;
+        uint256 amountBTC = 1 ether;
+        vm.startPrank(trader);
+        usdt.approve(address(doppiTrader), 10_000_000 ether);
+        btc.approve(address(doppiTrader), 100 ether);
+
+        // Expect Deposited event
+        vm.expectEmit(true, true, true, true);
+        emit BulkDeposited(
+            trader,
+            amountBTC / 2, // amount
+            false
+        );    
+        doppiTrader.start(amountUSDT, amountBTC);
+        vm.stopPrank();
+    }
+
+    function test_UnwindPerform_EmitsEvent() public {
+        
+        _start();
+        
+        // ***** START doppiCore settle buy and sell order
+        vm.warp(block.timestamp + 1 days + 1);
+        oracle.setPrice(int256(99_000 ether));
+        (bool upkeepNeeded, bytes memory performData) = doppiCore.checkUpkeep("");
+        vm.prank(mockForwarder);
+        doppiCore.performUpkeep(performData);
+        vm.stopPrank();
+        
+        // Set price to trigger . Place new orders
+        oracle.setPrice(int256(103_000 ether));
+        (upkeepNeeded, performData) = doppiTrader.checkUpkeep("");
+        vm.prank(mockForwarder);
+        doppiTrader.performUpkeep(performData);
+        vm.stopPrank();
+
+        // trigger to unwind
+        (upkeepNeeded, performData) = doppiTrader.checkUpkeep("");
+        vm.expectEmit(true, true, true, true);
+        emit UnwindPerformed(
+            address(0x82DcE515b19ca6C2b03060d7DA1a9670fc6EE074),
+            true,
+            2585351758793969842000, // amount
+            85351758793969842000,
+            address(usdt)
+        );    
+        vm.prank(mockForwarder);
+        doppiTrader.performUpkeep(performData);
+        vm.stopPrank();
+    }
+
+
     // internal
     function _start() internal {
         uint256 amountUSDT = 100_000 ether;
@@ -714,5 +769,4 @@ contract DoppiTraderTest is Test {
         vm.stopPrank();
     }
 
-    
 }

@@ -25,6 +25,9 @@ contract DoppiLiquidityRouterTest is Test {
     address public user1 = address(0x2);
     address public user2 = address(0x3);
 
+    event Deposited(address indexed user, uint256 amount, address asset, uint256 shares);
+    event Redeemed(address indexed user, uint256 shares, uint256 assetsA, uint256 assetsB);
+    
     function setUp() public {
         vm.startPrank(owner);
         
@@ -511,4 +514,54 @@ contract DoppiLiquidityRouterTest is Test {
             "User 1 ownership percentage should remain consistent after redeem/redeposit"
         );
     }
+
+    // Event emit test
+    function test_Deposit_EmitsDepositedEvent() public {
+        
+        vm.startPrank(user1);
+        
+        uint256 depositAmount = 100 * 10 ** usdt.decimals();
+        uint256 initialBalance = usdt.balanceOf(user1);
+        
+        // Approve router to spend tokens
+        usdt.approve(address(router), depositAmount);
+        
+        // Expect Deposited event
+        vm.expectEmit(true, true, true, true);
+        emit Deposited(
+            user1,
+            depositAmount, // amount
+            address(usdt), // asset
+            100000000000000000000
+        );    
+        // Deposit Asset A
+        router.deposit(address(usdt), depositAmount);
+        
+        vm.stopPrank();
+    }
+
+    function test_Redeem_EmitsRedeemedEvent() public {
+        
+        vm.startPrank(user1);
+        
+        uint256 depositAmount = 100 * 10 ** usdt.decimals();
+        usdt.approve(address(router), depositAmount);
+        uint256 shares = router.deposit(address(usdt), depositAmount);
+        
+        // Approve router to spend LP tokens
+        doppiLP.approve(address(router), shares);
+        
+        // Expect Deposited event
+        vm.expectEmit(true, true, true, true);
+        emit Redeemed(
+            user1,
+            shares, // amount
+            100000000000000000000, // asset
+            0
+        );    
+        // Redeem
+        router.redeem(shares);
+        vm.stopPrank();
+    }
+
 }

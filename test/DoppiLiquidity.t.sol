@@ -37,6 +37,9 @@ contract DoppiLiquidityTest is Test {
     uint256 constant SWAP_AMOUNT_BTC = 0.5e18;
     uint256 constant LIQUIDITY_FEE = 1000; // 0.1% in basis points (out of 1,000,000)
 
+    event Swapped(address indexed trader, address assetIn, address assetOut, uint256 amountIn, uint256 amountOut, uint256 price, bool isDEX);
+    event UnwindPerformed(bool isNetBuy, uint256 totalAmount, uint256 totalAmountOut);
+    
     function setUp() public {
         // Deploy mock tokens
         usdt = new MockToken("USDT", "USDT");
@@ -454,5 +457,164 @@ contract DoppiLiquidityTest is Test {
         assertEq(postUpkeepToBuyPricesLength, 0, "ToBuyPrices length should decrease after upkeep");
         assertEq(postUpkeepToSellPricesLength, 0, "ToSellPrices length should decrease after upkeep");
     }
+
+    // Event Emit 
+    function test_Swapped_BUY_EmitsEvent() public {
+        uint256 currentPrice = doppiLP.getPrice();
+
+        // Setup liquidity for swaps
+        _setupLiquidity(LARGE_USDT_AMOUNT, LARGE_BTC_AMOUNT);
+        _setupSwapTest(SWAP_AMOUNT_USDT * 2, SWAP_AMOUNT_BTC * 2, mockDualAsset);
+
+        vm.expectEmit(true, true, true, true);
+        emit Swapped(
+            address(mockDualAsset),
+            address(usdt),
+            address(btc),
+            SWAP_AMOUNT_USDT,
+            499500000000000000,
+            100_000 ether,
+            false
+        );    
+
+        vm.prank(mockDualAsset);
+        uint256 amountOut = doppiLP.swap(SWAP_AMOUNT_USDT, currentPrice, true);
+        // console.log(amountOut);
+    }
+
+    function test_Swapped_SELL_EmitsEvent() public {
+        
+        uint256 currentPrice = doppiLP.getPrice();
+        // Setup substantial liquidity for testing
+        _setupLiquidity(LARGE_USDT_AMOUNT * 5, LARGE_BTC_AMOUNT * 5);
+        _setupSwapTest(SWAP_AMOUNT_USDT * 4, SWAP_AMOUNT_BTC * 4, mockDualAsset);
+
+        // Swap at current price
+        oracle.setPrice(int256(currentPrice));
+        
+        vm.expectEmit(true, true, true, true);
+        emit Swapped(
+            address(mockDualAsset),
+            address(btc),
+            address(usdt),
+            SWAP_AMOUNT_BTC,
+            49950000000000000000000,
+            100_000 ether,
+            false
+        );    
+
+        vm.prank(mockDualAsset);
+        uint256 amountOut = doppiLP.swap(SWAP_AMOUNT_BTC, currentPrice, false); // Sell order at current price
+        // console.log(amountOut);
+    }
+
+    function test_Swapped_BUY_DEX_EmitsEvent() public {
+        uint256 currentPrice = doppiLP.getPrice();
+
+        _setupSwapTest(SWAP_AMOUNT_USDT * 2, SWAP_AMOUNT_BTC * 2, mockDualAsset);
+
+        vm.expectEmit(true, true, true, true);
+        emit Swapped(
+            address(mockDualAsset),
+            address(usdt),
+            address(btc),
+            SWAP_AMOUNT_USDT,
+            494505000000000000,
+            101010101010101010101010,
+            true
+        );    
+
+        vm.prank(mockDualAsset);
+        uint256 amountOut = doppiLP.swap(SWAP_AMOUNT_USDT, currentPrice, true);
+        console.log(amountOut);
+    }
+
+    function test_Swapped_SELL_DEX_EmitsEvent() public {
+        
+        uint256 currentPrice = doppiLP.getPrice();
+        _setupSwapTest(SWAP_AMOUNT_USDT * 4, SWAP_AMOUNT_BTC * 4, mockDualAsset);
+
+        // Swap at current price
+        oracle.setPrice(int256(currentPrice));
+        
+        vm.expectEmit(true, true, true, true);
+        emit Swapped(
+            address(mockDualAsset),
+            address(btc),
+            address(usdt),
+            SWAP_AMOUNT_BTC,
+            49450500000000000000000,
+            99_000 ether,
+            true
+        );    
+
+        vm.prank(mockDualAsset);
+        uint256 amountOut = doppiLP.swap(SWAP_AMOUNT_BTC, currentPrice, false); // Sell order at current price
+        console.log(amountOut);
+    }
+
+    function test_UnwindPerformedSwapped_EmitsEvent() public {
+        uint256 currentPrice = doppiLP.getPrice();
+
+        // Setup liquidity for swaps
+        _setupLiquidity(LARGE_USDT_AMOUNT, LARGE_BTC_AMOUNT);
+        _setupSwapTest(SWAP_AMOUNT_USDT * 2, SWAP_AMOUNT_BTC * 2, mockDualAsset);
+
+        vm.prank(mockDualAsset);
+        uint256 amountOut = doppiLP.swap(SWAP_AMOUNT_USDT, currentPrice, true);
+        
+        // Swap at -5% price
+        uint256 priceDown5Percent = currentPrice * 95 / 100;
+        oracle.setPrice(int256(priceDown5Percent));
+
+        // Check if price change triggers arbitrage opportunity
+        (bool upkeepNeededAfterPriceChange, bytes memory newPerformData) = doppiLP.checkUpkeep("");
+        
+        // event UnwindPerformed(bool isNetBuy, uint256 totalAmount, uint256 totalAmountOut);
+        
+        vm.expectEmit(true, true, true, true);
+        emit UnwindPerformed(
+            true,
+            50000000000000000000000,
+            521052631578947367
+        );   
+
+        vm.prank(mockForwarder);
+        doppiLP.performUpkeep(newPerformData);
+
+    }
+
+    function test_UnwindPerformedSwapped_SELL_EmitsEvent() public {
+        
+        uint256 currentPrice = doppiLP.getPrice();
+        // Setup substantial liquidity for testing
+        _setupLiquidity(LARGE_USDT_AMOUNT * 5, LARGE_BTC_AMOUNT * 5);
+        _setupSwapTest(SWAP_AMOUNT_USDT * 4, SWAP_AMOUNT_BTC * 4, mockDualAsset);
+
+        // Swap at current price
+        oracle.setPrice(int256(currentPrice));
+        vm.prank(mockDualAsset);
+        uint256 amountOut = doppiLP.swap(SWAP_AMOUNT_BTC, currentPrice, false); // Sell order at current price
+        
+        // Swap at +5% price
+        uint256 priceDown5Percent = currentPrice * 105 / 100;
+        oracle.setPrice(int256(priceDown5Percent));
+
+        // Check if price change triggers arbitrage opportunity
+        (bool upkeepNeededAfterPriceChange, bytes memory newPerformData) = doppiLP.checkUpkeep("");
+        
+        vm.expectEmit(true, true, true, true);
+        emit UnwindPerformed(
+            false,
+            500000000000000000,
+            51975000000000000000000
+        );   
+
+        vm.prank(mockForwarder);
+        doppiLP.performUpkeep(newPerformData);
+
+    }
+
+    
 
 }

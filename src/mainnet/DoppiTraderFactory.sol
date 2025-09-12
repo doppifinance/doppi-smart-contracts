@@ -23,6 +23,8 @@ contract DoppiTraderFactory is Ownable, IDoppiTraderFactory {
 
     mapping(address => uint256) public traderBotId;
 
+    event BotDeployed(address indexed user, address traderBot, uint256 botId);
+    
     constructor(
         IERC20 _assetA,
         IERC20 _assetB,
@@ -48,6 +50,7 @@ contract DoppiTraderFactory is Ownable, IDoppiTraderFactory {
         newTrader.setForwarderAddress(DEFAULT_FORWARDER_ADDRESS);
         traderBots.push(newTrader);
         traderBotId[address(newTrader)] = id;
+        emit BotDeployed(msg.sender, address(newTrader), id);
         return id;
     }
 
