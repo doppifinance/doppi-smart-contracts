@@ -647,9 +647,7 @@ contract DoppiCore is Ownable, Pausable, AutomationCompatibleInterface {
         uint256 _payout,
         bool _isBuy
     ) internal returns (address payoutToken, address payoutTokenAgain, address interestToken, bool, uint256) {
-        (IERC20 inToken, IERC20 payoutToken_, IERC20 interestToken_) = _isBuy
-            ? (assetA, assetB, assetA)
-            : (assetB, assetA, assetB);
+        (IERC20 payoutToken_, IERC20 interestToken_) = _isBuy ? (assetB, assetA): (assetA, assetB);
 
         // Settlement
         uint256 amountOut = doppiLP.settle(p.amount, _price, _isBuy);
@@ -710,9 +708,7 @@ contract DoppiCore is Ownable, Pausable, AutomationCompatibleInterface {
         bool _isBuy
     ) internal returns (address tokenUsed, address tokenSettled, address tokenPaid, bool isProfit, uint256 profitOrLoss) {
         // Pick settle/payout tokens based on trade direction
-        (IERC20 settleToken, IERC20 payoutToken) = _isBuy 
-            ? (assetB, assetA) 
-            : (assetA, assetB);
+        IERC20 payoutToken = _isBuy ? assetA : assetB;
 
         // Perform settlement
         uint256 amountOut = doppiLP.settle(p.swappedAmount, _price, !_isBuy);

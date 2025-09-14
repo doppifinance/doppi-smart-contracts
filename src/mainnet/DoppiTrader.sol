@@ -314,8 +314,6 @@ contract DoppiTrader is Ownable, Pausable, AutomationCompatibleInterface {
         uint256 length = orderConfigs.length;
         if (length == 0) return false;
 
-        IERC20 token = isBuy ? assetA : assetB;
-        
         DoppiCore.DepositParams[] memory deposits = new DoppiCore.DepositParams[](length);
         DoppiCore.DualAssetOffer[] memory offers = new DoppiCore.DualAssetOffer[](length);
         
@@ -385,8 +383,6 @@ contract DoppiTrader is Ownable, Pausable, AutomationCompatibleInterface {
             ? _trade.origStrikePrice + (_trade.origStrikePrice * tol / 10000)
             : _trade.origStrikePrice - (_trade.origStrikePrice * tol / 10000);
             
-        IERC20 token = _isBuy ? assetB : assetA;
-         
         if ((_isBuy && _price >= triggerPrice) || (!_isBuy && _price <= triggerPrice)) {
             uint256 amountOut = doppiLP.swap(_trade.payoutAmount, _price, !_isBuy);
             uint256 profit;
