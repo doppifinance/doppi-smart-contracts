@@ -50,7 +50,7 @@ contract DoppiProtocolScenariosTest is Test {
         
         usdt = new MockToken("USDT", "USDT");
         btc = new MockToken("Bitcoin", "BTC");
-        oracle = new MockOracle(int256(100_000 ether), 18);
+        oracle = new MockOracle(int256(100_000  * 1e8), 8);
 
         swapper = _setupMockSwapper(address(usdt), address(btc), address(oracle));        
         
@@ -259,7 +259,7 @@ contract DoppiProtocolScenariosTest is Test {
         traderBot.setPause();
         vm.stopPrank();
         // settle it
-        _doppiCoreCheckUpkeep_performUpkeep(100_000 ether);     
+        _doppiCoreCheckUpkeep_performUpkeep(100_000 * 1e8);     
         
         vm.startPrank(trader1);
         // Stop bot
@@ -295,7 +295,7 @@ contract DoppiProtocolScenariosTest is Test {
         // Simulate price drop (should create opportunities)
         // Note: In real scenario, this would be done via oracle manipulation
         // For test, we just verify the contract state changes
-        _doppiOpportunityCheckUpkeep_performUpkeep(97_500 ether); 
+        _doppiOpportunityCheckUpkeep_performUpkeep(97_500 * 1e8); 
         DoppiCore.KeyPosition[] memory keyPositions = doppiCore.get_buy_positions_id(address(traderBot));
         DoppiCore.DualAssetPosition memory pos = doppiCore.get_buy(address(traderBot), keyPositions[0].positionId);
         assertEq(pos.isTraded, true);

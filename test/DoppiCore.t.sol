@@ -36,7 +36,7 @@ contract DoppiCoreTest is Test {
     address admin = address(0x4);
     address mockForwarder = address(0x5);
 
-    uint256 constant INITIAL_PRICE = 100_000 ether;
+    uint256 constant INITIAL_PRICE = 100_000 * 1e8;
 
     event Deposited(address indexed trader, uint256 positionId, address asset, uint256 amount, uint256 interest, uint256 strikePrice, uint32 apr, uint32 numDays);
     event Settled(address indexed trader, uint256 positionId, bool striked, bool isProfit, uint256 profitLoss, uint256 payout, uint256 interest, address profitToken, address payoutToken, address interestToken);
@@ -54,7 +54,7 @@ contract DoppiCoreTest is Test {
 
         usdt = new MockToken("USDT", "USDT");
         btc = new MockToken("Bitcoin", "BTC");
-        oracle = new MockOracle(int256(INITIAL_PRICE), 18);
+        oracle = new MockOracle(int256(INITIAL_PRICE), 8);
 
         blackScholes = new BlackScholes();
         impliedVol = new ImpliedVol(blackScholes);
@@ -331,7 +331,7 @@ contract DoppiCoreTest is Test {
 
         // Fast forward time and set price below strike
         vm.warp(block.timestamp + 1 days + 1);
-        oracle.setPrice(int256(buyOffer.strikePrice - 1000 ether));
+        oracle.setPrice(int256(buyOffer.strikePrice - 1000 * 1e8));
 
         uint256[] memory readyPositions = doppiCore.getReadyBuyPositions();
         uint256 initialBtcBalance = btc.balanceOf(user1);
@@ -371,7 +371,7 @@ contract DoppiCoreTest is Test {
         
         // Fast forward time and set price above strike
         vm.warp(block.timestamp + 1 days + 1);
-        oracle.setPrice(int256(sellOffer.strikePrice + 1000 ether));
+        oracle.setPrice(int256(sellOffer.strikePrice + 1000 * 1e8));
 
         uint256[] memory readyPositions = doppiCore.getReadySellPositions();
         uint256 initialUsdtBalance = usdt.balanceOf(user1);
@@ -406,16 +406,16 @@ contract DoppiCoreTest is Test {
         // First setup a position and trade it
         _depositUSDT();
 
-        oracle.setPrice(int256(98_000 ether));
+        oracle.setPrice(int256(98_000 * 1e8));
         // Admin swaps first
         vm.startPrank(admin);
-        (uint256 swappedAmount,) = doppiCore.opportunitySwap(user1, 50_000 ether, 98_000 ether, 0, true);
+        (uint256 swappedAmount,) = doppiCore.opportunitySwap(user1, 50_000 ether, 98_000 * 1e8, 0, true);
         vm.stopPrank();
 
-        oracle.setPrice(int256(102_000 ether));
+        oracle.setPrice(int256(102_000 * 1e8));
         // Then admin unwinds
         vm.startPrank(admin);
-        (uint256 amountOut,) = doppiCore.opportunityUnwind(user1, swappedAmount, 102_000 ether, 0, false);
+        (uint256 amountOut,) = doppiCore.opportunityUnwind(user1, swappedAmount, 102_000 * 1e8, 0, false);
         vm.stopPrank();
 
         assertGt(amountOut, 0);
@@ -448,7 +448,7 @@ contract DoppiCoreTest is Test {
 
         // Fast forward time
         vm.warp(block.timestamp + 1 days + 1);
-        oracle.setPrice(int256(96_500 ether));
+        oracle.setPrice(int256(96_500 * 1e8));
         (bool upkeepNeeded, bytes memory performData) = doppiCore.checkUpkeep("");
         assertTrue(upkeepNeeded);
 
@@ -466,7 +466,7 @@ contract DoppiCoreTest is Test {
 
         // Fast forward time
         vm.warp(block.timestamp + 1 days + 1);
-        oracle.setPrice(int256(106_500 ether));
+        oracle.setPrice(int256(106_500 * 1e8));
         (bool upkeepNeeded, bytes memory performData) = doppiCore.checkUpkeep("");
         assertTrue(upkeepNeeded);
 
@@ -485,7 +485,7 @@ contract DoppiCoreTest is Test {
 
         // Fast forward time
         vm.warp(block.timestamp + 1 days + 1);
-        oracle.setPrice(int256(96_500 ether));
+        oracle.setPrice(int256(96_500 * 1e8));
         (, bytes memory performData) = doppiCore.checkUpkeep("");
         
         // Expect HedgeSettled event
@@ -508,7 +508,7 @@ contract DoppiCoreTest is Test {
 
         // Fast forward time
         vm.warp(block.timestamp + 1 days + 1);
-        oracle.setPrice(int256(106_500 ether));
+        oracle.setPrice(int256(106_500 * 1e8));
         (, bytes memory performData) = doppiCore.checkUpkeep("");
         
         // Expect HedgeSettled event
@@ -532,7 +532,7 @@ contract DoppiCoreTest is Test {
 
         // Fast forward time
         vm.warp(block.timestamp + 1 days + 1);
-        oracle.setPrice(int256(106_500 ether));
+        oracle.setPrice(int256(106_500 * 1e8));
         (, bytes memory performData) = doppiCore.checkUpkeep("");
         
         // Expect HedgeSettled event
@@ -556,7 +556,7 @@ contract DoppiCoreTest is Test {
 
         // Fast forward time
         vm.warp(block.timestamp + 1 days + 1);
-        oracle.setPrice(int256(96_500 ether));
+        oracle.setPrice(int256(96_500 * 1e8));
         (, bytes memory performData) = doppiCore.checkUpkeep("");
         
         // Expect HedgeSettled event
@@ -709,16 +709,16 @@ contract DoppiCoreTest is Test {
         // First setup a position and trade it
         _depositUSDT();
 
-        oracle.setPrice(int256(98_000 ether));
+        oracle.setPrice(int256(98_000 * 1e8));
         // Admin swaps first
         vm.startPrank(admin);
-        (uint256 swappedAmount,) = doppiCore.opportunitySwap(user1, 50_000 ether, 98_000 ether, 0, true);
+        (uint256 swappedAmount,) = doppiCore.opportunitySwap(user1, 50_000 ether, 98_000 * 1e8, 0, true);
         vm.stopPrank();
 
-        oracle.setPrice(int256(102_000 ether));
+        oracle.setPrice(int256(102_000 * 1e8));
         // Then admin unwinds
         vm.startPrank(admin);
-        (uint256 amountOut, uint256 profit) = doppiCore.opportunityUnwind(user1, swappedAmount, 102_000 ether, 0, false);
+        (uint256 amountOut, uint256 profit) = doppiCore.opportunityUnwind(user1, swappedAmount, 102_000 * 1e8, 0, false);
         vm.stopPrank();
 
         // Check position is marked as not traded
@@ -734,7 +734,7 @@ contract DoppiCoreTest is Test {
 
         // Fast forward time and set price below strike
         vm.warp(block.timestamp + 1 days + 1);
-        oracle.setPrice(int256(buyOffer.strikePrice - 1000 ether));
+        oracle.setPrice(int256(buyOffer.strikePrice - 1000 * 1e8));
 
         uint256[] memory readyPositions = doppiCore.getReadyBuyPositions();
         
@@ -764,8 +764,8 @@ contract DoppiCoreTest is Test {
 
         uint256 usdtInterestReceived = APR_BASIS_POINTS * PRINCIPAL / BASIS_POINTS_DENOMINATOR / DAYS_IN_YEAR;
         
-        uint256 btcPayout = 50_000 ether * 1e18 / buyOffer.strikePrice;
-        uint256 btcPayoutSettle = 50_000 ether * 1e18 / (buyOffer.strikePrice - 1000 ether);
+        uint256 btcPayout = 50_000 ether * 1e8 / buyOffer.strikePrice;
+        uint256 btcPayoutSettle = 50_000 ether * 1e8 / (buyOffer.strikePrice - 1000 * 1e8);
         uint256 btcPayoutSettleProfit = btcPayoutSettle - btcPayout;
         
         uint256 usdtFee = usdtInterestReceived * 1000 / 10000;
@@ -783,6 +783,7 @@ contract DoppiCoreTest is Test {
         // confirm doppi LP btc balance = loss in hedge position + btc payout to trader + settlement profit gained in BTC minus 10% fee 
         uint256 expectedUSDTLPBal = 100_000 ether + 50_000 ether -  usdtInterestReceived;
         uint256 expectedBTCLPBal = 1 ether - hedgeSoldBTC + hedgeSoldBTCunwind - btcPayoutSettle + btcPayoutSettleProfit - btcFee;
+        
         assertEq(lpBTCafter, expectedBTCLPBal);
         assertEq(lpUSDTafter, expectedUSDTLPBal);
         
@@ -802,7 +803,7 @@ contract DoppiCoreTest is Test {
 
         // Fast forward time and set price below strike
         vm.warp(block.timestamp + 1 days + 1);
-        oracle.setPrice(int256(sellOffer.strikePrice + 1000 ether));
+        oracle.setPrice(int256(sellOffer.strikePrice + 1000 * 1e8));
 
         uint256[] memory readyPositions = doppiCore.getReadySellPositions();
         
@@ -826,14 +827,14 @@ contract DoppiCoreTest is Test {
         uint256 lpUSDTafter = usdt.balanceOf(address(doppiLP));
         
         // console.log(sellOffer.apr, sellOffer.strikePrice);
-        uint256 APR_BASIS_POINTS = 35700; // 313.99% APR in basis points
-        uint256 PRINCIPAL = 0.5 ether; // 50,000 USDT
+        uint256 APR_BASIS_POINTS = 35700; // 357.00% APR in basis points
+        uint256 PRINCIPAL = 0.5 ether; // 0.5 BTC
         uint256 BASIS_POINTS_DENOMINATOR = 10000;
         uint256 DAYS_IN_YEAR = 365;
 
         uint256 btcInterestReceived = APR_BASIS_POINTS * PRINCIPAL / BASIS_POINTS_DENOMINATOR / DAYS_IN_YEAR;
-        uint256 usdtPayout = 0.5 ether * sellOffer.strikePrice / 1e18;
-        uint256 usdtPayoutSettle = 0.5 ether * (sellOffer.strikePrice + 1000 ether) / 1e18;
+        uint256 usdtPayout = 0.5 ether * sellOffer.strikePrice / 1e8;
+        uint256 usdtPayoutSettle = 0.5 ether * (sellOffer.strikePrice + 1000 * 1e8) / 1e8;
         uint256 usdtPayoutSettleProfit = usdtPayoutSettle - usdtPayout;
         
         uint256 usdtFee = usdtPayoutSettleProfit * 1000 / 10000;
@@ -846,7 +847,6 @@ contract DoppiCoreTest is Test {
         
         // (,,uint128 settleHedgeLossAssetA, ) = doppiCore.hedgeStats();
         // assertEq(settleHedgeLossAssetA, hedgeSoldUSDT - hedgeSoldUSDTunwind);
-        
         // confirm doppi LP btc balance = APR payout in btc + strike on receiving 0.5 btc 
         // confirm doppi LP usdt balance = loss in hedge position + usdt payout to trader + settlement profit gained in usdt minus 10% fee 
         uint256 expectedUSDTLPBal = 100_000 ether - hedgeSoldUSDT + hedgeSoldUSDTunwind - usdtPayoutSettle + usdtPayoutSettleProfit - usdtFee;
@@ -957,11 +957,11 @@ contract DoppiCoreTest is Test {
         uint256 DAYS_IN_YEAR = 365;
 
         uint256 usdtInterestReceived = APR_BASIS_POINTS * PRINCIPAL / BASIS_POINTS_DENOMINATOR / DAYS_IN_YEAR;
-        uint256 expectedPayout = PRINCIPAL * 1e18 / buyOffer.strikePrice; // expected payout
+        uint256 expectedPayout = PRINCIPAL * 1e8 / buyOffer.strikePrice; // expected payout
 
         // Fast forward to expiry
         vm.warp(block.timestamp + 1 days + 1);
-        oracle.setPrice(int256(INITIAL_PRICE) - 2000 ether); // Price stays same, above strike
+        oracle.setPrice(int256(INITIAL_PRICE) - 2000 * 1e8); // Price stays same, above strike
 
         vm.prank(owner);
         // Expect Settled event for in-the-money position
@@ -994,11 +994,11 @@ contract DoppiCoreTest is Test {
         uint256 DAYS_IN_YEAR = 365;
 
         uint256 btcInterestReceived = APR_BASIS_POINTS * PRINCIPAL / BASIS_POINTS_DENOMINATOR / DAYS_IN_YEAR;
-        uint256 expectedPayout = PRINCIPAL * sellOffer.strikePrice / 1e18;
+        uint256 expectedPayout = PRINCIPAL * sellOffer.strikePrice / 1e8;
 
         // Fast forward to expiry
         vm.warp(block.timestamp + 1 days + 1);
-        oracle.setPrice(int256(INITIAL_PRICE) + 2000 ether); // Price stays same, above strike
+        oracle.setPrice(int256(INITIAL_PRICE) + 2000 * 1e8); // Price stays same, above strike
 
         vm.prank(owner);
         // Expect Settled event for in-the-money position
@@ -1031,11 +1031,11 @@ contract DoppiCoreTest is Test {
         uint256 DAYS_IN_YEAR = 365;
 
         uint256 usdtInterestReceived = APR_BASIS_POINTS * PRINCIPAL / BASIS_POINTS_DENOMINATOR / DAYS_IN_YEAR;
-        // uint256 expectedPayout = PRINCIPAL * 1e18 / buyOffer.strikePrice; // expected payout
+        // uint256 expectedPayout = PRINCIPAL * 1e8 / buyOffer.strikePrice; // expected payout
 
         // Fast forward to expiry
         vm.warp(block.timestamp + 1 days + 1);
-        oracle.setPrice(int256(INITIAL_PRICE) + 1 ether); // price greater than strike price. No strike No traded
+        oracle.setPrice(int256(INITIAL_PRICE) + 1 * 1e8); // price greater than strike price. No strike No traded
 
         vm.prank(owner);
         // Expect Settled event for in-the-money position
@@ -1068,7 +1068,7 @@ contract DoppiCoreTest is Test {
         uint256 DAYS_IN_YEAR = 365;
 
         uint256 btcInterestReceived = APR_BASIS_POINTS * PRINCIPAL / BASIS_POINTS_DENOMINATOR / DAYS_IN_YEAR;
-        // uint256 expectedPayout = PRINCIPAL * sellOffer.strikePrice / 1e18;
+        // uint256 expectedPayout = PRINCIPAL * sellOffer.strikePrice / 1e8;
 
         // Fast forward to expiry
         vm.warp(block.timestamp + 1 days + 1);
@@ -1106,16 +1106,16 @@ contract DoppiCoreTest is Test {
 
         // ***** START perform opportunityBot.checkUpkeep
         vm.startPrank(admin);
-        oracle.setPrice(int256(101_600 ether));
-        (uint256 amountOut, ) = doppiCore.opportunitySwap(user1, PRINCIPAL, 101_600 ether, 0, false);
+        oracle.setPrice(int256(101_600 * 1e8));
+        (uint256 amountOut, ) = doppiCore.opportunitySwap(user1, PRINCIPAL, 101_600 * 1e8, 0, false);
         vm.stopPrank();
 
         uint256 btcInterestReceived = APR_BASIS_POINTS * PRINCIPAL / BASIS_POINTS_DENOMINATOR / DAYS_IN_YEAR;
-        uint256 expectedPayout = PRINCIPAL * sellOffer.strikePrice / 1e18;
+        uint256 expectedPayout = PRINCIPAL * sellOffer.strikePrice / 1e8;
 
         // Fast forward to expiry
         vm.warp(block.timestamp + 1 days + 1);
-        oracle.setPrice(int256(101_900 ether)); // settled sell + traded + strike
+        oracle.setPrice(int256(101_900 * 1e8)); // settled sell + traded + strike
 
         vm.prank(owner);
         // Expect Settled event for in-the-money position
@@ -1149,16 +1149,16 @@ contract DoppiCoreTest is Test {
 
         // ***** START perform opportunityBot.checkUpkeep
         vm.startPrank(admin);
-        oracle.setPrice(int256(98_000 ether));
-        (uint256 amountOut,) = doppiCore.opportunitySwap(user1, PRINCIPAL, 98_000 ether, 0, true);
+        oracle.setPrice(int256(98_000 * 1e8));
+        (uint256 amountOut,) = doppiCore.opportunitySwap(user1, PRINCIPAL, 98_000 * 1e8, 0, true);
         vm.stopPrank();
 
         uint256 usdtInterestReceived = APR_BASIS_POINTS * PRINCIPAL / BASIS_POINTS_DENOMINATOR / DAYS_IN_YEAR;
-        uint256 expectedPayout = PRINCIPAL * 1e18 / buyOffer.strikePrice; // expected payout
+        uint256 expectedPayout = PRINCIPAL * 1e8 / buyOffer.strikePrice; // expected payout
 
         // Fast forward to expiry
         vm.warp(block.timestamp + 1 days + 1);
-        oracle.setPrice(int256(INITIAL_PRICE) - 1000 ether);
+        oracle.setPrice(int256(INITIAL_PRICE) - 1000 * 1e8);
 
         // Expect Settled event for in-the-money position
         vm.prank(owner);
@@ -1188,7 +1188,7 @@ contract DoppiCoreTest is Test {
 
         // Fast forward time
         vm.warp(block.timestamp + 1 days + 1);
-        oracle.setPrice(int256(96_500 ether));
+        oracle.setPrice(int256(96_500 * 1e8));
         (, bytes memory performData) = doppiCore.checkUpkeep("");
         
         // Expect HedgeSettled event

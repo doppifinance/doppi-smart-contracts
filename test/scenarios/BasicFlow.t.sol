@@ -46,7 +46,7 @@ contract BasicFlowTest is Test {
         
         usdt = new MockToken("USDT", "USDT");
         btc = new MockToken("Bitcoin", "BTC");
-        oracle = new MockOracle(int256(100_000 ether), 18);
+        oracle = new MockOracle(int256(100_000 * 1e8), 8);
 
         swapper = _setupMockSwapper(address(usdt), address(btc), address(oracle));        
         
@@ -91,7 +91,7 @@ contract BasicFlowTest is Test {
         // start trader bot
         _start();
         // ***** doppiCore settle buy and sell order
-        _doppiCoreCheckUpkeep_performUpkeep(126_500 ether);     
+        _doppiCoreCheckUpkeep_performUpkeep(126_500 * 1e8);     
         // ***** END  
     }
 
@@ -100,7 +100,7 @@ contract BasicFlowTest is Test {
         // start trader bot
         _start();
         // ***** doppiCore settle buy and sell order
-        _doppiCoreCheckUpkeep_performUpkeep(96_500 ether);     
+        _doppiCoreCheckUpkeep_performUpkeep(97_500 * 1e8);     
         // ***** END  
     }
 
@@ -110,7 +110,7 @@ contract BasicFlowTest is Test {
         _start();
 
         // ***** START perform opportunityBot.checkUpkeep
-        _doppiOpportunityCheckUpkeep_performUpkeep(126_500 ether); // set higher price for sell opp
+        _doppiOpportunityCheckUpkeep_performUpkeep(126_500 * 1e8); // set higher price for sell opp
         DoppiCore.KeyPosition[] memory keyPositions = doppiCore.get_sell_positions_id(address(trader));
         for(uint8 i=0; i< keyPositions.length; i++){
             DoppiCore.DualAssetPosition memory pos = doppiCore.get_sell(address(trader), keyPositions[i].positionId);
@@ -123,7 +123,7 @@ contract BasicFlowTest is Test {
         }
         // ***** END 
         // ***** START perform opportunityBot.checkUpkeep to unwind opportunity trades
-        _doppiOpportunityCheckUpkeep_performUpkeep(99_500 ether); 
+        _doppiOpportunityCheckUpkeep_performUpkeep(99_500 * 1e8); 
         keyPositions = doppiCore.get_sell_positions_id(address(trader));
         for(uint8 i=0; i< keyPositions.length; i++){
             DoppiCore.DualAssetPosition memory pos = doppiCore.get_sell(address(trader), keyPositions[i].positionId);
@@ -133,7 +133,7 @@ contract BasicFlowTest is Test {
         // ***** END 
 
         // ***** doppiCore settle buy and sell order
-        _doppiCoreCheckUpkeep_performUpkeep(105_500 ether);    
+        _doppiCoreCheckUpkeep_performUpkeep(105_500 * 1e8);    
         assertEq(doppiCore.getBuyPositionCount(), 0); 
         assertEq(doppiCore.getSellPositionCount(), 0);
         // ***** END  

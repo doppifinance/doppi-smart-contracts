@@ -47,7 +47,7 @@ contract DoppiOpportunityTest is Test {
 
         usdt = new MockToken("USDT", "USDT");
         btc = new MockToken("Bitcoin", "BTC");
-        oracle = new MockOracle(int256(100_000 ether), 18);
+        oracle = new MockOracle(int256(100_000 * 1e8), 8);
 
         blackScholes = new BlackScholes();
         impliedVol = new ImpliedVol(blackScholes);
@@ -107,7 +107,7 @@ contract DoppiOpportunityTest is Test {
     function test_checkUpkeep_opportunityBuy() public {
         depositUSDT();
         assertEq(doppiCore.getBuyPositionCount(), 1);
-        oracle.setPrice(int256(98_500 ether));
+        oracle.setPrice(int256(98_500  * 1e8));
         (bool upkeepNeeded, bytes memory performData) = doppiOpportunity.checkUpkeep("");
         assertTrue(upkeepNeeded);
         assertGt(performData.length, 0);
@@ -120,7 +120,7 @@ contract DoppiOpportunityTest is Test {
     function test_checkUpkeep_opportunitySell() public {
         depositBTC();
         assertEq(doppiCore.getSellPositionCount(), 1);
-        oracle.setPrice(int256(101_600 ether));
+        oracle.setPrice(int256(101_600 * 1e8));
         (bool upkeepNeeded, bytes memory performData) = doppiOpportunity.checkUpkeep("");
         assertTrue(upkeepNeeded);
         assertGt(performData.length, 0);
@@ -132,7 +132,7 @@ contract DoppiOpportunityTest is Test {
 
     function test_checkUpkeep_opportunityTakeSellProfit() public {
         depositBTC();
-        oracle.setPrice(int256(110_500 ether));
+        oracle.setPrice(int256(110_500  * 1e8));
         (bool upkeepNeeded, bytes memory performData) = doppiOpportunity.checkUpkeep("");
         vm.prank(mockForwarder);
         doppiOpportunity.performUpkeep(performData);
@@ -140,14 +140,14 @@ contract DoppiOpportunityTest is Test {
         assertEq(pos.isTraded, true);
 
         // unwind for profit opportunity
-        oracle.setPrice(int256(98_500 ether));
+        oracle.setPrice(int256(98_500 * 1e8));
         (upkeepNeeded, performData) = doppiOpportunity.checkUpkeep("");
         
         vm.expectEmit(true, true, true, true);
         emit OppUnwindPerformed(
             false,
-            user1,
-            98_500 ether,
+            user2,
+            98_500 * 1e8,
             110389500000000000000000,
             1119584878172588832,
             119584878172588832, // profit
@@ -162,7 +162,7 @@ contract DoppiOpportunityTest is Test {
 
     function test_checkUpkeep_opportunityTakeBuyProfit() public {
         depositUSDT();
-        oracle.setPrice(int256(98_500 ether));
+        oracle.setPrice(int256(98_500 * 1e8));
         (bool upkeepNeeded, bytes memory performData) = doppiOpportunity.checkUpkeep("");
         vm.prank(mockForwarder);
         doppiOpportunity.performUpkeep(performData);
@@ -170,14 +170,14 @@ contract DoppiOpportunityTest is Test {
         assertEq(pos.isTraded, true);
 
         // unwind for profit opportunity
-        oracle.setPrice(int256(100_500 ether));
+        oracle.setPrice(int256(100_500 * 1e8));
         (upkeepNeeded, performData) = doppiOpportunity.checkUpkeep("");
         
         vm.expectEmit(true, true, true, true);
         emit OppUnwindPerformed(
             true,
             user1,
-            100_500 ether,
+            100_500 * 1e8,
             507106598984771573,
             50913248984771573601000,
             913248984771573601000, // profit
@@ -194,13 +194,13 @@ contract DoppiOpportunityTest is Test {
     function test_OpportunityOppPerformed_EmitsEvent() public {
         
         depositUSDT();
-        oracle.setPrice(int256(98_500 ether));
+        oracle.setPrice(int256(98_500 * 1e8));
         (, bytes memory performData) = doppiOpportunity.checkUpkeep("");
         vm.expectEmit(true, true, true, true);
         emit OppPerformed(
             true,
             user1,
-            98_500 ether,
+            98_500 * 1e8,
             50_000 ether,
             507106598984771573
         );    
@@ -211,19 +211,19 @@ contract DoppiOpportunityTest is Test {
     function test_OpportunityOppUnwindPerformed_EmitsEvent() public {
         
         depositUSDT();
-        oracle.setPrice(int256(98_500 ether));
+        oracle.setPrice(int256(98_500 * 1e8));
         (, bytes memory performData) = doppiOpportunity.checkUpkeep("");
         vm.prank(mockForwarder);
         doppiOpportunity.performUpkeep(performData);
 
-        oracle.setPrice(int256(100_500 ether));
+        oracle.setPrice(int256(100_500 * 1e8));
         (, performData) = doppiOpportunity.checkUpkeep("");
 
         vm.expectEmit(true, true, true, true);
         emit OppUnwindPerformed(
             true,
             user1,
-            100_500 ether,
+            100_500 * 1e8,
             507106598984771573,
             50913248984771573601000,
             913248984771573601000,

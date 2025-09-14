@@ -10,7 +10,7 @@ contract ImpliedVolTest is Test {
     ImpliedVol markIV;
     BlackScholes blackScholes;
     address owner = address(this);
-
+    uint256 priceDecimal = 1e8;
     function setUp() public {
         int256 a_buy = 0.0000000807142857142833 * 1e27;
         int256 b_buy = -0.019095857142856592 * 1e27;
@@ -36,23 +36,24 @@ contract ImpliedVolTest is Test {
     }
 
     function test_getNotAvailImpliedVol() public view {
-        uint256 ivSell_1 = markIV.getImpliedVol(86400 * 2, 121000 * 1e18, false);
-        uint256 ivBuy_2 = markIV.getImpliedVol(86400 * 2, 112000 * 1e18, true);
+        uint256 ivSell_1 = markIV.getImpliedVol(86400 * 2, 121000 * priceDecimal, false);
+        uint256 ivBuy_2 = markIV.getImpliedVol(86400 * 2, 112000 * priceDecimal, true);
         assertEq(ivSell_1, 0);
         assertEq(ivBuy_2, 0);
     }
 
     function test_getImpliedVol() public view {
-        uint256 ivSell_1 = markIV.getImpliedVol(86400, 121000 * 1e18, false);
-        uint256 ivBuy_2 = markIV.getImpliedVol(86400, 112000 * 1e18, true);
+        uint256 ivSell_1 = markIV.getImpliedVol(86400, 121000 * priceDecimal, false);
+        uint256 ivBuy_2 = markIV.getImpliedVol(86400, 112000 * priceDecimal, true);
+        // console.log(ivSell_1, ivBuy_2);
         assertEq((ivSell_1), 306957142857115830); // 30.6957142857115830
         assertEq((ivBuy_2), 335894285714286112); // 33.5894285714286112
     }
 
     function test_buyapr() public view {
-        uint256 spot = 116500 * 1e18;
+        uint256 spot = 116500 * priceDecimal;
         uint256 timeToExpiry = 86400;
-        uint256 strike = 115500 * 1e18;
+        uint256 strike = 115500 * priceDecimal;
         (uint256 buyapr, uint256 delta) = markIV.getBuyAPR(timeToExpiry, spot, strike);
         // console.log(buyapr, delta);
         assertEq(buyapr, 9369); // 93.69%
@@ -60,9 +61,9 @@ contract ImpliedVolTest is Test {
     }
 
     function test_getSellAPR() public view {
-        uint256 spot = 116500 * 1e18;
+        uint256 spot = 116500 * priceDecimal;
         uint256 timeToExpiry = 86400;
-        uint256 strike = 117000 * 1e18;
+        uint256 strike = 117000 * priceDecimal;
         (uint256 sellapr, uint256 delta) = markIV.getSellAPR(timeToExpiry, spot, strike);
         // console.log(sellapr, delta);
         assertEq(sellapr, 14081); // 140.81%
@@ -70,9 +71,9 @@ contract ImpliedVolTest is Test {
     }
 
     function test_buyapr_notavailable() public view {
-        uint256 spot = 116500 * 1e18;
+        uint256 spot = 116500 * priceDecimal;
         uint256 timeToExpiry = 86400 * 2;
-        uint256 strike = 115500 * 1e18;
+        uint256 strike = 115500 * priceDecimal;
         (uint256 buyapr, uint256 delta) = markIV.getBuyAPR(timeToExpiry, spot, strike);
         // console.log(buyapr, delta);
         assertEq(buyapr, 0); 
@@ -80,9 +81,9 @@ contract ImpliedVolTest is Test {
     }
 
     function test_getSellAPR_notavailable() public view {
-        uint256 spot = 116500 * 1e18;
+        uint256 spot = 116500 * priceDecimal;
         uint256 timeToExpiry = 86400 * 2;
-        uint256 strike = 117000 * 1e18;
+        uint256 strike = 117000 * priceDecimal;
         (uint256 sellapr, uint256 delta) = markIV.getSellAPR(timeToExpiry, spot, strike);
         // console.log(sellapr, delta);
         assertEq(sellapr, 0);

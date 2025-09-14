@@ -46,7 +46,7 @@ contract DoppiLiquidityTest is Test {
         btc = new MockToken("Bitcoin", "BTC");
 
         // Deploy mock oracle with 100,000 USDT per BTC price
-        oracle = new MockOracle(int256(100_000 ether), 18);
+        oracle = new MockOracle(int256(100_000 * 1e8), 8);
 
         // deploy doppiConfig
         doppiConfig = new DoppiConfig();
@@ -103,7 +103,7 @@ contract DoppiLiquidityTest is Test {
         vm.stopPrank();
     }
 
-    // // ===== BASIC FUNCTIONALITY TESTS =====
+    // ===== BASIC FUNCTIONALITY TESTS =====
 
     function testEqualSharesForEquivalentDeposits() public {
         vm.startPrank(user);
@@ -179,7 +179,7 @@ contract DoppiLiquidityTest is Test {
         assertGt(btc.balanceOf(mockDualAsset), initialBTCBalance, "BTC should be received by caller");
         
         uint256 expectedFee = SWAP_AMOUNT_USDT * LIQUIDITY_FEE / 1000000;
-        uint256 expectedAmountOut = (SWAP_AMOUNT_USDT - expectedFee) * 10 ** 18 / currentPrice;
+        uint256 expectedAmountOut = (SWAP_AMOUNT_USDT - expectedFee) * 10 ** 8 / currentPrice;
         assertEq(amountOut, expectedAmountOut, "Buy swap output should match calculation");
 
         // Test Sell: BTC for USDT
@@ -195,7 +195,7 @@ contract DoppiLiquidityTest is Test {
         assertGt(usdt.balanceOf(mockDualAsset), usdtBeforeSell, "USDT should be received by caller");
         
         uint256 expectedSellFee = SWAP_AMOUNT_BTC * LIQUIDITY_FEE / 1000000;
-        uint256 expectedSellAmountOut = (SWAP_AMOUNT_BTC - expectedSellFee) * currentPrice / 10 ** 18;
+        uint256 expectedSellAmountOut = (SWAP_AMOUNT_BTC - expectedSellFee) * currentPrice / 10 ** 8;
         assertEq(sellAmountOut, expectedSellAmountOut, "Sell swap output should match calculation");
     }
 
@@ -215,7 +215,7 @@ contract DoppiLiquidityTest is Test {
         vm.prank(mockDualAsset);
         uint256 amountOut = doppiLP.swap(SWAP_AMOUNT_USDT, currentPrice, true);
         uint256 expectedFee = SWAP_AMOUNT_USDT * LIQUIDITY_FEE / 1000000;
-        uint256 expectedAmountOut = (SWAP_AMOUNT_USDT - expectedFee) * 10 ** 18 / currentPrice;
+        uint256 expectedAmountOut = (SWAP_AMOUNT_USDT - expectedFee) * 10 ** 8 / currentPrice;
         // extra fee + slippage when swap outside of doppiLP (-1%)
         uint256 expectedAmountOutAfterDexFee = expectedAmountOut * 9900 / 10000;
         assertEq(amountOut, expectedAmountOutAfterDexFee, "Buy swap output should match calculation");
@@ -228,7 +228,7 @@ contract DoppiLiquidityTest is Test {
         vm.prank(mockDualAsset);
         uint256 sellAmountOut = doppiLP.swap(SWAP_AMOUNT_BTC, currentPrice, false);
         uint256 expectedSellFee = SWAP_AMOUNT_BTC * LIQUIDITY_FEE / 1000000;
-        uint256 expectedSellAmountOut = (SWAP_AMOUNT_BTC - expectedSellFee) * currentPrice / 10 ** 18;
+        uint256 expectedSellAmountOut = (SWAP_AMOUNT_BTC - expectedSellFee) * currentPrice / 10 ** 8;
         // extra fee + slippage when swap outside of doppiLP (-1%)
         uint256 expectedSellAmountOutAfterDexFee = expectedSellAmountOut * 9900 / 10000;
         assertEq(sellAmountOut, expectedSellAmountOutAfterDexFee, "Sell swap output should match calculation");
@@ -246,7 +246,7 @@ contract DoppiLiquidityTest is Test {
         vm.prank(mockDualAsset);
         (uint256 swappedHedgeAmount, uint256 hedgePrice) = doppiLP.hedgeSwap(hedgeBuyAmount, currentPrice, true);
 
-        uint256 expectedBuyAmountOut = hedgeBuyAmount * 10 ** 18 / currentPrice;
+        uint256 expectedBuyAmountOut = hedgeBuyAmount * 10 ** 8 / currentPrice;
         expectedBuyAmountOut = expectedBuyAmountOut *  9900 / 10000;
         assertEq(swappedHedgeAmount, expectedBuyAmountOut, "Hedge swap buy output should match calculation");
 
@@ -255,7 +255,7 @@ contract DoppiLiquidityTest is Test {
         vm.prank(mockDualAsset);
         (swappedHedgeAmount, hedgePrice) =  doppiLP.hedgeSwap(hedgeSellAmount, currentPrice, false);
 
-        uint256 expectedSellAmountOut = hedgeSellAmount * currentPrice / 10 ** 18;
+        uint256 expectedSellAmountOut = hedgeSellAmount * currentPrice / 10 ** 8;
         expectedSellAmountOut = expectedSellAmountOut *  9900 / 10000;
         assertEq(swappedHedgeAmount, expectedSellAmountOut, "Hedge swap sell output should match calculation");
     }
@@ -301,8 +301,8 @@ contract DoppiLiquidityTest is Test {
         uint256 currentPrice = doppiLP.getPrice();
 
         // Verify calculations
-        uint256 expectedTotalInAssetA = usdtAmount + (btcAmount * currentPrice / 10 ** 18);
-        uint256 expectedTotalInAssetB = btcAmount + (usdtAmount * 10 ** 18 / currentPrice);
+        uint256 expectedTotalInAssetA = usdtAmount + (btcAmount * currentPrice / 10 ** 8);
+        uint256 expectedTotalInAssetB = btcAmount + (usdtAmount * 10 ** 8 / currentPrice);
 
         assertEq(totalInAssetA, expectedTotalInAssetA, "Total assets in USDT should be correct");
         assertEq(totalInAssetB, expectedTotalInAssetB, "Total assets in BTC should be correct");
@@ -473,7 +473,7 @@ contract DoppiLiquidityTest is Test {
             address(btc),
             SWAP_AMOUNT_USDT,
             499500000000000000,
-            100_000 ether,
+            100_000 * 1e8,
             false
         );    
 
@@ -499,7 +499,7 @@ contract DoppiLiquidityTest is Test {
             address(usdt),
             SWAP_AMOUNT_BTC,
             49950000000000000000000,
-            100_000 ether,
+            100_000 * 1e8,
             false
         );    
 
@@ -520,7 +520,7 @@ contract DoppiLiquidityTest is Test {
             address(btc),
             SWAP_AMOUNT_USDT,
             494505000000000000,
-            101010101010101010101010,
+            10101010101010,
             true
         );    
 
@@ -544,7 +544,7 @@ contract DoppiLiquidityTest is Test {
             address(usdt),
             SWAP_AMOUNT_BTC,
             49450500000000000000000,
-            99_000 ether,
+            99_000 * 1e8,
             true
         );    
 

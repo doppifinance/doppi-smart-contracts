@@ -54,7 +54,7 @@ contract DoppiTraderTest is Test {
 
         usdt = new MockToken("USDT", "USDT");
         btc = new MockToken("Bitcoin", "BTC");
-        oracle = new MockOracle(int256(100_000 ether), 18);
+        oracle = new MockOracle(int256(100_000 * 1e8), 8);
 
         blackScholes = new BlackScholes();
         impliedVol = new ImpliedVol(blackScholes);
@@ -203,7 +203,7 @@ contract DoppiTraderTest is Test {
                 
         // ***** START doppiCore settle buy and sell order
         vm.warp(block.timestamp + 1 days + 1);
-        oracle.setPrice(int256(98_000 ether));
+        oracle.setPrice(int256(98_000 * 1e8));
         (bool upkeepNeeded, bytes memory performData) = doppiCore.checkUpkeep("");
         assertTrue(upkeepNeeded);
         
@@ -243,7 +243,7 @@ contract DoppiTraderTest is Test {
 
         // ***** START doppiCore settle buy and sell order
         vm.warp(block.timestamp + 1 days + 1);
-        oracle.setPrice(int256(98_500 ether));
+        oracle.setPrice(int256(98_500 * 1e8));
         (bool upkeepNeeded, bytes memory performData) = doppiCore.checkUpkeep("");
         assertTrue(upkeepNeeded);
         
@@ -259,7 +259,7 @@ contract DoppiTraderTest is Test {
         
         // ***** validate trader checkupkeep to place new batch of orders
 
-        oracle.setPrice(int256(98_600 ether));
+        oracle.setPrice(int256(98_600 * 1e8));
         (upkeepNeeded, performData) = doppiTrader.checkUpkeep("");
         assertTrue(upkeepNeeded);
         
@@ -278,7 +278,7 @@ contract DoppiTraderTest is Test {
         _start();
         
         // ***** START perform opportunityBot.checkUpkeep
-        oracle.setPrice(int256(101_600 ether));
+        oracle.setPrice(int256(101_600 * 1e8));
         (bool upkeepNeeded, bytes memory performData) = opportunityBot.checkUpkeep("");
         assertTrue(upkeepNeeded);
         assertGt(performData.length, 0);
@@ -298,7 +298,7 @@ contract DoppiTraderTest is Test {
 
         // ***** START doppiCore settle buy and sell order
         vm.warp(block.timestamp + 1 days + 1);
-        oracle.setPrice(int256(99_500 ether)); // settled sell + traded with profit in assetB with buy back + NO strike
+        oracle.setPrice(int256(99_500 * 1e8)); // settled sell + traded with profit in assetB with buy back + NO strike
         (upkeepNeeded, performData) = doppiCore.checkUpkeep("");
         assertTrue(upkeepNeeded);
         vm.prank(mockForwarder);
@@ -316,7 +316,7 @@ contract DoppiTraderTest is Test {
         _start();
         
         // ***** START perform opportunityBot.checkUpkeep
-        oracle.setPrice(int256(101_600 ether));
+        oracle.setPrice(int256(101_600 * 1e8));
         (bool upkeepNeeded, bytes memory performData) = opportunityBot.checkUpkeep("");
         assertTrue(upkeepNeeded);
         assertGt(performData.length, 0);
@@ -335,7 +335,7 @@ contract DoppiTraderTest is Test {
 
         // ***** doppiCore settle buy and sell order
         vm.warp(block.timestamp + 1 days + 1);
-        oracle.setPrice(int256(101_900 ether)); // settled sell + traded + strike
+        oracle.setPrice(int256(101_900 * 1e8)); // settled sell + traded + strike
         (upkeepNeeded, performData) = doppiCore.checkUpkeep("");
         assertTrue(upkeepNeeded);
         vm.prank(mockForwarder);
@@ -360,7 +360,7 @@ contract DoppiTraderTest is Test {
 
     function test_createUnwindPosition_buy() public {
         uint256 amount = 22500 ether;
-        uint256 strikePrice = 99_000 ether;
+        uint256 strikePrice = 99_000 * 1e8;
 
         vm.startPrank(address(doppiCore));
         doppiTrader.createUnwindPosition(amount, strikePrice, true);
@@ -376,7 +376,7 @@ contract DoppiTraderTest is Test {
 
     function test_createUnwindPosition_sell() public {
         uint256 amount = 0.225 ether;
-        uint256 strikePrice = 101_000 ether;
+        uint256 strikePrice = 101_000 * 1e8;
 
         vm.startPrank(address(doppiCore));
         doppiTrader.createUnwindPosition(amount, strikePrice, false);
@@ -393,13 +393,13 @@ contract DoppiTraderTest is Test {
     function test_get_buy_unrealized_PNLPositive() public {
         // Create an unwind position
         uint256 amount = 100_000 ether;
-        uint256 strikePrice = 99_000 ether;
+        uint256 strikePrice = 99_000 * 1e8;
         vm.startPrank(address(doppiCore));
         doppiTrader.createUnwindPosition(amount, strikePrice, true);
         vm.stopPrank();
 
         // uint256 currentPrice = 95_000 ether; // Below original amount
-        oracle.setPrice(int256(100_000 ether));
+        oracle.setPrice(int256(100_000 * 1e8));
         int256 pnl = doppiTrader.get_buy_unrealized_PNL();
         assertGt(pnl, 0); // Should be positive (profit) when price up
     }
@@ -407,12 +407,12 @@ contract DoppiTraderTest is Test {
     function test_get_buy_unrealized_PNLNegative() public {
         // Create an unwind position
         uint256 amount = 100_000 ether;
-        uint256 strikePrice = 99_000 ether;
+        uint256 strikePrice = 99_000 * 1e8;
         vm.startPrank(address(doppiCore));
         doppiTrader.createUnwindPosition(amount, strikePrice, true);
         vm.stopPrank();
 
-        oracle.setPrice(int256(98_000 ether));
+        oracle.setPrice(int256(98_000 * 1e8));
         int256 pnl = doppiTrader.get_buy_unrealized_PNL();
         assertLt(pnl, 0); // Should be negative when price drops
     }
@@ -420,12 +420,12 @@ contract DoppiTraderTest is Test {
     function test_get_sell_unrealized_PNLPositive() public {
         // Create an unwind position
         uint256 amount = 1 ether;
-        uint256 strikePrice = 99_000 ether;
+        uint256 strikePrice = 99_000 * 1e8;
         vm.startPrank(address(doppiCore));
         doppiTrader.createUnwindPosition(amount, strikePrice, false);
         vm.stopPrank();
 
-        oracle.setPrice(int256(98_000 ether));
+        oracle.setPrice(int256(98_000 * 1e8));
         int256 pnl = doppiTrader.get_sell_unrealized_PNL();
         assertGt(pnl, 0); // Should be positive (profit) when price drops
     }
@@ -433,12 +433,12 @@ contract DoppiTraderTest is Test {
     function test_get_sell_unrealized_PNLNegative() public {
         // Create an unwind position
         uint256 amount = 1 ether;
-        uint256 strikePrice = 99_000 ether;
+        uint256 strikePrice = 99_000 * 1e8;
         vm.startPrank(address(doppiCore));
         doppiTrader.createUnwindPosition(amount, strikePrice, false);
         vm.stopPrank();
 
-        oracle.setPrice(int256(100_000 ether));
+        oracle.setPrice(int256(100_000 * 1e8));
         int256 pnl = doppiTrader.get_sell_unrealized_PNL();
         assertLt(pnl, 0); // Should be negative (loss) when price up
     }
@@ -454,13 +454,13 @@ contract DoppiTraderTest is Test {
     function test_checkUpkeep_buyUndo() public {
         // Create buy unwind position
         uint256 amount = 10_000 ether;
-        uint256 strikePrice = 99_000 ether;
+        uint256 strikePrice = 99_000 * 1e8;
         vm.startPrank(address(doppiCore));
         doppiTrader.createUnwindPosition(amount, strikePrice, true);
         vm.stopPrank();
 
         // Set price to trigger
-        oracle.setPrice(int256(103_000 ether));
+        oracle.setPrice(int256(103_000 * 1e8));
         int256 pnl = doppiTrader.get_buy_unrealized_PNL();
         assertEq(pnl, 404040404040404030000);
         (bool upkeepNeeded, bytes memory performData) = doppiTrader.checkUpkeep("");
@@ -474,11 +474,11 @@ contract DoppiTraderTest is Test {
         doppiTrader.createUnwindPosition(100_000 ether, 100_000 ether, true);
         vm.stopPrank();
 
-        oracle.setPrice(int256(100_500 ether));
+        oracle.setPrice(int256(100_500 * 1e8));
         (bool upkeepNeeded, bytes memory performData) = doppiTrader.checkUpkeep("");
 
         // Change price significantly
-        oracle.setPrice(int256(102_000 ether));
+        oracle.setPrice(int256(102_000 * 1e8));
 
         // Should not execute due to price tolerance
         vm.prank(mockForwarder);
@@ -729,14 +729,14 @@ contract DoppiTraderTest is Test {
         
         // ***** START doppiCore settle buy and sell order
         vm.warp(block.timestamp + 1 days + 1);
-        oracle.setPrice(int256(99_000 ether));
+        oracle.setPrice(int256(99_000 * 1e8));
         (bool upkeepNeeded, bytes memory performData) = doppiCore.checkUpkeep("");
         vm.prank(mockForwarder);
         doppiCore.performUpkeep(performData);
         vm.stopPrank();
         
         // Set price to trigger . Place new orders
-        oracle.setPrice(int256(103_000 ether));
+        oracle.setPrice(int256(103_000 * 1e8));
         (upkeepNeeded, performData) = doppiTrader.checkUpkeep("");
         vm.prank(mockForwarder);
         doppiTrader.performUpkeep(performData);

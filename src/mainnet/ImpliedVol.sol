@@ -20,6 +20,7 @@ contract ImpliedVol is IImpliedVol, Ownable {
     }
 
     uint256 private constant SECONDS_PER_YEAR = 31536000;
+    int256 public priceDecimal = 1e8;
     IBlackScholes public blackScholes;
     mapping(address => bool) public admins;
     mapping(uint256 => RegressionVar) public buyRegression;
@@ -28,6 +29,10 @@ contract ImpliedVol is IImpliedVol, Ownable {
     constructor(IBlackScholes _blackScholes) Ownable(msg.sender) {
         blackScholes = _blackScholes;
         admins[msg.sender] = true;
+    }
+
+    function setPriceDecimal(int256 _decimal) public onlyAdmin {
+        priceDecimal = _decimal;
     }
 
     // a,b,c must be * 1e27
@@ -106,7 +111,7 @@ contract ImpliedVol is IImpliedVol, Ownable {
     {
         int256 price = int256(_price);
         RegressionVar memory regr = _isBuy ? buyRegression[_daysInTimestamp] : sellRegression[_daysInTimestamp];
-        markIV = uint256((((((regr.a * price) / 1e18) * price) / 1e18) + ((regr.b * price) / 1e18) + regr.c)) / 1e11;
+        markIV = uint256((((((regr.a * price) / priceDecimal) * price) / priceDecimal) + ((regr.b * price) / priceDecimal) + regr.c)) / 1e11;
     }
 
     function _getHedgeAdjust(uint256 _iv, uint256 _price, uint256 _strikeprice, uint256 _delta, uint256 _timeToExpiry)

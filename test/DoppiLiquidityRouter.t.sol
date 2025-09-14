@@ -36,7 +36,7 @@ contract DoppiLiquidityRouterTest is Test {
         btc = new MockToken("Bitcoin", "BTC");
 
         // Deploy mock oracle with 100,000 USDT per BTC price
-        oracle = new MockOracle(int256(100_000 ether), 18);
+        oracle = new MockOracle(int256(100_000 * 1e8), 8);
         // Deploy Swapper that will act as both router and pool
         swapper = new Swapper(usdt, btc);
         swapper.setOracle(MockOracle(oracle)); 
