@@ -81,14 +81,15 @@ contract DoppiLiquidity is ERC20, Ownable, Pausable, IDoppiLiquidity, Automation
         onlyDoppiCore
         returns (uint256 amountOut, uint256 tradedPrice)
     {
+        uint256 priceDecimals = 10 ** config.priceDecimals;
         if ((_isBuy ? assetA : assetB).balanceOf(address(this)) < _amountIn) return (0, 0);
 
         if (_isBuy) {  
-            amountOut = _swapPancake(_amountIn, _amountIn * (10 ** config.priceDecimals) / _price, true);
-            tradedPrice = _amountIn * (10 ** config.priceDecimals) / amountOut;
+            amountOut = _swapPancake(_amountIn, _amountIn * priceDecimals / _price, true);
+            tradedPrice = _amountIn * priceDecimals / amountOut;
         } else {
-            amountOut = _swapPancake(_amountIn, _amountIn * _price / (10 ** config.priceDecimals), false);
-            tradedPrice = amountOut * (10 ** config.priceDecimals) / _amountIn;
+            amountOut = _swapPancake(_amountIn, _amountIn * _price / priceDecimals, false);
+            tradedPrice = amountOut * priceDecimals / _amountIn;
         }
     }
 
