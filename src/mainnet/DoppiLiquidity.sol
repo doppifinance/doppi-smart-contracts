@@ -68,12 +68,12 @@ contract DoppiLiquidity is ERC20, Ownable, Pausable, IDoppiLiquidity, Automation
     }
 
     function settle(uint256 _amountIn, uint256 _price, bool _isBuy) external onlyDoppiCore returns (uint256) {
-        return _swap(_amountIn, _price, _isBuy, 0);
+        return _swap(_amountIn, _price, _isBuy, 0, true);
     }
 
     function swap(uint256 _amountIn, uint256 _price, bool _isBuy) external onlyDoppiCore returns (uint256) {
         uint256 fee = _amountIn * config.liquidityFee / 1_000_000;
-        return _swap(_amountIn, _price, _isBuy, fee);
+        return _swap(_amountIn, _price, _isBuy, fee, false);
     }
 
     function hedgeSwap(uint256 _amountIn, uint256 _price, bool _isBuy)
@@ -385,6 +385,24 @@ contract DoppiLiquidity is ERC20, Ownable, Pausable, IDoppiLiquidity, Automation
         }
     }
 
+     function _swapExactOutputV3(uint256 _amountOutAssetB, address _fromToken, address _toToken, address _recipient, uint256 amountIn)
+        internal
+        returns (uint256 result)
+    {
+        ISwapRouter.ExactOutputSingleParams memory params = ISwapRouter.ExactOutputSingleParams({
+            tokenIn: _fromToken,
+            tokenOut: _toToken,
+            fee: config.poolFee,
+            recipient: _recipient,
+            deadline: block.timestamp + 300, 
+            amountOut: _amountOutAssetB,
+            amountInMaximum: amountIn.mulDiv(10000 + config.slippage, 10000),
+            sqrtPriceLimitX96: 0 // no price limit
+        });
+
+        return ISwapRouter(config.router).exactOutputSingle(params);
+    }
+
     function _swapExactInputV3(uint256 _amount, address _fromToken, address _toToken, address _recipient, uint256 amountOutQuote)
         internal
         returns (uint256)
@@ -405,10 +423,13 @@ contract DoppiLiquidity is ERC20, Ownable, Pausable, IDoppiLiquidity, Automation
         uint256 _amountIn,
         uint256 _price,
         bool _isBuy,
-        uint256 _fee 
+        uint256 _fee,
+        bool exact
     ) internal returns (uint256) {
         uint256 price = DALiquidityLib.getPrice(config.chainLinkFeed);
         require(_price == price, "Price mismatch");
+
+        uint256 priceDecimals = 10 ** config.priceDecimals;
 
         IERC20 assetIn = _isBuy ? assetA : assetB;
         IERC20 assetOut = _isBuy ? assetB : assetA;
@@ -417,23 +438,36 @@ contract DoppiLiquidity is ERC20, Ownable, Pausable, IDoppiLiquidity, Automation
 
         uint256 amountInAfterfee = _amountIn - _fee;
         uint256 amountOut = _isBuy
-            ? (amountInAfterfee) * (10 ** config.priceDecimals) / _price
-            : (amountInAfterfee) * _price / (10 ** config.priceDecimals);
+            ? (amountInAfterfee * priceDecimals) / _price
+            : (amountInAfterfee * _price) / priceDecimals;
 
         uint256 balance = assetOut.balanceOf(address(this));
         bool isDEX = false;
         uint256 tradedPrice = _price;
         if(amountOut > balance){
             isDEX = true;
-            amountOut = _swapExactInputV3(amountInAfterfee, address(assetIn), address(assetOut), msg.sender, amountOut);
-            tradedPrice = _isBuy
-                ? amountInAfterfee * (10 ** config.priceDecimals) / amountOut 
-                : amountOut * (10 ** config.priceDecimals) / amountInAfterfee;
+            
+            if(exact){
+                uint256 actualAmountIn = _swapExactOutputV3(amountOut, address(assetIn), address(assetOut), msg.sender, _amountIn); 
+                tradedPrice = _isBuy
+                    ? (actualAmountIn * priceDecimals) / amountOut 
+                    : (amountOut * priceDecimals) / actualAmountIn;
+            } else {
+                amountOut = _swapExactInputV3(amountInAfterfee, address(assetIn), address(assetOut), msg.sender, amountOut);
+                tradedPrice = _isBuy
+                    ? (amountInAfterfee * priceDecimals) / amountOut 
+                    : (amountOut * priceDecimals) / amountInAfterfee;
+            }
+            
         } else {
+
+            uint256 swapMargin = config.swapMargin;
+            uint256 base = 1_000_000;
+
             assetOut.safeTransfer(msg.sender, amountOut);
             uint256 targetPrice = _isBuy
-                ? _price * (1_000_000 - config.swapMargin) / 1_000_000
-                : _price * (1_000_000 + config.swapMargin) / 1_000_000;
+                ? (_price * (base - swapMargin)) / base
+                : (_price * (base + swapMargin)) / base;
 
             if (_isBuy) {
                 (bool exists, uint256 index) = DALiquidityLib.find(toBuyPrices, targetPrice);

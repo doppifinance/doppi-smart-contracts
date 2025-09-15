@@ -17,6 +17,12 @@ contract DoppiTrader is Ownable, Pausable, AutomationCompatibleInterface {
     using SafeERC20 for IERC20;
     using Math for uint256;
 
+    struct HedgeBulkTrade {
+        uint256 hedgeAmountInHedgeToken;
+        uint256 swappedHedgeAmount;
+        uint256 hedgePrice;
+        bool isNetBuy;
+    }
     struct Trade {
         uint256 payoutAmount;
         uint256 origAmount;
@@ -43,9 +49,11 @@ contract DoppiTrader is Ownable, Pausable, AutomationCompatibleInterface {
     uint32 public traderDefaultDay = 1;
     uint256 public minAssetAAmount;
     uint256 public minAssetBAmount;
+    uint32 private nextBulkId = 1; 
 
     Trade[] public buy_undo_list;
     Trade[] public sell_undo_list;
+    mapping(uint32 => HedgeBulkTrade) public hedgeBulkTrade; 
 
     OrderConfig[] public orderConfigs;
     bool public useCustomConfig;
@@ -53,6 +61,7 @@ contract DoppiTrader is Ownable, Pausable, AutomationCompatibleInterface {
 
     event BulkDeposited(address indexed trader, uint256 totalAmount, bool isBuy);
     event UnwindPerformed(address indexed trader, bool isBuy, uint256 amountOut, uint256 profit, address profitToken);
+    event BulkHedgeSettled(uint256 bulkId, bool isProfit, uint256 profitLoss, address profitToken);
 
     constructor(
         address _trader,
@@ -80,30 +89,34 @@ contract DoppiTrader is Ownable, Pausable, AutomationCompatibleInterface {
 
         // Initialize with default weights
         _initializeOrderConfigs(_weights);
+        minAssetAAmount = doppiConfig.minimal_assetA();
+        minAssetBAmount = doppiConfig.minimal_assetB();
     }
 
     function start(uint256 _amountA, uint256 _amountB) external onlyTrader whenPaused {
         
         _unpause();
-        assetA.safeTransferFrom(msg.sender, address(this), _amountA);
-        assetB.safeTransferFrom(msg.sender, address(this), _amountB);
-
-        minAssetAAmount = _amountA / 10;
-        minAssetBAmount = _amountB / 10;
-
-        uint256 assetAToLP = _amountA * doppiConfig.ratioLP() / 10000;
-        uint256 assetBToLP = _amountB * doppiConfig.ratioLP() / 10000;
-        _deposit(address(assetA), assetAToLP);
-        _deposit(address(assetB), assetBToLP);
+        if(_amountA > 0){
+            assetA.safeTransferFrom(msg.sender, address(this), _amountA);
+            uint256 assetAToLP = _amountA * doppiConfig.ratioLP() / 10000;
+            _deposit(address(assetA), assetAToLP);
+        } 
         
-        _place_buys();
-        _place_sells();
+        if(_amountB > 0){
+            assetB.safeTransferFrom(msg.sender, address(this), _amountB);
+            uint256 assetBToLP = _amountB * doppiConfig.ratioLP() / 10000;
+            _deposit(address(assetB), assetBToLP);
+        } 
+        _placeBulk();
     }
 
     function stop() external onlyTrader whenPaused {
         uint256 buyPosCount = doppiCore.getBuyPositionCount(address(this));
         uint256 sellPosCount = doppiCore.getSellPositionCount(address(this));
         require(buyPosCount == 0 && sellPosCount == 0, "active orders");
+
+        uint256 price = doppiLP.getPrice();
+        _closeHedge(price);
 
         uint256 totalBal = doppiLP.balanceOf(address(this));
         _withdrawFromLP(totalBal);
@@ -265,16 +278,32 @@ contract DoppiTrader is Ownable, Pausable, AutomationCompatibleInterface {
 
         (bool performUnwind, uint256 price, uint256 index, 
         bool isBuyUndo, bool placeBuy, bool placeSell) = abi.decode(performData, (bool, uint256, uint256, bool, bool, bool));
-        if(placeBuy) _place_buys();
-        if (placeSell) _place_sells();
         
-        if (performUnwind) {
-            uint256 currentPrice = doppiLP.getPrice();
-            uint256 priceChance = price * 10000 / currentPrice;
-            if (priceChance > 10000 + doppiConfig.tolerance() || priceChance < 10000 - doppiConfig.tolerance()) {
-                return;
+        uint256 currentPrice = doppiLP.getPrice();
+            
+        if (placeBuy || placeSell) {
+            _closeHedge(currentPrice);
+
+            if (placeBuy && placeSell) {
+                _placeBulk();
+            } else if (placeBuy) { 
+                _place_buys();
+            } else if (placeSell) {
+                _place_sells();
             }
-            _opportunity_bot_trader(currentPrice, index, isBuyUndo);
+        }   
+        
+        // Handle unwind operation
+        if (performUnwind) {
+            uint256 tolerance = doppiConfig.tolerance();
+            uint256 lowerBound = 10000 - tolerance;
+            uint256 upperBound = 10000 + tolerance;
+            
+            uint256 priceRatio = (currentPrice * 10000) / price;
+            
+            if (priceRatio > lowerBound && priceRatio < upperBound) {
+                _opportunity_bot_trader(currentPrice, index, isBuyUndo);
+            }
         }
     }
 
@@ -296,56 +325,256 @@ contract DoppiTrader is Ownable, Pausable, AutomationCompatibleInterface {
         }
     }
 
-    function _place_buys() internal returns (bool) {
+    function _placeBulk() internal {
+        ( 
+            DoppiCore.DepositParams[] memory buyDeposits,
+            DoppiCore.DepositParams[] memory sellDeposits,
+            DoppiCore.DualAssetOffer[] memory buyOffers,
+            DoppiCore.DualAssetOffer[] memory sellOffers,
+            uint256 amountInHedgeAssetB,
+            uint256 hedgeAmountA,
+            uint256 amountInHedgeAssetA,
+            uint256 hedgeAmountB
+        ) = _prepareBothOrders();
         
-        uint256 availableAmount = _availableBalance(true);
-        if (availableAmount == 0) return false;
-        return _placeOrders(true, availableAmount);
+        _placeOrders(true, buyDeposits, buyOffers);
+        _placeOrders(false, sellDeposits, sellOffers);
+        
+        (bool isNetBuy, uint256 netAmount)  
+            = _netoutBuySell(amountInHedgeAssetB, hedgeAmountA, amountInHedgeAssetA, hedgeAmountB);
+
+        if ((isNetBuy ? assetA : assetB).balanceOf(address(doppiLP)) < netAmount) return;
+        
+        uint256 price = buyOffers.length > 0 ? buyOffers[0].price : sellOffers[0].price;
+        _openHedge(netAmount, price, isNetBuy);
+
     }
 
-    function _place_sells() internal returns (bool) {
-
-        uint256 availableAmount = _availableBalance(false);
-        if (availableAmount == 0) return false;
-        return _placeOrders(false, availableAmount);
+    function _openHedge(uint256 netAmount, uint256 _price, bool isNetBuy) internal {
+        
+        (uint256 swappedHedgeAmount, uint256 hedgePrice) = doppiCore.bulkHedge(netAmount, _price, isNetBuy);
+        hedgeBulkTrade[nextBulkId] = HedgeBulkTrade(
+            netAmount,
+            swappedHedgeAmount,
+            hedgePrice,
+            isNetBuy
+        );
+        unchecked { nextBulkId++; }
     }
 
-    function _placeOrders(bool isBuy, uint256 totalAmount) internal returns (bool) {
+    function _closeHedge(uint256 _price) internal {
+        uint32 bulkId = nextBulkId - 1;
+        HedgeBulkTrade storage p = hedgeBulkTrade[bulkId];
+        
+        // Early return if no hedge to close
+        uint256 swappedHedgeAmount = p.swappedHedgeAmount;
+        if (swappedHedgeAmount == 0) {
+            return;
+        }
+        
+        // Perform hedge swap
+        (uint256 hedgeOut, ) = doppiLP.hedgeSwap(swappedHedgeAmount, _price, !p.isNetBuy);
+        
+        // Calculate profit/loss
+        uint256 hedgeAmountInHedgeToken = p.hedgeAmountInHedgeToken;
+        bool isProfit = hedgeOut > hedgeAmountInHedgeToken;
+        uint256 profitOrLoss = isProfit 
+            ? hedgeOut - hedgeAmountInHedgeToken 
+            : hedgeAmountInHedgeToken - hedgeOut;
+        
+        // Cache token address
+        address profitOrLossToken = p.isNetBuy ? address(assetA) : address(assetB);
+        
+        // Reset storage values
+        p.swappedHedgeAmount = 0;
+        p.hedgeAmountInHedgeToken = 0;
+        p.hedgePrice = 0;
+        
+        emit BulkHedgeSettled(bulkId, isProfit, profitOrLoss, profitOrLossToken);
+    }
+
+    function _hedgeAmount(uint256 _amount, uint256 _delta, uint256 _price, bool isBuy) internal view returns (uint256 amountInHedgeAsset, uint256 hedgeAmount) {
+        uint256 priceDecimals = doppiLP.getPriceDecimals();
+        hedgeAmount = _amount * _delta / 10000;
+        amountInHedgeAsset = isBuy ? hedgeAmount * (10 ** priceDecimals) / _price : hedgeAmount * _price / (10 ** priceDecimals);
+    }
+
+    function _prepareBothOrders() internal view returns (
+        DoppiCore.DepositParams[] memory buyDeposits,
+        DoppiCore.DepositParams[] memory sellDeposits,
+        DoppiCore.DualAssetOffer[] memory buyOffers,
+        DoppiCore.DualAssetOffer[] memory sellOffers,
+        uint256 amountInHedgeAssetB,
+        uint256 hedgeAmountA,
+        uint256 amountInHedgeAssetA,
+        uint256 hedgeAmountB
+    ) {
         uint256 length = orderConfigs.length;
-        if (length == 0) return false;
-
-        DoppiCore.DepositParams[] memory deposits = new DoppiCore.DepositParams[](length);
-        DoppiCore.DualAssetOffer[] memory offers = new DoppiCore.DualAssetOffer[](length);
         
-        uint256 totalWeight = 10000;
+        if (length == 0) {
+            return (buyDeposits, sellDeposits, buyOffers, sellOffers, 0, 0, 0, 0);
+        }
+        
+        uint256 availableAssetAamount = _availableBalance(true);
+        uint256 availableAssetBamount = _availableBalance(false);
+        
+        // Cache the boolean conditions
+        bool hasAssetA = availableAssetAamount > 0;
+        bool hasAssetB = availableAssetBamount > 0;
+        
+        // Only allocate arrays if needed
+        if (hasAssetA) {
+            buyDeposits = new DoppiCore.DepositParams[](length);
+            buyOffers = new DoppiCore.DualAssetOffer[](length);
+        }
+        
+        if (hasAssetB) {
+            sellDeposits = new DoppiCore.DepositParams[](length);
+            sellOffers = new DoppiCore.DualAssetOffer[](length);
+        }
+        
+        OrderConfig[] memory cachedOrderConfigs = orderConfigs;
         
         for (uint256 i = 0; i < length; ) {
-            DoppiCore.DualAssetOffer memory offer = doppiCore.getOffer(
-                isBuy, 
-                traderDefaultDay, 
-                orderConfigs[i].strikeZone
-            );
-            offers[i] = offer;
-            uint256 depositAmount = (totalAmount * orderConfigs[i].weight) / totalWeight;
-            deposits[i] = DoppiCore.DepositParams(
-                depositAmount, // More precise calculation
-                orderConfigs[i].strikeZone,
-                offer.strikePrice,
-                traderDefaultDay,
-                offer.apr,
-                offer.validUntilTimestamp
-            );
+            if (hasAssetA) {  // ← Uses cached boolean instead of repeated comparison
+                (DoppiCore.DepositParams memory buyDeposit, DoppiCore.DualAssetOffer memory buyoffer) = 
+                    _prepareOrder(true, availableAssetAamount, cachedOrderConfigs[i]);
+                
+                buyDeposits[i] = buyDeposit;
+                buyOffers[i] = buyoffer;
+
+                (uint256 amtInHedgeAssetB, uint256 hAmountA) = 
+                    _hedgeAmount(buyDeposit.amount, buyoffer.delta, buyoffer.price, true);
+                
+                amountInHedgeAssetB += amtInHedgeAssetB;
+                hedgeAmountA += hAmountA;
+            }    
+
+            if (hasAssetB) { 
+                (DoppiCore.DepositParams memory sellDeposit, DoppiCore.DualAssetOffer memory selloffer) = 
+                    _prepareOrder(false, availableAssetBamount, cachedOrderConfigs[i]);
+                
+                sellDeposits[i] = sellDeposit;
+                sellOffers[i] = selloffer;
+                
+                (uint256 amtInHedgeAssetA, uint256 hAmountB) = 
+                    _hedgeAmount(sellDeposit.amount, selloffer.delta, selloffer.price, false);
+                
+                amountInHedgeAssetA += amtInHedgeAssetA;
+                hedgeAmountB += hAmountB;
+            }
+            
             unchecked { ++i; }
         }
+    }
+
+    function _prepareOrders(bool isBuy) internal view returns 
+        (
+            DoppiCore.DepositParams[] memory deposits,
+            DoppiCore.DualAssetOffer[] memory offers,
+            uint256 amountInHedgeAssetB,
+            uint256 hedgeAmountA
+        ){
+
+        uint256 length = orderConfigs.length;
+        if (length == 0) return (deposits, offers, 0, 0);
         
-        if (isBuy) {
-            doppiCore.bulkDepositBuys(deposits, offers);
-        } else {
-            doppiCore.bulkDepositSells(deposits, offers);
+        uint256 availableAsset = _availableBalance(isBuy);
+        if (availableAsset == 0) return (deposits, offers, 0, 0);
+        
+        deposits = new DoppiCore.DepositParams[](length);
+        offers = new DoppiCore.DualAssetOffer[](length);
+        for (uint256 i = 0; i < length; ) {
+            (DoppiCore.DepositParams memory deposit,
+                DoppiCore.DualAssetOffer memory offer) = _prepareOrder(isBuy, availableAsset, orderConfigs[i]);
+            deposits[i] = deposit;
+            offers[i] = offer;
+
+            (uint256 amtInHedgeAssetB, uint256 hAmountA) = 
+                    _hedgeAmount(deposit.amount, offer.delta, offer.price, isBuy);
+
+            amountInHedgeAssetB += amtInHedgeAssetB;
+            hedgeAmountA += hAmountA;
+
+            unchecked { ++i; }
         }
+    }
+
+    function _prepareOrder(bool isBuy, uint256 totalamount, OrderConfig memory _orderConfig) internal view returns (
+            DoppiCore.DepositParams memory deposit,
+            DoppiCore.DualAssetOffer memory offer )
+    {
+        uint256 totalWeight = 10000;
+        offer = doppiCore.getOffer(isBuy, traderDefaultDay, _orderConfig.strikeZone);
+
+        uint256 depositAmount = (totalamount * _orderConfig.weight) / totalWeight;
+        deposit = DoppiCore.DepositParams(
+            depositAmount, 
+            _orderConfig.strikeZone,
+            offer.strikePrice,
+            traderDefaultDay,
+            offer.apr,
+            offer.validUntilTimestamp
+        );
+    }
+
+    function _placeOrders(
+        bool isBuy,
+        DoppiCore.DepositParams[] memory deposits, 
+        DoppiCore.DualAssetOffer[] memory offers) internal returns (bool) {
         
-        emit BulkDeposited(msg.sender, totalAmount, isBuy);
+        uint256 availableAmount = _availableBalance(isBuy);
+
+        doppiCore.bulkDeposit(isBuy, deposits, offers, false);
+        
+        emit BulkDeposited(msg.sender, availableAmount, isBuy);
         return true;
+    }
+
+    function _place_buys() internal {
+        ( 
+            DoppiCore.DepositParams[] memory buyDeposits,
+            DoppiCore.DualAssetOffer[] memory buyOffers,
+            uint256 amountInHedgeAsset,
+            uint256 hedgeAmount
+        ) = _prepareOrders(true);
+
+        _placeOrders(true, buyDeposits, buyOffers);
+
+        // place hedge in bulk
+        if (assetB.balanceOf(address(doppiLP)) < amountInHedgeAsset) return;
+        
+        uint256 price = buyOffers[0].price;
+        _openHedge(amountInHedgeAsset, price, false);
+
+    }
+
+    function _place_sells() internal {
+        ( 
+            DoppiCore.DepositParams[] memory sellDeposits,
+            DoppiCore.DualAssetOffer[] memory sellOffers,
+            uint256 amountInHedgeAsset,
+            uint256 hedgeAmount
+        ) = _prepareOrders(false);
+
+        _placeOrders(false, sellDeposits, sellOffers);
+
+        if (assetA.balanceOf(address(doppiLP)) < amountInHedgeAsset) return;
+        
+        uint256 price = sellOffers[0].price;
+        _openHedge(amountInHedgeAsset, price, true);       
+    }
+    
+    function _netoutBuySell(uint256 _totalSellB, uint256 _totalSellOut, uint256 _totalBuyA, uint256 _totalBuyAOut) 
+        internal pure returns (bool isNetBuy, uint256 netSellOrBuy) 
+    {
+        if(_totalSellB > _totalBuyAOut){
+            isNetBuy = false;
+            netSellOrBuy = _totalSellB - _totalBuyAOut;
+        } else {
+            isNetBuy = true;
+            netSellOrBuy = _totalBuyA - _totalSellOut;
+        }
     }
 
     function _checkUndoTrade(bool _isBuy, uint256 _price)

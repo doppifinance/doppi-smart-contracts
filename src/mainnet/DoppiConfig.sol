@@ -8,24 +8,45 @@ import "forge-std/console.sol";
 /// One DoppiConfig for one pair ie. USDT/BTC
 contract DoppiConfig is Ownable {
 
-    AggregatorV3Interface public chainLinkFeed = AggregatorV3Interface(0x264990fbd0A4796A3E3d8E37C4d5F87a3aCa5Ebf);
-    address public router = 0x13f4EA83D0bd40E75C8222255bc855a974568Dd4;
-    address public quoter = 0xB048Bbc1Ee6b733FFfCFb9e9CeF7375518e25997;
-    address public pancakeV3Pool = 0x46Cf1cF8c69595804ba91dFdd8d6b960c9B0a7C4;
+    AggregatorV3Interface public chainLinkFeed; 
+    address public router;
+    address public quoter;
+    address public pancakeV3Pool;
 
-    uint24 public poolFee = 500; // 5bps for the USDT/BTC pool 
-    uint24 public slippage = 100; // slippage for pancakeswap DEX
-    uint32 public tolerance = 100; // opportunity or traderbot unwind price move tolerance performUpkeep 
-    uint24 public liquidityFee = 1000; // doppiLP internal swap fee
-    uint32 public swapMargin = 5000; // 0.5% doppiLP internal swap back targetPrice margin
-    uint32 public ratioLP = 5000; // traderbot split ratio for doppiLP and doppi trader bot
-    uint32 public DEFAULT_DAYS = 1;
-    uint256 public PRICE_GAP_PEROFFER = 500;
+    uint24 public poolFee; // 5bps for the USDT/BTC pool 
+    uint24 public slippage; // slippage for pancakeswap DEX
+    uint32 public tolerance; // opportunity or traderbot unwind price move tolerance performUpkeep 
+    uint24 public liquidityFee; // doppiLP internal swap fee
+    uint32 public swapMargin; // 0.5% doppiLP internal swap back targetPrice margin
+    uint32 public ratioLP; // traderbot split ratio for doppiLP and doppi trader bot
+    uint32 public DEFAULT_DAYS;
+    uint256 public PRICE_GAP_PEROFFER;
     address public treasury;
-    uint24 public MAX_ORDER = 5;
-    uint24 public treasury_fee = 1000;
+    uint24 public MAX_ORDER;
+    uint24 public treasury_fee; 
+    uint256 public minimal_assetA;
+    uint256 public minimal_assetB;
     
     constructor() Ownable(msg.sender) {
+
+        chainLinkFeed = AggregatorV3Interface(0x264990fbd0A4796A3E3d8E37C4d5F87a3aCa5Ebf);
+        router = 0x13f4EA83D0bd40E75C8222255bc855a974568Dd4;
+        quoter = 0xB048Bbc1Ee6b733FFfCFb9e9CeF7375518e25997;
+        pancakeV3Pool = 0x46Cf1cF8c69595804ba91dFdd8d6b960c9B0a7C4;
+        poolFee = 500; // 5bps for the USDT/BTC pool 
+        slippage = 100; // slippage for pancakeswap DEX
+        tolerance = 100; // opportunity or traderbot unwind price move tolerance performUpkeep 
+        liquidityFee = 1000; // doppiLP internal swap fee
+        swapMargin = 5000; // 0.5% doppiLP internal swap back targetPrice margin
+        ratioLP = 5000; // traderbot split ratio for doppiLP and doppi trader bot
+        DEFAULT_DAYS = 1;
+        PRICE_GAP_PEROFFER = 500;
+        treasury;
+        MAX_ORDER = 5;
+        treasury_fee = 1000;
+        minimal_assetA = 100 ether;
+        minimal_assetB = 0.001 ether;
+        
     }
 
     function getAmountFee(uint256 _amount) external view returns (uint256 amountAfterFee, uint256 amountFee) {
@@ -34,6 +55,11 @@ contract DoppiConfig is Ownable {
     }
 
     // Configuration functions
+    function setMinimal(uint256 _assetA, uint256 _assetB) external onlyOwner {
+        minimal_assetA = _assetA;
+        minimal_assetB = _assetB;
+    }
+
     function setTreasuryFee(uint24 _treasury_fee) external onlyOwner {
         treasury_fee = _treasury_fee;
     }

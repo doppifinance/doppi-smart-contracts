@@ -100,7 +100,7 @@ contract DoppiCore is Ownable, Pausable, AutomationCompatibleInterface {
         require(buyOffer.apr == params.apr, "incorrect apr");
         require(buyOffer.apr > 0, "apr not available");
         require(params.validityTime >= block.timestamp, "offer expired");
-        _depositBuy(params, buyOffer);
+        _depositBuy(params, buyOffer, true);
     }
 
     function deposit_sell(DepositParams calldata params) external whenNotPaused {
@@ -109,15 +109,24 @@ contract DoppiCore is Ownable, Pausable, AutomationCompatibleInterface {
         require(sellOffer.apr == params.apr, "incorrect apr");
         require(sellOffer.apr > 0, "apr not available");
         require(params.validityTime >= block.timestamp, "offer expired");
-        _depositSell(params, sellOffer);
+        _depositSell(params, sellOffer, true);
     }
 
-    function bulkDepositBuys(DepositParams[] calldata params, DualAssetOffer[] memory _buyOffers) external onlyTraderBot whenNotPaused {
-        _bulkDeposit(params, _buyOffers, true);
+    function bulkHedge(uint256 _amountInHedgeAsset, uint256 _price, bool isBuy) external returns (uint256 swappedHedgeAmount, uint256 hedgePrice) {
+        (swappedHedgeAmount, hedgePrice) = doppiLP.hedgeSwap(_amountInHedgeAsset, _price, isBuy);
     }
 
-    function bulkDepositSells(DepositParams[] calldata params, DualAssetOffer[] memory _sellOffers) external onlyTraderBot whenNotPaused {
-        _bulkDeposit(params, _sellOffers, false);
+    function bulkDeposit(bool isBuy, DepositParams[] calldata params, DualAssetOffer[] memory _offers, bool _hedge) external onlyTraderBot whenNotPaused {
+        uint256 length = params.length;
+        require(length == _offers.length, "Array length mismatch");
+        
+        for (uint256 i = 0; i < length; ) {
+            DepositParams calldata param = params[i];
+            require(param.amount > 0, "Zero amount");
+            require(param.apr > 0, "Zero APR");
+            isBuy ? _depositBuy(param, _offers[i], _hedge) : _depositSell(param, _offers[i], _hedge);
+            unchecked { ++i; }
+        }
     }
 
     function settle_buys(uint256[] memory _indexes) external onlyOwner {
@@ -446,7 +455,7 @@ contract DoppiCore is Ownable, Pausable, AutomationCompatibleInterface {
     }
 
     // Internal functions
-    function _depositBuy(DepositParams calldata params, DualAssetOffer memory _buyOffer) internal {
+    function _depositBuy(DepositParams calldata params, DualAssetOffer memory _buyOffer, bool _hedge) internal {
         uint256 amount = params.amount;
         uint32 numDays = params.numDays;
         address sender = msg.sender;
@@ -457,9 +466,13 @@ contract DoppiCore is Ownable, Pausable, AutomationCompatibleInterface {
         unchecked { nextPositionId = positionId + 1; }
 
         // Hedge
-        (uint256 hedgeAmountInAssetB, uint256 swappedHedgeAmount, uint256 hedgePrice) = 
-            _hedgeSwap(amount, _buyOffer.delta, price, true);
+        uint256 hedgeAmountInAssetB;
+        uint256 swappedHedgeAmount; 
+        uint256 hedgePrice;
 
+        if(_hedge){
+            (hedgeAmountInAssetB, swappedHedgeAmount, hedgePrice) = _hedgeSwap(amount, _buyOffer.delta, price, true);
+        }
         // Calculate interest using precomputed values
         uint256 duration = SECONDS_PER_DAY * numDays;
         uint256 interest = (amount * _buyOffer.apr * duration) / (BASIS_POINTS * SECONDS_PER_YEAR);
@@ -484,7 +497,7 @@ contract DoppiCore is Ownable, Pausable, AutomationCompatibleInterface {
 
     }
 
-    function _depositSell(DepositParams calldata params, DualAssetOffer memory _sellOffer) internal {
+    function _depositSell(DepositParams calldata params, DualAssetOffer memory _sellOffer, bool _hedge) internal {
         
         uint256 amount = params.amount;
         uint32 numDays = params.numDays;
@@ -496,9 +509,13 @@ contract DoppiCore is Ownable, Pausable, AutomationCompatibleInterface {
         unchecked { nextPositionId = positionId + 1; }
         
         // Hedge
-        (uint256 hedgeAmountInAssetA, uint256 swappedHedgeAmount, uint256 hedgePrice) = 
-            _hedgeSwap(amount, _sellOffer.delta, price, false);
+        uint256 hedgeAmountInAssetA;
+        uint256 swappedHedgeAmount; 
+        uint256 hedgePrice;
 
+        if(_hedge){
+            (hedgeAmountInAssetA, swappedHedgeAmount, hedgePrice) = _hedgeSwap(amount, _sellOffer.delta, price, false);
+        }
         // Calculate interest using precomputed values
         uint256 duration = SECONDS_PER_DAY * numDays;
         uint256 interest = (amount * _sellOffer.apr * duration) / (BASIS_POINTS * SECONDS_PER_YEAR);
@@ -651,14 +668,11 @@ contract DoppiCore is Ownable, Pausable, AutomationCompatibleInterface {
 
         // Settlement
         uint256 amountOut = doppiLP.settle(p.amount, _price, _isBuy);
-
-        // Profit check
         if (amountOut > _payout) {
             unchecked {
                 _safeTransferWithFee(payoutToken_, address(doppiLP), amountOut - _payout);
             }
         }
-        // Payout principal
         payoutToken_.safeTransfer(p.owner, _payout);
 
         // Pay interest if any
@@ -761,6 +775,7 @@ contract DoppiCore is Ownable, Pausable, AutomationCompatibleInterface {
 
 
     function _settleHedgeSwap(DualAssetPosition memory p, uint256 price, bool isBuy, uint256 _positionId) internal {
+        
         if (p.swappedHedgeAmount == 0) return;
         
         (uint256 hedgeOut, ) = doppiLP.hedgeSwap(p.swappedHedgeAmount, price, isBuy);
@@ -822,23 +837,6 @@ contract DoppiCore is Ownable, Pausable, AutomationCompatibleInterface {
                 p.isTraded = true;
                 p.swappedAmount = amountOut;
             }
-        }
-    }
-
-    function _bulkDeposit(
-        DepositParams[] calldata params, 
-        DualAssetOffer[] memory offers, 
-        bool isBuy) internal {
-        
-        uint256 length = params.length;
-        require(length == offers.length, "Array length mismatch");
-        
-        for (uint256 i = 0; i < length; ) {
-            DepositParams calldata param = params[i];
-            require(param.amount > 0, "Zero amount");
-            require(param.apr > 0, "Zero APR");
-            isBuy ? _depositBuy(param, offers[i]) : _depositSell(param, offers[i]);
-            unchecked { ++i; }
         }
     }
 

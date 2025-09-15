@@ -201,7 +201,12 @@ contract BasicFlowTest is Test {
         _manipulateRealChainlink(newPrice, address(oracle));
         
         _doppiCoreCheckUpkeep_performUpkeep();     
-               
+        
+        // stop trader bot
+        vm.startPrank(trader);
+        traderBot.setPause();
+        traderBot.stop();
+
         // Verify stopped and funds returned
         uint256 finalBalanceA = usdt.balanceOf(trader);
         uint256 finalBalanceB = btc.balanceOf(trader);
@@ -209,6 +214,46 @@ contract BasicFlowTest is Test {
         assertTrue(finalBalanceB > 0);
         assertEq(doppiCore.getBuyPositionCount(address(traderBot)), 0);
         
+    }
+
+    function test_Scenario5_traderbot_one_sided_asset() public {
+        
+        vm.startPrank(trader);
+        deal(USDT, address(trader), 100_000 ether);
+        // Deploy bot
+        uint256 traderId = doppiFactory.deployTraderBot(defaultWeights);
+        DoppiTrader traderBot = doppiFactory.traderBots(traderId);
+        
+        // Fund and start
+        usdt.approve(address(traderBot), 100_000 ether);
+        traderBot.start(100_000 ether, 0);
+        
+        // Verify active
+        assertTrue(doppiCore.getBuyPositionCount(address(traderBot)) > 0);
+        vm.stopPrank();
+        
+        
+        // Price Down 2%
+        uint256 currentPrice = doppiLP.getPrice();
+        int256 newPrice = int256(currentPrice * 9800 / 10000);
+        _manipulateRealChainlink(newPrice, address(oracle));
+        
+        _doppiCoreCheckUpkeep_performUpkeep();     
+
+        // stop trader bot
+        vm.startPrank(trader);
+        traderBot.setPause();
+        traderBot.stop();
+
+        // Verify stopped and funds returned
+        uint256 finalBalanceA = usdt.balanceOf(trader);
+        console.log(finalBalanceA);
+        assertTrue(finalBalanceA > 0);
+        assertEq(doppiCore.getBuyPositionCount(address(traderBot)), 0);
+        
+        vm.stopPrank();
+
+        // ***** END 
     }
 
     

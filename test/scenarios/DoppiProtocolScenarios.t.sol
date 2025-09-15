@@ -246,8 +246,6 @@ contract DoppiProtocolScenariosTest is Test {
         DoppiTrader traderBot = doppiFactory.traderBots(traderId);
         
         // Fund and start
-        usdt.mint(address(traderBot), 1000 * 10 ** usdt.decimals());
-        btc.mint(address(traderBot), 2 * 10 ** btc.decimals());
         usdt.approve(address(traderBot), 1000 * 10 ** usdt.decimals());
         btc.approve(address(traderBot), 2 * 10 ** btc.decimals());
         traderBot.start(1000 * 10 ** usdt.decimals(), 2 * 10 ** btc.decimals());
@@ -268,6 +266,7 @@ contract DoppiProtocolScenariosTest is Test {
         // Verify stopped and funds returned
         uint256 finalBalanceA = usdt.balanceOf(trader1);
         uint256 finalBalanceB = btc.balanceOf(trader1);
+        
         assertTrue(finalBalanceA > 0);
         assertTrue(finalBalanceB > 0);
         assertEq(doppiCore.getBuyPositionCount(address(traderBot)), 0);
@@ -358,6 +357,28 @@ contract DoppiProtocolScenariosTest is Test {
         assertFalse(doppiCore.paused());
     }
 
+    function test_Scenario6_NotAPR_Available() public {
+        
+        // Phase 2: Trader Bot Creation
+        vm.startPrank(trader1);
+        uint256 traderId = doppiFactory.deployTraderBot(defaultWeights);
+        DoppiTrader traderBot = doppiFactory.traderBots(traderId);
+        traderBot.setDefaultDay(2);
+        vm.stopPrank();
+
+        // Phase 3: Trader Bot Funding and Trading
+        vm.startPrank(trader1);
+        usdt.mint(address(traderBot), 1000 * 10 ** usdt.decimals());
+        btc.mint(address(traderBot), 2 * 10 ** btc.decimals());
+        usdt.approve(address(traderBot), 1000 * 10 ** usdt.decimals());
+        btc.approve(address(traderBot), 2 * 10 ** btc.decimals());
+        vm.expectRevert("Zero APR");
+        traderBot.start(1000 ether, 2 ether);
+        vm.stopPrank();
+
+        
+    }
+
     function _setupTraderBot() internal returns (DoppiTrader _traderbot) {
         
         uint24[] memory weights = new uint24[](5);
@@ -421,25 +442,4 @@ contract DoppiProtocolScenariosTest is Test {
         opportunityBot.performUpkeep(performData);
     }
 
-    function test_Scenario6_NotAPR_Available() public {
-        
-        // Phase 2: Trader Bot Creation
-        vm.startPrank(trader1);
-        uint256 traderId = doppiFactory.deployTraderBot(defaultWeights);
-        DoppiTrader traderBot = doppiFactory.traderBots(traderId);
-        traderBot.setDefaultDay(2);
-        vm.stopPrank();
-
-        // Phase 3: Trader Bot Funding and Trading
-        vm.startPrank(trader1);
-        usdt.mint(address(traderBot), 1000 * 10 ** usdt.decimals());
-        btc.mint(address(traderBot), 2 * 10 ** btc.decimals());
-        usdt.approve(address(traderBot), 1000 * 10 ** usdt.decimals());
-        btc.approve(address(traderBot), 2 * 10 ** btc.decimals());
-        vm.expectRevert("Zero APR");
-        traderBot.start(1000 ether, 2 ether);
-        vm.stopPrank();
-
-        
-    }
 }

@@ -129,8 +129,8 @@ contract DoppiTraderTest is Test {
         assertEq(address(doppiTrader.doppiLP()), address(doppiLP));
         assertEq(address(doppiTrader.doppiCore()), address(doppiCore));
         assertEq(doppiTrader.doppiConfig().DEFAULT_DAYS(), 1);
-        assertEq(doppiTrader.minAssetAAmount(), 0 ether);
-        assertEq(doppiTrader.minAssetBAmount(), 0 ether);
+        assertEq(doppiTrader.minAssetAAmount(), doppiConfig.minimal_assetA());
+        assertEq(doppiTrader.minAssetBAmount(), doppiConfig.minimal_assetB());
     }
 
     function test_start() public {
@@ -191,6 +191,57 @@ contract DoppiTraderTest is Test {
         assertEq(btc.balanceOf(address(trader)), 99 ether);
         assertEq(usdt.balanceOf(address(trader)), 9_900_000 ether);
 
+    }
+
+    function test_start_assetA_only() public {
+        
+        uint256 amountUSDT = 100_000 ether;
+        vm.startPrank(trader);
+        usdt.approve(address(doppiTrader), 10_000_000 ether);
+        doppiTrader.start(amountUSDT, 0);
+        vm.stopPrank();
+
+        DoppiCore.DualAssetPosition[] memory positions = doppiCore.get_positions_buy();
+        assertEq(positions.length, 5);
+
+        positions = doppiCore.get_positions_sell();
+        assertEq(positions.length, 0);
+
+        // Check USDT balance decreased
+        assertEq(usdt.balanceOf(address(trader)), 9_900_000 ether);
+    }
+
+    function test_stop_assetA_only() public {
+        
+        uint256 amountUSDT = 100_000 ether;
+        vm.startPrank(trader);
+        usdt.approve(address(doppiTrader), 10_000_000 ether);
+        doppiTrader.start(amountUSDT, 0);
+        vm.stopPrank();
+
+        uint256 afterUSDT = usdt.balanceOf(address(trader));        
+                
+        // ***** START doppiCore settle buy and sell order
+        vm.warp(block.timestamp + 1 days + 1);
+        oracle.setPrice(int256(98_000 * 1e8));
+        (bool upkeepNeeded, bytes memory performData) = doppiCore.checkUpkeep("");
+        assertTrue(upkeepNeeded);
+        
+        vm.prank(mockForwarder);
+        doppiCore.performUpkeep(performData);
+        vm.stopPrank();
+        
+        // ***** END 
+        
+        // stop trader bot
+        vm.startPrank(trader);
+        doppiTrader.setPause();
+        doppiTrader.stop();
+        vm.stopPrank();
+
+        uint256 finalUSDT = usdt.balanceOf(address(trader));   
+        // console.log(finalUSDT, afterUSDT);     
+        assertGt(finalUSDT, afterUSDT);
     }
 
     function test_stop() public {
@@ -628,10 +679,6 @@ contract DoppiTraderTest is Test {
         
         // total of BTC 0.50 in trader bot, 0.50 in liquidity
         positions = doppiCore.get_positions_sell();
-        // console.log(positions[0].amount, positions[0].strikePrice);
-        // console.log(positions[1].amount, positions[1].strikePrice);
-        // console.log(positions[2].amount, positions[2].strikePrice);
-        
         assertEq(positions.length, 3);
         assertEq(positions[0].amount, 0.3 ether); // 60%
         assertEq(positions[1].amount, 0.15 ether); // 30%
