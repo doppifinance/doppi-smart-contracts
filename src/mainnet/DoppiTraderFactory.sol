@@ -19,7 +19,6 @@ contract DoppiTraderFactory is Ownable, IDoppiTraderFactory {
     DoppiLiquidity public immutable doppiLP;
     IDoppiLiquidityRouter public immutable doppiRouter;
     DoppiTrader[] public traderBots;
-    address public immutable DEFAULT_FORWARDER_ADDRESS;
 
     mapping(address => uint256) public traderBotId;
 
@@ -30,15 +29,13 @@ contract DoppiTraderFactory is Ownable, IDoppiTraderFactory {
         IERC20 _assetB,
         DoppiCore _da,
         DoppiLiquidity _daLP,
-        IDoppiLiquidityRouter _router,
-        address _forwarderAddress
+        IDoppiLiquidityRouter _router
     ) Ownable(msg.sender) {
         assetA = _assetA;
         assetB = _assetB;
         doppiCore = _da;
         doppiLP = _daLP;
         doppiRouter = _router;
-        DEFAULT_FORWARDER_ADDRESS = _forwarderAddress;
         traderBots.push(DoppiTrader(address(0)));
     }
 
@@ -47,7 +44,6 @@ contract DoppiTraderFactory is Ownable, IDoppiTraderFactory {
         DoppiTrader newTrader = new DoppiTrader(
             msg.sender, assetA, assetB, doppiLP, doppiRouter, doppiCore, _weights
         );
-        newTrader.setForwarderAddress(DEFAULT_FORWARDER_ADDRESS);
         traderBots.push(newTrader);
         traderBotId[address(newTrader)] = id;
         emit BotDeployed(msg.sender, address(newTrader), id);

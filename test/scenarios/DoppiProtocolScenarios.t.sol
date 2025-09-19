@@ -62,11 +62,11 @@ contract DoppiProtocolScenariosTest is Test {
         doppiConfig.setOracle(address(oracle));
         
         impliedVol = _setupIV();
-        doppiLP = _setupLP(address(usdt), address(btc), address(oracle), address(swapper));
+        doppiLP = _setupLP(address(usdt), address(btc), address(swapper));
         doppiCore = new DoppiCore(address(usdt), address(btc), doppiLP, impliedVol);
         opportunityBot = new DoppiOpportunity(address(doppiCore), address(doppiLP));
         doppiRouter = new DoppiLiquidityRouter(IERC20(usdt), IERC20(btc), doppiLP);
-        doppiFactory = new DoppiTraderFactory(IERC20(usdt), IERC20(btc), doppiCore, doppiLP, doppiRouter, mockForwarder);
+        doppiFactory = new DoppiTraderFactory(IERC20(usdt), IERC20(btc), doppiCore, doppiLP, doppiRouter);
 
         opportunityBot.setForwarderAddress(mockForwarder);
         opportunityBot.setDoppiConfig(doppiConfig);
@@ -112,7 +112,7 @@ contract DoppiProtocolScenariosTest is Test {
         vm.startPrank(trader1);
         uint256 traderId = doppiFactory.deployTraderBot(defaultWeights);
         DoppiTrader traderBot = doppiFactory.traderBots(traderId);
-        
+        traderBot.setForwarderAddress(mockForwarder);
         assertTrue(doppiFactory.isTraderBot(address(traderBot)));
         vm.stopPrank();
 
@@ -159,6 +159,8 @@ contract DoppiProtocolScenariosTest is Test {
         vm.startPrank(trader1);
         uint256 trader1Id = doppiFactory.deployTraderBot(defaultWeights);
         DoppiTrader trader1Bot = doppiFactory.traderBots(trader1Id);
+        trader1Bot.setForwarderAddress(mockForwarder);
+        
         usdt.mint(address(trader1Bot), 2000 * 10 ** usdt.decimals());
         btc.mint(address(trader1Bot), 4 * 10 ** btc.decimals());
         usdt.approve(address(trader1Bot), 2000 * 10 ** usdt.decimals());
@@ -176,6 +178,8 @@ contract DoppiProtocolScenariosTest is Test {
         // aggressiveWeights[4] = 0;
         uint256 trader2Id = doppiFactory.deployTraderBot(aggressiveWeights);
         DoppiTrader trader2Bot = doppiFactory.traderBots(trader2Id);
+        trader2Bot.setForwarderAddress(mockForwarder);
+        
         usdt.mint(address(trader2Bot), 1500 * 10 ** usdt.decimals());
         btc.mint(address(trader2Bot), 3 * 10 ** btc.decimals());
         usdt.approve(address(trader2Bot), 1500 * 10 ** usdt.decimals());
@@ -245,6 +249,9 @@ contract DoppiProtocolScenariosTest is Test {
         uint256 traderId = doppiFactory.deployTraderBot(defaultWeights);
         DoppiTrader traderBot = doppiFactory.traderBots(traderId);
         
+        traderBot.setForwarderAddress(mockForwarder);
+        
+
         // Fund and start
         usdt.approve(address(traderBot), 1000 * 10 ** usdt.decimals());
         btc.approve(address(traderBot), 2 * 10 ** btc.decimals());
@@ -285,6 +292,8 @@ contract DoppiProtocolScenariosTest is Test {
         vm.startPrank(trader1);
         uint256 traderId = doppiFactory.deployTraderBot(defaultWeights);
         DoppiTrader traderBot = doppiFactory.traderBots(traderId);
+        traderBot.setForwarderAddress(mockForwarder);
+
         usdt.mint(address(traderBot), 1000 * 10 ** usdt.decimals());
         usdt.approve(address(traderBot), 1000 * 10 ** usdt.decimals());
         traderBot.start(1000 * 10 ** usdt.decimals(), 0);
@@ -363,6 +372,10 @@ contract DoppiProtocolScenariosTest is Test {
         vm.startPrank(trader1);
         uint256 traderId = doppiFactory.deployTraderBot(defaultWeights);
         DoppiTrader traderBot = doppiFactory.traderBots(traderId);
+        vm.stopPrank();
+
+        vm.startPrank(trader1);
+        traderBot.setForwarderAddress(mockForwarder);
         traderBot.setDefaultDay(2);
         vm.stopPrank();
 
@@ -381,6 +394,7 @@ contract DoppiProtocolScenariosTest is Test {
 
     function _setupTraderBot() internal returns (DoppiTrader _traderbot) {
         
+        vm.startPrank(trader1);
         uint24[] memory weights = new uint24[](5);
         weights[0] = 500;
         weights[1] = 1000;
@@ -389,14 +403,14 @@ contract DoppiProtocolScenariosTest is Test {
         weights[4] = 4500;
         uint256 id = doppiFactory.deployTraderBot(weights);
         _traderbot = doppiFactory.traderBots(id);
+        _traderbot.setForwarderAddress(mockForwarder);
+        vm.stopPrank();
     }
     
 
-    function _setupLP(address _assetA, address _assetB, address _oracle, address _swapper) internal returns (DoppiLiquidity _doppiLP) {
+    function _setupLP(address _assetA, address _assetB, address _swapper) internal returns (DoppiLiquidity _doppiLP) {
         _doppiLP =
             new DoppiLiquidity("Dual Asset Liquidity Pool", "DALP", IERC20(_assetA), IERC20(_assetB));
-        // Set the mock oracle, router, pool, and quoter
-        // _doppiLP.setOracle(address(_oracle));
         _doppiLP.setDoppiConfig(doppiConfig); 
         _doppiLP.approveRouter();
     }

@@ -19,7 +19,7 @@ import {DoppiConfig} from "../../src/mainnet/DoppiConfig.sol";
 
 contract BasicFlowTest is Test {
     DoppiTraderFactory doppiFactory;
-    DoppiTrader trader;
+    DoppiTrader traderBot;
     DoppiCore doppiCore;
     DoppiLiquidity doppiLP;
     DoppiLiquidityRouter doppiRouter;
@@ -32,6 +32,7 @@ contract BasicFlowTest is Test {
     Swapper public swapper;
     DoppiConfig doppiConfig;
     
+    address trader = address(0x6);
     address owner = address(0x1);
     address treasury = address(0x3);
     address admin = address(0x4);
@@ -58,11 +59,11 @@ contract BasicFlowTest is Test {
         doppiConfig.setOracle(address(oracle));
         
         impliedVol = _setupIV();
-        doppiLP = _setupLP(address(usdt), address(btc), address(oracle), address(swapper));
+        doppiLP = _setupLP(address(usdt), address(btc));
         doppiCore = new DoppiCore(address(usdt), address(btc), doppiLP, impliedVol);
         opportunityBot = new DoppiOpportunity(address(doppiCore), address(doppiLP));
         doppiRouter = new DoppiLiquidityRouter(IERC20(usdt), IERC20(btc), doppiLP);
-        doppiFactory = new DoppiTraderFactory(IERC20(usdt), IERC20(btc), doppiCore, doppiLP, doppiRouter, mockForwarder);
+        doppiFactory = new DoppiTraderFactory(IERC20(usdt), IERC20(btc), doppiCore, doppiLP, doppiRouter);
 
         opportunityBot.setForwarderAddress(mockForwarder);
         opportunityBot.setDoppiConfig(doppiConfig);
@@ -77,11 +78,11 @@ contract BasicFlowTest is Test {
         doppiLP.setDoppiTraderFactory(address(doppiFactory));
         doppiCore.setDoppiTraderFactory(doppiFactory);
 
-        vm.prank(owner);
-        trader = _setupTraderBot();
+        traderBot = _setupTraderBot();
         usdt.mint(owner, 1_000_000 ether);
         btc.mint(owner, 20 ether);
-
+        usdt.mint(trader, 1_000_000 ether);
+        btc.mint(trader, 20 ether);
         usdt.mint(admin, 1_000_000 ether);
         btc.mint(admin, 20 ether);
     }
@@ -111,22 +112,22 @@ contract BasicFlowTest is Test {
 
         // ***** START perform opportunityBot.checkUpkeep
         _doppiOpportunityCheckUpkeep_performUpkeep(126_500 * 1e8); // set higher price for sell opp
-        DoppiCore.KeyPosition[] memory keyPositions = doppiCore.get_sell_positions_id(address(trader));
+        DoppiCore.KeyPosition[] memory keyPositions = doppiCore.get_sell_positions_id(address(traderBot));
         for(uint8 i=0; i< keyPositions.length; i++){
-            DoppiCore.DualAssetPosition memory pos = doppiCore.get_sell(address(trader), keyPositions[i].positionId);
+            DoppiCore.DualAssetPosition memory pos = doppiCore.get_sell(address(traderBot), keyPositions[i].positionId);
             assertEq(pos.isTraded, true);
         }
-        keyPositions = doppiCore.get_buy_positions_id(address(trader));
+        keyPositions = doppiCore.get_buy_positions_id(address(traderBot));
         for(uint8 i=0; i< keyPositions.length; i++){
-            DoppiCore.DualAssetPosition memory pos = doppiCore.get_buy(address(trader), keyPositions[i].positionId);
+            DoppiCore.DualAssetPosition memory pos = doppiCore.get_buy(address(traderBot), keyPositions[i].positionId);
             assertEq(pos.isTraded, false);
         }
         // ***** END 
         // ***** START perform opportunityBot.checkUpkeep to unwind opportunity trades
         _doppiOpportunityCheckUpkeep_performUpkeep(99_500 * 1e8); 
-        keyPositions = doppiCore.get_sell_positions_id(address(trader));
+        keyPositions = doppiCore.get_sell_positions_id(address(traderBot));
         for(uint8 i=0; i< keyPositions.length; i++){
-            DoppiCore.DualAssetPosition memory pos = doppiCore.get_sell(address(trader), keyPositions[i].positionId);
+            DoppiCore.DualAssetPosition memory pos = doppiCore.get_sell(address(traderBot), keyPositions[i].positionId);
             assertEq(pos.isTraded, false);
         
         }
@@ -144,33 +145,37 @@ contract BasicFlowTest is Test {
     function _start() internal {
 
         console.log("start");
-        vm.startPrank(owner);
+        vm.startPrank(trader);
         uint256 amountUSDT = 100_000 ether;
         uint256 amountBTC = 1 ether;
-        usdt.approve(address(trader), 10_000_000 ether);
-        btc.approve(address(trader), 100 ether);
-        trader.start(amountUSDT, amountBTC);
+        usdt.approve(address(traderBot), 10_000_000 ether);
+        btc.approve(address(traderBot), 100 ether);
+        traderBot.start(amountUSDT, amountBTC);
         vm.stopPrank();
     }
 
     function _setupTraderBot() internal returns (DoppiTrader _traderbot) {
         
+        vm.prank(trader);
         uint24[] memory weights = new uint24[](5);
         weights[0] = 500;
         weights[1] = 1000;
         weights[2] = 1500;
         weights[3] = 2500;
         weights[4] = 4500;
+
         uint256 id = doppiFactory.deployTraderBot(weights);
+        vm.stopPrank();
         _traderbot = doppiFactory.traderBots(id);
+        vm.prank(trader);
+        _traderbot.setForwarderAddress(mockForwarder);
+        vm.stopPrank();
     }
     
 
-    function _setupLP(address _assetA, address _assetB, address _oracle, address _swapper) internal returns (DoppiLiquidity _doppiLP) {
+    function _setupLP(address _assetA, address _assetB) internal returns (DoppiLiquidity _doppiLP) {
         _doppiLP =
             new DoppiLiquidity("Dual Asset Liquidity Pool", "DALP", IERC20(_assetA), IERC20(_assetB));
-        // Set the mock oracle, router, pool, and quoter
-        // _doppiLP.setOracle(address(_oracle));
         _doppiLP.setDoppiConfig(doppiConfig); 
         _doppiLP.approveRouter();
     }

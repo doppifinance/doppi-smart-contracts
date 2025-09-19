@@ -242,7 +242,7 @@ contract DoppiTrader is Ownable, Pausable, AutomationCompatibleInterface {
         traderDefaultDay = _day;
     }
 
-    function setForwarderAddress(address forwarderAddress) external onlyOwner {
+    function setForwarderAddress(address forwarderAddress) external onlyTrader {
         s_forwarderAddress = forwarderAddress;
     }
 
@@ -251,6 +251,9 @@ contract DoppiTrader is Ownable, Pausable, AutomationCompatibleInterface {
     }
 
     function checkUpkeep(bytes calldata) external view override returns (bool upkeepNeeded, bytes memory performData) {
+        
+        if(s_forwarderAddress == address(0)) return (false, bytes(""));
+
         uint256 price = doppiLP.getPrice();
         
         if (!paused()) {
@@ -274,6 +277,8 @@ contract DoppiTrader is Ownable, Pausable, AutomationCompatibleInterface {
     }
 
     function performUpkeep(bytes calldata performData) external override onlyForwarder {
+        
+        if(s_forwarderAddress == address(0)) return;
         if(paused()) return;
 
         (bool performUnwind, uint256 price, uint256 index, 
@@ -536,7 +541,6 @@ contract DoppiTrader is Ownable, Pausable, AutomationCompatibleInterface {
             DoppiCore.DepositParams[] memory buyDeposits,
             DoppiCore.DualAssetOffer[] memory buyOffers,
             uint256 amountInHedgeAsset,
-            uint256 hedgeAmount
         ) = _prepareOrders(true);
 
         _placeOrders(true, buyDeposits, buyOffers);
@@ -554,7 +558,6 @@ contract DoppiTrader is Ownable, Pausable, AutomationCompatibleInterface {
             DoppiCore.DepositParams[] memory sellDeposits,
             DoppiCore.DualAssetOffer[] memory sellOffers,
             uint256 amountInHedgeAsset,
-            uint256 hedgeAmount
         ) = _prepareOrders(false);
 
         _placeOrders(false, sellDeposits, sellOffers);

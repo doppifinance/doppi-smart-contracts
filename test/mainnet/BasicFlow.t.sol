@@ -70,12 +70,12 @@ contract BasicFlowTest is Test {
         doppiConfig.setSlippage(500);
         
         impliedVol = _setupIV();
-        doppiLP = _setupLP(address(usdt), address(btc), address(oracle));
+        doppiLP = _setupLP(address(usdt), address(btc));
 
         doppiCore = new DoppiCore(address(usdt), address(btc), doppiLP, impliedVol);
         doppiOpportunity = new DoppiOpportunity(address(doppiCore), address(doppiLP));
         doppiRouter = new DoppiLiquidityRouter(IERC20(usdt), IERC20(btc), doppiLP);
-        doppiFactory = new DoppiTraderFactory(IERC20(usdt), IERC20(btc), doppiCore, doppiLP, doppiRouter, forwarder);
+        doppiFactory = new DoppiTraderFactory(IERC20(usdt), IERC20(btc), doppiCore, doppiLP, doppiRouter);
 
         doppiOpportunity.setForwarderAddress(forwarder);
         doppiOpportunity.setDoppiConfig(doppiConfig);
@@ -93,7 +93,7 @@ contract BasicFlowTest is Test {
         vm.stopPrank();
     }
 
-    function testForkDeployment() public {
+    function testForkDeployment() public view {
         assertEq(doppiLP.owner(), owner);
         assertEq(address(doppiLP.assetA()), USDT);
         assertEq(address(doppiLP.assetB()), BTCB);
@@ -117,7 +117,7 @@ contract BasicFlowTest is Test {
         assertTrue(address(doppiRouter.entryPointB()) != address(0));
     }
     
-    function testPriceFeed() public {
+    function testPriceFeed() public view {
         uint256 price = doppiLP.getPrice();
         console.log("BTC Price from Chainlink:", price);
         assertGt(price, 0);
@@ -143,6 +143,7 @@ contract BasicFlowTest is Test {
         vm.startPrank(trader);
         uint256 traderId = doppiFactory.deployTraderBot(defaultWeights);
         DoppiTrader traderBot = doppiFactory.traderBots(traderId);
+        traderBot.setForwarderAddress(forwarder);
         assertTrue(doppiFactory.isTraderBot(address(traderBot)));
         vm.stopPrank();
 
@@ -184,7 +185,7 @@ contract BasicFlowTest is Test {
         // Deploy bot
         uint256 traderId = doppiFactory.deployTraderBot(defaultWeights);
         DoppiTrader traderBot = doppiFactory.traderBots(traderId);
-        
+        traderBot.setForwarderAddress(forwarder);
         // Fund and start
         usdt.approve(address(traderBot), 10000 ether);
         btc.approve(address(traderBot), 0.2 ether);
@@ -223,7 +224,7 @@ contract BasicFlowTest is Test {
         // Deploy bot
         uint256 traderId = doppiFactory.deployTraderBot(defaultWeights);
         DoppiTrader traderBot = doppiFactory.traderBots(traderId);
-        
+        traderBot.setForwarderAddress(forwarder);
         // Fund and start
         usdt.approve(address(traderBot), 100_000 ether);
         traderBot.start(100_000 ether, 0);
@@ -256,35 +257,7 @@ contract BasicFlowTest is Test {
         // ***** END 
     }
 
-    
-
-    // // internal
-    // function _start() internal {
-
-    //     console.log("start");
-    //     vm.startPrank(owner);
-    //     uint256 amountUSDT = 100_000 ether;
-    //     uint256 amountBTC = 1 ether;
-    //     usdt.approve(address(trader), 10_000_000 ether);
-    //     btc.approve(address(trader), 100 ether);
-    //     trader.start(amountUSDT, amountBTC);
-    //     vm.stopPrank();
-    // }
-
-    // function _setupTraderBot() internal returns (DoppiTrader _traderbot) {
-        
-    //     uint24[] memory weights = new uint24[](5);
-    //     weights[0] = 500;
-    //     weights[1] = 1000;
-    //     weights[2] = 1500;
-    //     weights[3] = 2500;
-    //     weights[4] = 4500;
-    //     uint256 id = doppiFactory.deployTraderBot(weights);
-    //     _traderbot = doppiFactory.traderBots(id);
-    // }
-    
-
-    function _setupLP(address _assetA, address _assetB, address _oracle) internal returns (DoppiLiquidity _doppiLP) {
+    function _setupLP(address _assetA, address _assetB) internal returns (DoppiLiquidity _doppiLP) {
         _doppiLP =
             new DoppiLiquidity("Doppi BTC-USDT LP", "BTCB-USDT", IERC20(_assetA), IERC20(_assetB));
         _doppiLP.setDoppiConfig(doppiConfig); 
@@ -316,42 +289,12 @@ contract BasicFlowTest is Test {
         vm.stopPrank();
     }
 
-    function _manipulateRealChainlink(int256 newPrice, address oracle) internal {
+    function _manipulateRealChainlink(int256 newPrice, address _oracle) internal {
         
         // Then override the feed address
         vm.prank(doppiConfig.owner());
-        doppiConfig.setOracle(oracle);
-        MockOracle(oracle).setPrice(newPrice);
+        doppiConfig.setOracle(_oracle);
+        MockOracle(_oracle).setPrice(newPrice);
         vm.stopPrank();
     }
-
-    // function _setupMockSwapper(address _usdt, address _btc, address _oracle) internal returns (Swapper _swapper) {
-        
-    //     // Deploy Swapper that will act as both router and pool
-    //     _swapper = new Swapper(MockToken(_usdt), MockToken(_btc));
-    //     _swapper.setOracle(MockOracle(_oracle));
-    // }
-    
-    // function _doppiCoreCheckUpkeep_performUpkeep(uint256 _settlePrice) internal {
-    //     vm.warp(block.timestamp + 1 days + 1);
-    //     oracle.setPrice(int256(_settlePrice)); // settled buy + no traded + strike
-    //     (bool upkeepNeeded, bytes memory performData) = doppiCore.checkUpkeep("");
-    //     assertTrue(upkeepNeeded);
-    //     vm.prank(mockForwarder);
-    //     doppiCore.performUpkeep(performData);  
-    // }
-
-    // function _doppiOpportunityCheckUpkeep_performUpkeep(uint256 _price) internal {
-        
-    //     oracle.setPrice(int256(_price));
-    //     (bool upkeepNeeded, bytes memory performData) = opportunityBot.checkUpkeep("");
-    //     assertTrue(upkeepNeeded);
-    //     assertGt(performData.length, 0);
-    //     vm.prank(mockForwarder);
-    //     opportunityBot.performUpkeep(performData);
-    // }
-    
-      
-
-
 }

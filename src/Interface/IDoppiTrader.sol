@@ -17,4 +17,5 @@ interface IDoppiTrader {
     function get_sell_undos() external view returns (Trade[] memory);
     function get_buy_unrealized_PNL() external view returns (int256);
     function get_sell_unrealized_PNL() external view returns (int256);
+    function setForwarderAddress(address forwarderAddress) external;
 }

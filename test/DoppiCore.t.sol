@@ -89,7 +89,7 @@ contract DoppiCoreTest is Test {
         doppiLP.setDoppiConfig(doppiConfig);
 
         traderFactory =
-            new DoppiTraderFactory(IERC20(usdt), IERC20(btc), doppiCore, doppiLP, doppiRouter, mockForwarder);
+            new DoppiTraderFactory(IERC20(usdt), IERC20(btc), doppiCore, doppiLP, doppiRouter);
 
         doppiCore.setDoppiTraderFactory(traderFactory);
         doppiCore.setAdmin(admin, true);
@@ -138,7 +138,7 @@ contract DoppiCoreTest is Test {
 
     function test_setTraderFactory() public {
         DoppiTraderFactory newFactory =
-            new DoppiTraderFactory(IERC20(usdt), IERC20(btc), doppiCore, doppiLP, doppiRouter, mockForwarder);
+            new DoppiTraderFactory(IERC20(usdt), IERC20(btc), doppiCore, doppiLP, doppiRouter);
         doppiCore.setDoppiTraderFactory(newFactory);
         assertEq(address(doppiCore.doppiTraderFactory()), address(newFactory));
     }

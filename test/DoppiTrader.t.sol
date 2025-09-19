@@ -61,9 +61,7 @@ contract DoppiTraderTest is Test {
         impliedVol.setRegression(86400, a_buy, b_buy, c_buy, a_sell, b_sell, c_sell);
 
         // deploy doppiConfig
-        // vm.startPrank(owner);
         doppiConfig = new DoppiConfig();
-        // vm.stopPrank();
 
         // Deploy Swapper that will act as both router and pool
         swapper = new Swapper(MockToken(usdt), MockToken(btc));
@@ -87,6 +85,8 @@ contract DoppiTraderTest is Test {
 
         doppiLP.setDoppiCore(address(doppiCore));
 
+        
+
         defaultweights.push(500);
         defaultweights.push(1000);
         defaultweights.push(1500);
@@ -101,13 +101,16 @@ contract DoppiTraderTest is Test {
         doppiLP.approveEntryPoint(address(doppiRouter.entryPointB()), address(btc));
 
         doppiFactory =
-            new DoppiTraderFactory(IERC20(usdt), IERC20(btc), doppiCore, doppiLP, doppiRouter, mockForwarder);
+            new DoppiTraderFactory(IERC20(usdt), IERC20(btc), doppiCore, doppiLP, doppiRouter);
         doppiLP.setDoppiTraderFactory(address(doppiFactory));
         doppiCore.setDoppiTraderFactory(doppiFactory);
 
         vm.prank(trader);
         uint256 id = doppiFactory.deployTraderBot(defaultweights);
+        vm.stopPrank();
         doppiTrader = doppiFactory.traderBots(id);
+        vm.prank(trader);
+        doppiTrader.setForwarderAddress(mockForwarder);
         vm.stopPrank();
         
         usdt.mint(trader, 10_000_000 ether);
@@ -246,8 +249,6 @@ contract DoppiTraderTest is Test {
 
     function test_stop() public {
         
-        uint256 startBTC = btc.balanceOf(address(trader));        
-        uint256 startUSDT = usdt.balanceOf(address(trader));        
         _start();
         uint256 afterBTC = btc.balanceOf(address(trader));        
         uint256 afterUSDT = usdt.balanceOf(address(trader));        
@@ -371,7 +372,7 @@ contract DoppiTraderTest is Test {
         (bool upkeepNeeded, bytes memory performData) = opportunityBot.checkUpkeep("");
         assertTrue(upkeepNeeded);
         assertGt(performData.length, 0);
-        (uint256 price, uint256[] memory buyIndexes, uint256[] memory sellIndexes) =
+        (, uint256[] memory buyIndexes, uint256[] memory sellIndexes) =
             abi.decode(performData, (uint256, uint256[], uint256[]));
         assertGt(sellIndexes.length, 0);
         assertEq(buyIndexes.length, 0);
@@ -526,7 +527,7 @@ contract DoppiTraderTest is Test {
         vm.stopPrank();
 
         oracle.setPrice(int256(100_500 * 1e8));
-        (bool upkeepNeeded, bytes memory performData) = doppiTrader.checkUpkeep("");
+        (, bytes memory performData) = doppiTrader.checkUpkeep("");
 
         // Change price significantly
         oracle.setPrice(int256(102_000 * 1e8));
