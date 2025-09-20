@@ -182,9 +182,6 @@ contract DoppiUpkeepManager is Ownable, AutomationCompatibleInterface {
         doppiUpkeepPayment[upKeepId].lastPaidAmount = 0;
         doppiUpkeepPayment[upKeepId].trader = msg.sender;
         
-        // address forwarder = this.getForwarder(upKeepId);
-        // doppiTraderFactory.setTraderBotForwarderAddress(forwarder, _traderbot);
-
         emit UpkeepRegistered(upKeepId, _traderbot, DEFAULT_AMOUNT, linkAmount);
     
         return upKeepId;
@@ -195,12 +192,12 @@ contract DoppiUpkeepManager is Ownable, AutomationCompatibleInterface {
         uint256 initBal = linkToken.balanceOf(address(this));
         registryConsumer.withdrawFunds(_upkeepId, address(this));
         (uint96 fee, address trader) = _getUnPaidDoppiFee(_upkeepId);
-        require(trader == msg.sender, "sender is not trader");
         uint256 finalBal = linkToken.balanceOf(address(this));
         // back to trader
-        uint256 refund = finalBal - initBal - fee;
-        linkToken.transfer(trader, refund);
-        linkToken.transfer(treasury, fee);
+        uint256 diff = finalBal - initBal;
+        uint256 refund = diff > fee ? diff - fee : 0;
+        if(refund > 0) linkToken.transfer(trader, refund);
+        if(finalBal >= fee) linkToken.transfer(treasury, fee);
     }
     
     // trader top up using USDT manually
