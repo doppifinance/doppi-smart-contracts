@@ -12,6 +12,7 @@ import {ImpliedVol} from "../../src/mainnet/ImpliedVol.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {MockToken} from "../../src/test/MockToken.sol";
 import {MockOracle} from "../../src/test/MockOracle.sol";
+import {MockDoppiUpKeepManager} from "../../src/test/MockDoppiUpkeepManager.sol";
 import {DoppiOpportunity} from "../../src/mainnet/DoppiOpportunity.sol";
 import {Swapper} from "../../src/test/Swapper.sol";
 import {DoppiConfig} from "../../src/mainnet/DoppiConfig.sol";
@@ -28,6 +29,7 @@ contract BasicFlowTest is Test {
     IERC20 usdt;
     IERC20 btc;
     MockOracle oracle;
+    MockDoppiUpKeepManager mockDoppiUpKeepManager;
     DoppiOpportunity doppiOpportunity;
     Swapper public swapper;
     DoppiConfig doppiConfig;
@@ -58,6 +60,7 @@ contract BasicFlowTest is Test {
         // Start prank as owner
         vm.startPrank(owner);
         oracle = new MockOracle(int256(100_000 * 1e8), 8);
+        mockDoppiUpKeepManager = new MockDoppiUpKeepManager(forwarder);
 
         usdt = IERC20(USDT);
         btc = IERC20(BTCB);
@@ -68,6 +71,7 @@ contract BasicFlowTest is Test {
         doppiConfig.setPancakeV3Pool(PCSWAP_V3_ROUTER); 
         doppiConfig.setOracle(CHAINLINK_BTC_USD);
         doppiConfig.setSlippage(500);
+        doppiConfig.setDoppiUpKeepManager(address(mockDoppiUpKeepManager));
         
         impliedVol = _setupIV();
         doppiLP = _setupLP(address(usdt), address(btc));

@@ -12,6 +12,7 @@ import {ImpliedVol} from "../src/mainnet/ImpliedVol.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {MockToken} from "../src/test/MockToken.sol";
 import {MockOracle} from "../src/test/MockOracle.sol";
+import {MockDoppiUpKeepManager} from "../src/test/MockDoppiUpkeepManager.sol";
 import {DoppiOpportunity} from "../src/mainnet/DoppiOpportunity.sol";
 import {Swapper} from "../src/test/Swapper.sol";
 import {DoppiConfig} from "../src/mainnet/DoppiConfig.sol";
@@ -28,6 +29,7 @@ contract DoppiTraderTest is Test {
     MockToken usdt;
     MockToken btc;
     MockOracle oracle;
+    MockDoppiUpKeepManager mockDoppiUpKeepManager;
     DoppiOpportunity opportunityBot;
     Swapper swapper;
 
@@ -63,6 +65,8 @@ contract DoppiTraderTest is Test {
         // deploy doppiConfig
         doppiConfig = new DoppiConfig();
 
+        mockDoppiUpKeepManager = new MockDoppiUpKeepManager(mockForwarder);
+
         // Deploy Swapper that will act as both router and pool
         swapper = new Swapper(MockToken(usdt), MockToken(btc));
         swapper.setOracle(MockOracle(oracle));    
@@ -70,7 +74,8 @@ contract DoppiTraderTest is Test {
         doppiConfig.setQuoter(address(swapper));
         doppiConfig.setTreasury(treasury);
         doppiConfig.setOracle(address(oracle));
-
+        doppiConfig.setDoppiUpKeepManager(address(mockDoppiUpKeepManager));
+        
         doppiLP =
             new DoppiLiquidity("Dual Asset Liquidity Pool", "DALP", IERC20(usdt), IERC20(btc));
         doppiLP.setDoppiConfig(doppiConfig);
@@ -794,7 +799,7 @@ contract DoppiTraderTest is Test {
         (upkeepNeeded, performData) = doppiTrader.checkUpkeep("");
         vm.expectEmit(true, true, true, true);
         emit UnwindPerformed(
-            address(0x82DcE515b19ca6C2b03060d7DA1a9670fc6EE074),
+            address(0x1F88f48585ad6754e59c03debd4502399e33Ff50),
             true,
             2585351758793969842000, // amount
             85351758793969842000,

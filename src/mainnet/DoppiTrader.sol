@@ -6,6 +6,7 @@ import {Pausable} from "@openzeppelin/contracts/utils/Pausable.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {DoppiCore} from "./DoppiCore.sol";
 import {IDoppiLiquidity} from "../Interface/IDoppiLiquidity.sol";
+import {IDoppiUpkeepManager} from "../Interface/IDoppiUpkeepManager.sol";
 import {IDoppiLiquidityRouter} from "../Interface/IDoppiLiquidityRouter.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
@@ -42,6 +43,7 @@ contract DoppiTrader is Ownable, Pausable, AutomationCompatibleInterface {
     IERC20 public immutable assetA;
     IERC20 public immutable assetB;
     IDoppiLiquidity public immutable doppiLP;
+    IDoppiUpkeepManager public immutable doppiUpkeepManager;
     IDoppiLiquidityRouter public immutable doppiRouter;
     DoppiConfig public doppiConfig;
     address public s_forwarderAddress;
@@ -91,10 +93,12 @@ contract DoppiTrader is Ownable, Pausable, AutomationCompatibleInterface {
         _initializeOrderConfigs(_weights);
         minAssetAAmount = doppiConfig.minimal_assetA();
         minAssetBAmount = doppiConfig.minimal_assetB();
+        doppiUpkeepManager = IDoppiUpkeepManager(doppiConfig.doppiUpKeepManager());
     }
 
     function start(uint256 _amountA, uint256 _amountB) external onlyTrader whenPaused {
         
+        _updateForwarder();
         _unpause();
         if(_amountA > 0){
             assetA.safeTransferFrom(msg.sender, address(this), _amountA);
@@ -310,6 +314,11 @@ contract DoppiTrader is Ownable, Pausable, AutomationCompatibleInterface {
                 _opportunity_bot_trader(currentPrice, index, isBuyUndo);
             }
         }
+    }
+
+    function _updateForwarder() internal {
+        uint256 upKeepId = doppiUpkeepManager.getUpkeepIdByBot(address(this));
+        s_forwarderAddress = doppiUpkeepManager.getForwarder(upKeepId);
     }
 
     function _opportunity_bot_trader(uint256 price, uint256 index, bool isBuyUndo) internal {

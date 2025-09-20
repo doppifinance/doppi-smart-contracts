@@ -119,6 +119,7 @@ contract DoppiUpkeepManagerTest is Test {
             treasury
         );
         doppiUpkeepManager.setForwarderAddress(forwarder);
+        doppiConfig.setDoppiUpKeepManager(address(doppiUpkeepManager));
         
         vm.stopPrank();
     }
@@ -132,17 +133,9 @@ contract DoppiUpkeepManagerTest is Test {
         // Deploy bot
         uint256 traderId = doppiFactory.deployTraderBot(defaultWeights);
         DoppiTrader traderBot = doppiFactory.traderBots(traderId);
-        // console.log(traderBot.s_forwarderAddress(), "s_forwarderAddress");
         usdt.approve(address(doppiUpkeepManager), 10000 ether);
         doppiUpkeepManager.setupAutomation(address(traderBot));
-        vm.stopPrank();
-        
-        // vm.startPrank(owner);
-        // address forwarderaddr = doppiUpkeepManager.getForwarder(upKeepId);
-        // traderBot.owner();
-        // doppiFactory.setTraderBotForwarderAddress(forwarderaddr, address(traderBot));
-        // vm.stopPrank();
-        
+        vm.stopPrank();        
     }
 
     function test_getUpkeep() public {
