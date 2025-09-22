@@ -311,7 +311,7 @@ contract DoppiTrader is Ownable, Pausable, AutomationCompatibleInterface {
             uint256 priceRatio = (currentPrice * 10000) / price;
             
             if (priceRatio > lowerBound && priceRatio < upperBound) {
-                _opportunity_bot_trader(currentPrice, index, isBuyUndo);
+                _unwind_bot_trader(currentPrice, index, isBuyUndo);
             }
         }
     }
@@ -321,7 +321,7 @@ contract DoppiTrader is Ownable, Pausable, AutomationCompatibleInterface {
         s_forwarderAddress = doppiUpkeepManager.getForwarder(upKeepId);
     }
 
-    function _opportunity_bot_trader(uint256 price, uint256 index, bool isBuyUndo) internal {
+    function _unwind_bot_trader(uint256 price, uint256 index, bool isBuyUndo) internal {
         if (isBuyUndo) {
             _performUnwind(isBuyUndo, buy_undo_list[index], price);
             uint256 lastIndex = buy_undo_list.length - 1;

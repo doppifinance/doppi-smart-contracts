@@ -299,8 +299,6 @@ contract DoppiUpkeepManager is Ownable, AutomationCompatibleInterface {
                     checkUpKeeps[count].feeInfundToken = feeInfundToken;
                     count++;
                 }
-
-                
             }
             unchecked { ++i; }
         }

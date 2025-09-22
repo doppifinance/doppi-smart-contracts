@@ -458,6 +458,63 @@ contract DoppiLiquidityTest is Test {
         assertEq(postUpkeepToSellPricesLength, 0, "ToSellPrices length should decrease after upkeep");
     }
 
+    function testCheckUpkeep_performUp_buy_pagination() public {
+        uint256 currentPrice = doppiLP.getPrice();
+        // Setup substantial liquidity for testing
+        _setupLiquidity(LARGE_USDT_AMOUNT * 5, LARGE_BTC_AMOUNT * 5);
+        _setupSwapTest(SWAP_AMOUNT_USDT * 10, SWAP_AMOUNT_BTC * 10, mockDualAsset);
+
+        uint256 percent = 0;
+        // place 3 orders
+        for(uint256 i=0; i < 3; i++)
+        {
+            uint256 priceUp5Percent = currentPrice * (100 + percent) / 100;
+            oracle.setPrice(int256(priceUp5Percent));
+            vm.prank(mockDualAsset);
+            doppiLP.swap(SWAP_AMOUNT_USDT, priceUp5Percent, true); // Buy order at current price
+            vm.stopPrank();
+            percent += 5;
+        }
+
+        // Swap at -5% price
+        uint256 priceDown5Percent = currentPrice * 95 / 100;
+        oracle.setPrice(int256(priceDown5Percent));
+
+        doppiLP.setUpkeeps_per_check(2);
+        
+        // Check if price change triggers arbitrage opportunity
+        (bool upkeepNeededAfterPriceChange, bytes memory newPerformData) = doppiLP.checkUpkeep("");
+        assertTrue(upkeepNeededAfterPriceChange, "Upkeep should be needed after price change");
+        (bool isNetBuy, uint256[] memory buyindexes, uint256[] memory sellindexes, uint256 totalAmount, uint256 totalAmountOut) = 
+            abi.decode(newPerformData, (bool, uint256[], uint256[], uint256, uint256));
+        
+        assertEq(buyindexes.length, 2);
+        
+        // perform upkeep
+        vm.prank(mockForwarder);
+        doppiLP.performUpkeep(newPerformData);
+        vm.stopPrank();
+        uint256 preUpkeepToBuyPricesLength = doppiLP.getToBuyPricesLength();
+        assertEq(preUpkeepToBuyPricesLength, 1);
+        
+        // second checkUpkeep
+        (upkeepNeededAfterPriceChange, newPerformData) = doppiLP.checkUpkeep("");
+        assertTrue(upkeepNeededAfterPriceChange);
+        (isNetBuy, buyindexes, sellindexes, totalAmount, totalAmountOut) = 
+            abi.decode(newPerformData, (bool, uint256[], uint256[], uint256, uint256));
+        
+        assertEq(buyindexes.length, 1);
+        
+        // second perform upkeep
+        vm.prank(mockForwarder);
+        doppiLP.performUpkeep(newPerformData);
+        vm.stopPrank();
+        
+        // process all
+        uint256 postUpkeepToBuyPricesLength = doppiLP.getToBuyPricesLength();
+        assertEq(postUpkeepToBuyPricesLength, 0);
+    }
+
     // Event Emit 
     function test_Swapped_BUY_EmitsEvent() public {
         uint256 currentPrice = doppiLP.getPrice();
@@ -526,7 +583,7 @@ contract DoppiLiquidityTest is Test {
 
         vm.prank(mockDualAsset);
         uint256 amountOut = doppiLP.swap(SWAP_AMOUNT_USDT, currentPrice, true);
-        console.log(amountOut);
+        // console.log(amountOut);
     }
 
     function test_Swapped_SELL_DEX_EmitsEvent() public {
@@ -550,7 +607,7 @@ contract DoppiLiquidityTest is Test {
 
         vm.prank(mockDualAsset);
         uint256 amountOut = doppiLP.swap(SWAP_AMOUNT_BTC, currentPrice, false); // Sell order at current price
-        console.log(amountOut);
+        // console.log(amountOut);
     }
 
     function test_UnwindPerformedSwapped_EmitsEvent() public {

@@ -12,6 +12,7 @@ contract DoppiOpportunity is Ownable, Pausable, AutomationCompatibleInterface {
     IDoppiLiquidity public immutable doppiLP;
     DoppiConfig public doppiConfig;
     address public s_forwarderAddress;
+    uint256 public UPKEEPS_PER_CHECK = 5; // Process 5 upkeeps per check
 
     event OppPerformed(bool isBuy, address indexed trader, uint256 price, uint256 amount, uint256 amountOut);
     event OppUnwindPerformed(bool isBuy, address indexed trader, uint256 price, uint256 swappedAmount, uint256 amountOut, uint256 profit, address profitToken);
@@ -43,7 +44,7 @@ contract DoppiOpportunity is Ownable, Pausable, AutomationCompatibleInterface {
         upkeepNeeded = (buyCount > 0 || sellCount > 0);
         
         if (upkeepNeeded) {
-            performData = abi.encode(price, _trimArray(buyIndexes, buyCount), _trimArray(sellIndexes, sellCount));
+            performData = abi.encode(price, buyIndexes, sellIndexes);
         } else {
             performData = bytes("");
         }
@@ -76,6 +77,10 @@ contract DoppiOpportunity is Ownable, Pausable, AutomationCompatibleInterface {
         _unpause();
     }
 
+    function setUpkeeps_per_check(uint24 _percheck) external onlyOwner {
+        UPKEEPS_PER_CHECK = _percheck;
+    }
+
     function _opportunity_bot(uint256 price, uint256[] memory buyIndexes, uint256[] memory sellIndexes) internal {
         if (buyIndexes.length > 0) {
             DoppiCore.DualAssetPosition[] memory buys = doppiCore.get_positions_buy();
@@ -93,10 +98,12 @@ contract DoppiOpportunity is Ownable, Pausable, AutomationCompatibleInterface {
         view
         returns (uint256 count, uint256[] memory indexes)
     {
-        indexes = new uint256[](_orders.length);
+        if(_orders.length == 0) return (count, indexes);
+
+        indexes = new uint256[](UPKEEPS_PER_CHECK);
         count = 0;
 
-        for (uint256 i = 0; i < _orders.length; ) {
+        for (uint256 i = 0; i < _orders.length && count < UPKEEPS_PER_CHECK; ) {
             uint256 buffer = _orders[i].strikePrice * doppiConfig.tolerance() / 10000;
             
             if (_isBuy) {
@@ -114,6 +121,15 @@ contract DoppiOpportunity is Ownable, Pausable, AutomationCompatibleInterface {
             }
             unchecked { ++i; }
         }
+        // If we found fewer than max, trim the array
+        if (count < UPKEEPS_PER_CHECK) {
+            uint256[] memory trimmed = new uint256[](count);
+            for (uint256 j = 0; j < count; j++) {
+                trimmed[j] = indexes[j];
+            }
+            return (count, trimmed);
+        }
+        
         return (count, indexes);
     }
 
@@ -168,17 +184,6 @@ contract DoppiOpportunity is Ownable, Pausable, AutomationCompatibleInterface {
         } else {
             return _order.isTraded && _price <= _order.strikePrice;
         }
-    }
-
-    function _trimArray(uint256[] memory arr, uint256 count) internal pure returns (uint256[] memory) {
-        if (count == arr.length) return arr;
-        
-        uint256[] memory trimmed = new uint256[](count);
-        for (uint256 i = 0; i < count; ) {
-            trimmed[i] = arr[i];
-            unchecked { ++i; }
-        }
-        return trimmed;
     }
 
     modifier onlyForwarder() {

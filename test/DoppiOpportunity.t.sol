@@ -234,6 +234,51 @@ contract DoppiOpportunityTest is Test {
         doppiOpportunity.performUpkeep(performData);
     }
 
+    function test_checkUpkeep_opportunityBuy_withPagination() public {
+        
+        depositUSDT();
+        depositUSDT();
+        depositUSDT();
+        
+        assertEq(doppiCore.getBuyPositionCount(), 3);
+        oracle.setPrice(int256(98_500  * 1e8));
+        doppiOpportunity.setUpkeeps_per_check(2);
+
+        // first checkUpkeep
+        (bool upkeepNeeded, bytes memory performData) = doppiOpportunity.checkUpkeep("");
+        assertTrue(upkeepNeeded);
+        
+        (uint256 price, uint256[] memory buyIndexes, uint256[] memory sellIndexes) =
+            abi.decode(performData, (uint256, uint256[], uint256[]));
+        assertEq(buyIndexes.length, 2);
+
+        vm.prank(mockForwarder);
+        doppiOpportunity.performUpkeep(performData);
+        vm.stopPrank();
+
+        DoppiCore.DualAssetPosition memory pos2 = doppiCore.get_buy(user1, 1);
+        DoppiCore.DualAssetPosition memory pos3 = doppiCore.get_buy(user1, 2);
+        assertTrue(pos2.isTraded);
+        assertTrue(pos3.isTraded);
+        
+        // second checkUpkeep
+        (upkeepNeeded, performData) = doppiOpportunity.checkUpkeep("");
+        assertTrue(upkeepNeeded);
+        (, buyIndexes, ) = abi.decode(performData, (uint256, uint256[], uint256[]));
+        assertEq(buyIndexes.length, 1);
+
+        vm.prank(mockForwarder);
+        doppiOpportunity.performUpkeep(performData);
+        vm.stopPrank();
+        
+        DoppiCore.DualAssetPosition memory pos1 = doppiCore.get_buy(user1, 3);
+        assertTrue(pos1.isTraded);
+        
+        // third checkUpkeep no more opportunity
+        (upkeepNeeded, ) = doppiOpportunity.checkUpkeep("");
+        assertFalse(upkeepNeeded);
+    }
+
     // internal function
     function depositUSDT() internal {
         DoppiCore.DualAssetOffer memory buyOffer = doppiCore.getOffer(true, 1, 0);

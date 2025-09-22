@@ -478,6 +478,47 @@ contract DoppiCoreTest is Test {
         assertLt(doppiCore.getSellPositionCount(), initialPositionCount);
     }
 
+    function test_performUpkeep_buy_pagination() public {
+        // Deposit positions
+        _depositUSDT();
+        _depositUSDT();
+        _depositUSDT();
+
+        doppiCore.setUpkeeps_per_check(2);
+        // Fast forward time
+        vm.warp(block.timestamp + 1 days + 1);
+        oracle.setPrice(int256(96_500 * 1e8));
+        
+        // first checkUpkeep
+        (bool upkeepNeeded, bytes memory performData) = doppiCore.checkUpkeep("");
+        assertTrue(upkeepNeeded);
+
+        (bool cached, uint256[] memory buyIndexes, uint256[] memory sellIndexes) =
+            abi.decode(performData, (bool, uint256[], uint256[]));
+        
+        assertFalse(cached);
+
+        uint256 initialPositionCount = doppiCore.getBuyPositionCount();
+        vm.prank(mockForwarder);
+        doppiCore.performUpkeep(performData);
+
+        (upkeepNeeded, performData) = doppiCore.checkUpkeep("");
+        assertTrue(upkeepNeeded);
+
+        (cached) =
+            abi.decode(performData, (bool));
+        
+        assertTrue(cached);
+        vm.prank(mockForwarder);
+        doppiCore.performUpkeep(performData);
+
+        (upkeepNeeded, performData) = doppiCore.checkUpkeep("");
+        assertFalse(upkeepNeeded);
+        
+        // // Position should be settled
+        assertEq(doppiCore.getBuyPositionCount(), 0);
+    }
+
     function test_performUpkeep_buy_hedge_profit() public {
         
         // Deposit positions

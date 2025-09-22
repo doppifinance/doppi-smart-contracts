@@ -261,6 +261,67 @@ contract BasicFlowTest is Test {
         // ***** END 
     }
 
+    // SCENARIO 6: Trader Bot Lifecycle
+    function test_Scenario4_TraderBotLifecycle_Pagination() public {
+        
+        vm.startPrank(trader);
+        deal(BTCB, address(trader), 1 ether);
+        deal(USDT, address(trader), 100_000 ether);
+
+        // Deploy bot
+        uint256 traderId = doppiFactory.deployTraderBot(defaultWeights);
+        DoppiTrader traderBot = doppiFactory.traderBots(traderId);
+        traderBot.setForwarderAddress(forwarder);
+        // Fund and start
+        usdt.approve(address(traderBot), 100000 ether);
+        btc.approve(address(traderBot), 2 ether);
+        traderBot.start(10000 ether, 0.2 ether);
+        
+        // Verify active
+        assertTrue(doppiCore.getBuyPositionCount(address(traderBot)) > 0);
+        vm.stopPrank();
+        
+        
+        // Price Down 2%
+        uint256 currentPrice = doppiLP.getPrice();
+        int256 newPrice = int256(currentPrice * 9900 / 10000);
+        _manipulateRealChainlink(newPrice, address(oracle));
+        
+        vm.prank(owner);
+        doppiCore.setUpkeeps_per_check(2);
+        vm.stopPrank();
+
+        // initial start with 5
+        assertEq(doppiCore.getBuyPositionCount(address(traderBot)), 5);
+        assertEq(doppiCore.getSellPositionCount(address(traderBot)), 5);
+  
+        _doppiCoreCheckUpkeep_performUpkeep();     
+        
+        // processed 2. remaining 3
+        assertEq(doppiCore.getBuyPositionCount(address(traderBot)), 3);
+        assertEq(doppiCore.getSellPositionCount(address(traderBot)), 3);
+  
+        // Price Down 2%
+        currentPrice = doppiLP.getPrice();
+        newPrice = int256(currentPrice * 9800 / 10000);
+        _manipulateRealChainlink(newPrice, address(oracle));
+        
+        _doppiCoreCheckUpkeep_performUpkeep();     
+        
+        // processed 2. remaining 1
+        assertEq(doppiCore.getBuyPositionCount(address(traderBot)), 1);
+        assertEq(doppiCore.getSellPositionCount(address(traderBot)), 1);
+  
+        _doppiCoreCheckUpkeep_performUpkeep();     
+        
+        // processed remaining
+        assertEq(doppiCore.getBuyPositionCount(address(traderBot)), 0);
+        assertEq(doppiCore.getSellPositionCount(address(traderBot)), 0);
+  
+    }
+
+    
+
     function _setupLP(address _assetA, address _assetB) internal returns (DoppiLiquidity _doppiLP) {
         _doppiLP =
             new DoppiLiquidity("Doppi BTC-USDT LP", "BTCB-USDT", IERC20(_assetA), IERC20(_assetB));

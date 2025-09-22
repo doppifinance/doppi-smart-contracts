@@ -18,6 +18,11 @@ contract DoppiCore is Ownable, Pausable, AutomationCompatibleInterface {
     using SafeERC20 for IERC20;
     using Math for uint256;
 
+    struct PendingSettlement {
+        uint256[] indexes;
+        uint256 settlementPrice;
+    }
+
     struct DualAssetPosition {
         uint256 amount;
         uint256 price;
@@ -70,7 +75,12 @@ contract DoppiCore is Ownable, Pausable, AutomationCompatibleInterface {
     // Packed storage for positions
     mapping(address => mapping(uint32 => DualAssetPosition)) public positions_buy; // Changed to uint32
     mapping(address => mapping(uint32 => DualAssetPosition)) public positions_sell; // Changed to uint32
-    
+    PendingSettlement public pendingSettlementBuy;
+    PendingSettlement public pendingSettlementSell;
+    uint256 public currentUpkeepIndex;
+    uint256 public UPKEEPS_PER_CHECK = 20; // Process 20 upkeeps per check
+    uint256 public priceDecimal;
+
     KeyPosition[] public buyPositionKeys;
     KeyPosition[] public sellPositionKeys;
     uint32 private nextPositionId = 1; // Changed to uint32
@@ -88,6 +98,8 @@ contract DoppiCore is Ownable, Pausable, AutomationCompatibleInterface {
         doppiLP = _doppiLP;
         doppiConfig = DoppiConfig(doppiLP.getDoppiConfig());
         impliedVol = _impliedVol;
+        priceDecimal = 10 ** _doppiLP.getPriceDecimals();
+        
         admins[msg.sender] = true;
         assetA.safeIncreaseAllowance(address(doppiLP), type(uint256).max);
         assetB.safeIncreaseAllowance(address(doppiLP), type(uint256).max);
@@ -130,11 +142,14 @@ contract DoppiCore is Ownable, Pausable, AutomationCompatibleInterface {
     }
 
     function settle_buys(uint256[] memory _indexes) external onlyOwner {
-        _settle_positions(_indexes, true);
+        
+        uint256 settlePrice = doppiLP.getPrice();
+        _settle_positions(_indexes, true, settlePrice);
     }
 
     function settle_sells(uint256[] memory _indexes) external onlyOwner {
-        _settle_positions(_indexes, false);
+        uint256 settlePrice = doppiLP.getPrice();
+        _settle_positions(_indexes, false, settlePrice);
     }
 
     // Admin functions
@@ -159,34 +174,42 @@ contract DoppiCore is Ownable, Pausable, AutomationCompatibleInterface {
     }
 
     // Chainlink Keepers integration
-    function checkUpkeep(bytes calldata /*checkData*/ )
+    function checkUpkeep(bytes calldata) 
         external
         view
+        override
         returns (bool upkeepNeeded, bytes memory performData)
     {
+        // Check if we have pending settlements first (highest priority)
+        if (pendingSettlementBuy.indexes.length > 0 || pendingSettlementSell.indexes.length > 0) {
+            return (true, abi.encode(true)); // cached = true
+        }
+        
+        // Check for new ready positions if no pending settlements
         uint256[] memory buys = getReadyBuyPositions();
         uint256[] memory sells = getReadySellPositions();
-        bool buyReady = buys.length > 0;
-        bool sellReady = sells.length > 0;
-
-        if (buys.length == 0 && sells.length == 0 && paused()) {
-            return (false, bytes(""));
-        } else {
-            return (buyReady || sellReady, abi.encode(buyReady, buys, sellReady, sells));
+        
+        if ((buys.length > 0 || sells.length > 0) && !paused()) {
+            return (true, abi.encode(false, buys, sells)); // cached = false, with indexes
         }
+        
+        return (false, bytes(""));
     }
 
     function performUpkeep(bytes calldata performData) external onlyForwarder {
         
         if(paused()) return;
         
-        (bool buyReady, uint256[] memory buyIndexes, bool sellReady, uint256[] memory sellIndexes) =
-            abi.decode(performData, (bool, uint256[], bool, uint256[]));
-        if (buyReady) {
-            _settle_positions(buyIndexes, true);
-        }
-        if (sellReady) {
-            _settle_positions(sellIndexes, false);
+        // Decode the minimal data needed
+        bool cached = abi.decode(performData, (bool));
+        if (cached) {
+            // Process pending settlements
+            _processPendingSettlements();
+        } else {
+            // Process new settlements
+            (, uint256[] memory buyIndexes, uint256[] memory sellIndexes) = 
+                abi.decode(performData, (bool, uint256[], uint256[]));
+            _processNewSettlements(buyIndexes, sellIndexes);
         }
     }
 
@@ -434,6 +457,10 @@ contract DoppiCore is Ownable, Pausable, AutomationCompatibleInterface {
     }
 
     // Configuration functions
+    function setUpkeeps_per_check(uint24 _percheck) external onlyOwner {
+        UPKEEPS_PER_CHECK = _percheck;
+    }
+
     function setDoppiTraderFactory(DoppiTraderFactory _traderFactory) external onlyOwner {
         doppiTraderFactory = _traderFactory;
     }
@@ -455,6 +482,108 @@ contract DoppiCore is Ownable, Pausable, AutomationCompatibleInterface {
     }
 
     // Internal functions
+    function _getAndRemoveNextBatch(bool isBuy) internal returns (uint256[] memory batch, uint256 settlePrice) {
+        PendingSettlement storage pending = isBuy ? pendingSettlementBuy : pendingSettlementSell;
+        
+        uint256 total = pending.indexes.length;
+        if (total == 0) {
+            return (new uint256[](0), 0);
+        }
+        
+        uint256 count = total > UPKEEPS_PER_CHECK ? UPKEEPS_PER_CHECK : total;
+        
+        // Extract the batch to process
+        batch = new uint256[](count);
+        for (uint256 i = 0; i < count; i++) {
+            batch[i] = pending.indexes[i];
+        }
+        
+        settlePrice = pending.settlementPrice;
+        
+        // Remove processed indexes from storage in the same operation
+        uint256 remaining = total - count;
+        if (remaining > 0) {
+            uint256[] memory newIndexes = new uint256[](remaining);
+            for (uint256 i = 0; i < remaining; i++) {
+                newIndexes[i] = pending.indexes[count + i];
+            }
+            pending.indexes = newIndexes;
+        } else {
+            // Clear everything if no remaining indexes
+            delete pending.indexes;
+            pending.settlementPrice = 0;
+        }
+    }
+
+    function _processPendingSettlements() internal {
+        uint256 settlePrice;
+        uint256[] memory batch;
+        
+        // Process buy pending settlements
+        if (pendingSettlementBuy.indexes.length > 0) {
+            (batch, settlePrice) = _getAndRemoveNextBatch(true);
+            if (batch.length > 0) {
+                _settle_positions(batch, true, settlePrice);
+            }
+        }
+        
+        // Process sell pending settlements
+        if (pendingSettlementSell.indexes.length > 0) {
+            (batch, settlePrice) = _getAndRemoveNextBatch(false);
+            if (batch.length > 0) {
+                _settle_positions(batch, false, settlePrice);
+            }
+        }
+    }
+
+    function _processNewSettlements(uint256[] memory buyIndexes, uint256[] memory sellIndexes) internal {
+        uint256 settlePrice = doppiLP.getPrice();
+        
+        // Process buy positions with batching
+        if (buyIndexes.length > 0) {
+            uint256[] memory toProcess = _storeExcessiveSettlement(true, buyIndexes, settlePrice);
+            if (toProcess.length > 0) {
+                _settle_positions(toProcess, true, settlePrice);
+            }
+        }
+        
+        // Process sell positions with batching
+        if (sellIndexes.length > 0) {
+            uint256[] memory toProcess = _storeExcessiveSettlement(false, sellIndexes, settlePrice);
+            if (toProcess.length > 0) {
+                _settle_positions(toProcess, false, settlePrice);
+            }
+        }
+    }
+
+    function _storeExcessiveSettlement(
+        bool isBuy,
+        uint256[] memory indexes,
+        uint256 settlementPrice
+    ) internal returns (uint256[] memory toProcessIndexes) {
+
+        uint256 totalUpkeeps = indexes.length;
+        if(totalUpkeeps < UPKEEPS_PER_CHECK){
+            return indexes;
+        }
+        uint256 count = totalUpkeeps > UPKEEPS_PER_CHECK ? UPKEEPS_PER_CHECK : totalUpkeeps;
+        toProcessIndexes = new uint256[](count);
+        for (uint256 i = 0; i < count;) {
+            toProcessIndexes[i] = indexes[i];
+            unchecked { ++i;}
+        }
+        uint256 remaining = totalUpkeeps - count;
+        
+        uint256[] memory remainIndexes = new uint256[](remaining);
+        for (uint256 i = 0; i < remaining; ) {
+            remainIndexes[i] = indexes[count + i];
+            unchecked { ++i;}
+        }
+        PendingSettlement storage pendingSettle = isBuy ? pendingSettlementBuy : pendingSettlementSell;
+        pendingSettle.indexes = remainIndexes;
+        pendingSettle.settlementPrice = settlementPrice;
+    }
+
     function _depositBuy(DepositParams calldata params, DualAssetOffer memory _buyOffer, bool _hedge) internal {
         uint256 amount = params.amount;
         uint32 numDays = params.numDays;
@@ -541,16 +670,14 @@ contract DoppiCore is Ownable, Pausable, AutomationCompatibleInterface {
 
     function _settlePosition(
         KeyPosition memory position,
-        bool isBuy
+        bool isBuy,
+        uint256 price
     ) internal {
         DualAssetPosition storage p = isBuy
             ? positions_buy[position.owner][position.positionId]
             : positions_sell[position.owner][position.positionId];
 
         require(p.expiryTimestamp <= block.timestamp, "not ready for settlement");
-
-        // Cache external calls (less gas than calling multiple times)
-        (uint256 price, uint8 priceDecimals) = (doppiLP.getPrice(), doppiLP.getPriceDecimals());
 
         // Track results for event emission (computed in each branch)
         address profitToken;
@@ -573,8 +700,8 @@ contract DoppiCore is Ownable, Pausable, AutomationCompatibleInterface {
         if (isInTheMoney) {
             unchecked {
                 payout = isBuy
-                    ? (p.amount * (10 ** priceDecimals)) / p.strikePrice
-                    : (p.amount * p.strikePrice) / (10 ** priceDecimals);
+                    ? (p.amount * priceDecimal) / p.strikePrice
+                    : (p.amount * p.strikePrice) / priceDecimal;
             }
 
             (
@@ -651,8 +778,7 @@ contract DoppiCore is Ownable, Pausable, AutomationCompatibleInterface {
     }
 
     function _getStrikePrice(uint256 _price, uint8 _strikeZone, bool _isBuy) internal view returns (uint256) {
-        uint8 priceDecimals = doppiLP.getPriceDecimals();
-        uint256 priceGapWithDecimals = doppiConfig.PRICE_GAP_PEROFFER() * (10 ** priceDecimals);
+        uint256 priceGapWithDecimals = doppiConfig.PRICE_GAP_PEROFFER() * priceDecimal;
         _price = (_price / priceGapWithDecimals) * priceGapWithDecimals;
         return _isBuy ? _price - (priceGapWithDecimals * _strikeZone) : _price + (priceGapWithDecimals * _strikeZone);
     }
@@ -788,9 +914,8 @@ contract DoppiCore is Ownable, Pausable, AutomationCompatibleInterface {
     }
 
     function _hedgeSwap(uint256 _amount, uint256 _delta, uint256 _price, bool isBuy) internal returns (uint256 amountInHedgeAsset, uint256 swappedHedgeAmount, uint256 hedgePrice) {
-        uint256 priceDecimals = doppiLP.getPriceDecimals();
         uint256 hedgeAmount = _amount * _delta / BASIS_POINTS;
-        amountInHedgeAsset = isBuy ? hedgeAmount * (10 ** priceDecimals) / _price : hedgeAmount * _price / (10 ** priceDecimals);
+        amountInHedgeAsset = isBuy ? hedgeAmount * priceDecimal / _price : hedgeAmount * _price / priceDecimal;
         (swappedHedgeAmount, hedgePrice) = doppiLP.hedgeSwap(amountInHedgeAsset, _price, !isBuy);
     }
 
@@ -840,7 +965,7 @@ contract DoppiCore is Ownable, Pausable, AutomationCompatibleInterface {
         }
     }
 
-    function _settle_positions(uint256[] memory _indexes, bool isBuy) internal {
+    function _settle_positions(uint256[] memory _indexes, bool isBuy, uint256 _settlePrice) internal {
         uint256 length = _indexes.length;
         require(length > 0, "empty array");
         require(_isDescending(_indexes), "not descending");
@@ -851,7 +976,7 @@ contract DoppiCore is Ownable, Pausable, AutomationCompatibleInterface {
             require(idx < positionKeys.length, "index out of bounds");
             
             KeyPosition memory pos = positionKeys[idx];
-            _settlePosition(pos, isBuy);
+            _settlePosition(pos, isBuy, _settlePrice);
             isBuy ? _removeBuyPosition(idx, pos) : _removeSellPosition(idx, pos);
             
             unchecked { ++i; }
