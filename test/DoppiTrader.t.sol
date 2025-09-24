@@ -9,6 +9,7 @@ import {DoppiLiquidity} from "../src/mainnet/DoppiLiquidity.sol";
 import {DoppiLiquidityRouter} from "../src/mainnet/DoppiLiquidityRouter.sol";
 import {BlackScholes} from "../src/mainnet/BlackScholes.sol";
 import {ImpliedVol} from "../src/mainnet/ImpliedVol.sol";
+import {DoppiPoints} from "../src/mainnet/DoppiPoints.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {MockToken} from "../src/test/MockToken.sol";
 import {MockOracle} from "../src/test/MockOracle.sol";
@@ -32,6 +33,7 @@ contract DoppiTraderTest is Test {
     MockDoppiUpKeepManager mockDoppiUpKeepManager;
     DoppiOpportunity opportunityBot;
     Swapper swapper;
+    DoppiPoints doppiPoints;
 
     address owner = address(0x1);
     address treasury = address(0x3);
@@ -62,6 +64,8 @@ contract DoppiTraderTest is Test {
         impliedVol = new ImpliedVol(blackScholes);
         impliedVol.setRegression(86400, a_buy, b_buy, c_buy, a_sell, b_sell, c_sell);
 
+        doppiPoints = new DoppiPoints();
+
         // deploy doppiConfig
         doppiConfig = new DoppiConfig();
 
@@ -75,12 +79,14 @@ contract DoppiTraderTest is Test {
         doppiConfig.setTreasury(treasury);
         doppiConfig.setOracle(address(oracle));
         doppiConfig.setDoppiUpKeepManager(address(mockDoppiUpKeepManager));
+        doppiConfig.setDoppiPoints(address(doppiPoints)); 
         
         doppiLP =
             new DoppiLiquidity("Dual Asset Liquidity Pool", "DALP", IERC20(usdt), IERC20(btc));
         doppiLP.setDoppiConfig(doppiConfig);
         doppiLP.approveRouter();
         doppiCore = new DoppiCore(address(usdt), address(btc), doppiLP, impliedVol);
+        doppiPoints.setDoppiCore(address(doppiCore));
 
         opportunityBot = new DoppiOpportunity(address(doppiCore), address(doppiLP));
         doppiCore.setAdmin(address(opportunityBot), true);
@@ -799,7 +805,7 @@ contract DoppiTraderTest is Test {
         (upkeepNeeded, performData) = doppiTrader.checkUpkeep("");
         vm.expectEmit(true, true, true, true);
         emit UnwindPerformed(
-            address(0x1F88f48585ad6754e59c03debd4502399e33Ff50),
+            address(doppiTrader),
             true,
             2585351758793969842000, // amount
             85351758793969842000,

@@ -9,6 +9,7 @@ import {DoppiLiquidity} from "../../src/mainnet/DoppiLiquidity.sol";
 import {DoppiLiquidityRouter} from "../../src/mainnet/DoppiLiquidityRouter.sol";
 import {BlackScholes} from "../../src/mainnet/BlackScholes.sol";
 import {ImpliedVol} from "../../src/mainnet/ImpliedVol.sol";
+import {DoppiPoints} from "../../src/mainnet/DoppiPoints.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {MockToken} from "../../src/test/MockToken.sol";
 import {MockOracle} from "../../src/test/MockOracle.sol";
@@ -33,6 +34,7 @@ contract DoppiProtocolScenariosTest is Test {
     DoppiOpportunity opportunityBot;
     Swapper public swapper;
     DoppiConfig doppiConfig;
+    DoppiPoints doppiPoints;
     
     // Addresses
     address public owner = address(0x1);
@@ -56,7 +58,8 @@ contract DoppiProtocolScenariosTest is Test {
         mockDoppiUpKeepManager = new MockDoppiUpKeepManager(mockForwarder);
 
         swapper = _setupMockSwapper(address(usdt), address(btc), address(oracle));        
-        
+        doppiPoints = new DoppiPoints();
+
         doppiConfig = new DoppiConfig();
         doppiConfig.setRouter(address(swapper));
         doppiConfig.setQuoter(address(swapper));
@@ -64,6 +67,8 @@ contract DoppiProtocolScenariosTest is Test {
         doppiConfig.setPancakeV3Pool(address(swapper)); 
         doppiConfig.setOracle(address(oracle));
         doppiConfig.setDoppiUpKeepManager(address(mockDoppiUpKeepManager));
+        doppiConfig.setDoppiPoints(address(doppiPoints)); 
+        
         
         impliedVol = _setupIV();
         doppiLP = _setupLP(address(usdt), address(btc));
@@ -72,6 +77,7 @@ contract DoppiProtocolScenariosTest is Test {
         doppiRouter = new DoppiLiquidityRouter(IERC20(usdt), IERC20(btc), doppiLP);
         doppiFactory = new DoppiTraderFactory(IERC20(usdt), IERC20(btc), doppiCore, doppiLP, doppiRouter);
 
+        doppiPoints.setDoppiCore(address(doppiCore));
         opportunityBot.setForwarderAddress(mockForwarder);
         opportunityBot.setDoppiConfig(doppiConfig);
         doppiCore.setForwarderAddress(mockForwarder);

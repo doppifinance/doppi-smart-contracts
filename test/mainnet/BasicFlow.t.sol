@@ -9,6 +9,7 @@ import {DoppiLiquidity} from "../../src/mainnet/DoppiLiquidity.sol";
 import {DoppiLiquidityRouter} from "../../src/mainnet/DoppiLiquidityRouter.sol";
 import {BlackScholes} from "../../src/mainnet/BlackScholes.sol";
 import {ImpliedVol} from "../../src/mainnet/ImpliedVol.sol";
+import {DoppiPoints} from "../../src/mainnet/DoppiPoints.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {MockToken} from "../../src/test/MockToken.sol";
 import {MockOracle} from "../../src/test/MockOracle.sol";
@@ -33,6 +34,8 @@ contract BasicFlowTest is Test {
     DoppiOpportunity doppiOpportunity;
     Swapper public swapper;
     DoppiConfig doppiConfig;
+    DoppiPoints doppiPoints;
+
     
     // Mainnet addresses for forking
     address constant USDT = address(0x55d398326f99059fF775485246999027B3197955);
@@ -64,6 +67,7 @@ contract BasicFlowTest is Test {
 
         usdt = IERC20(USDT);
         btc = IERC20(BTCB);
+        doppiPoints = new DoppiPoints();
         doppiConfig = new DoppiConfig();
         doppiConfig.setRouter(PCSWAP_V3_ROUTER);
         doppiConfig.setQuoter(PCSWAP_V3_QUOTER);
@@ -72,6 +76,7 @@ contract BasicFlowTest is Test {
         doppiConfig.setOracle(CHAINLINK_BTC_USD);
         doppiConfig.setSlippage(500);
         doppiConfig.setDoppiUpKeepManager(address(mockDoppiUpKeepManager));
+        doppiConfig.setDoppiPoints(address(doppiPoints)); 
         
         impliedVol = _setupIV();
         doppiLP = _setupLP(address(usdt), address(btc));
@@ -81,6 +86,7 @@ contract BasicFlowTest is Test {
         doppiRouter = new DoppiLiquidityRouter(IERC20(usdt), IERC20(btc), doppiLP);
         doppiFactory = new DoppiTraderFactory(IERC20(usdt), IERC20(btc), doppiCore, doppiLP, doppiRouter);
 
+        doppiPoints.setDoppiCore(address(doppiCore));
         doppiOpportunity.setForwarderAddress(forwarder);
         doppiOpportunity.setDoppiConfig(doppiConfig);
         doppiCore.setForwarderAddress(forwarder);

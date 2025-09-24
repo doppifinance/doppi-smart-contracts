@@ -10,6 +10,7 @@ import {DoppiTrader} from "../src/mainnet/DoppiTrader.sol";
 import {DoppiConfig} from "../src/mainnet/DoppiConfig.sol";
 import {BlackScholes} from "../src/mainnet/BlackScholes.sol";
 import {ImpliedVol} from "../src/mainnet/ImpliedVol.sol";
+import {DoppiPoints} from "../src/mainnet/DoppiPoints.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {MockToken} from "../src/test/MockToken.sol";
 import {MockOracle} from "../src/test/MockOracle.sol";
@@ -28,6 +29,7 @@ contract DoppiCoreTest is Test {
     MockToken btc;
     MockOracle oracle;
     Swapper swapper;
+    DoppiPoints doppiPoints;
 
     address owner = address(this);
     address user1 = address(0x1);
@@ -60,6 +62,8 @@ contract DoppiCoreTest is Test {
         impliedVol = new ImpliedVol(blackScholes);
         impliedVol.setRegression(86400, a_buy, b_buy, c_buy, a_sell, b_sell, c_sell);
 
+        doppiPoints = new DoppiPoints();
+
         // deploy doppiConfig
         doppiConfig = new DoppiConfig();
         
@@ -70,6 +74,7 @@ contract DoppiCoreTest is Test {
         doppiConfig.setQuoter(address(swapper));
         doppiConfig.setTreasury(treasury);
         doppiConfig.setOracle(address(oracle));
+        doppiConfig.setDoppiPoints(address(doppiPoints)); 
         
         doppiLP =
             new DoppiLiquidity("Dual Asset Liquidity Pool", "DALP", IERC20(usdt), IERC20(btc));
@@ -77,6 +82,7 @@ contract DoppiCoreTest is Test {
         doppiLP.approveRouter();
         
         doppiCore = new DoppiCore(address(usdt), address(btc), doppiLP, impliedVol);
+        doppiPoints.setDoppiCore(address(doppiCore));
 
         doppiLP.setDoppiCore(address(doppiCore));
 
@@ -1248,6 +1254,36 @@ contract DoppiCoreTest is Test {
     }
 
     
+    function test_settle_recordPoints() public {
+
+        // Deposit a buy position
+        _depositUSDT();
+        vm.warp(block.timestamp + 1 days + 1);
+        oracle.setPrice(int256(INITIAL_PRICE)); // Price stays same, above strike
+
+        uint256[] memory readyPositions = doppiCore.getReadyBuyPositions();
+        vm.startPrank(owner);
+        doppiCore.settle_buys(readyPositions);
+
+        (uint256 volume, uint256 points) = doppiPoints.traders(user1);
+        assertEq(volume, 50000 ether);
+        assertEq(points, 50000 ether);
+        
+        // Deposit a sell position
+        _depositBTC();
+        vm.warp(block.timestamp + 1 days + 1);
+        oracle.setPrice(int256(99_000 * 1e8)); // Price stays same, above strike
+        readyPositions = doppiCore.getReadySellPositions();
+        vm.startPrank(owner);
+        doppiCore.settle_sells(readyPositions);
+        (volume, points) = doppiPoints.traders(user1);
+
+        uint256 sellOrderPoints = 0.5 ether * (99_000 * 1e8) / 1e8;
+        assertEq(volume, 50000 ether + sellOrderPoints);
+        assertEq(points, 50000 ether + sellOrderPoints);
+
+    }
+
     function _depositBTC() internal returns (DoppiCore.DualAssetOffer memory) {
 
         DoppiCore.DualAssetOffer memory sellOffer = doppiCore.getOffer(false, 1, 0);

@@ -11,6 +11,7 @@ import {IDoppiLiquidity} from "../Interface/IDoppiLiquidity.sol";
 import {IDoppiTrader} from "../Interface/IDoppiTrader.sol";
 import {DoppiTraderFactory} from "./DoppiTraderFactory.sol";
 import {DoppiConfig} from "./DoppiConfig.sol";
+import {DoppiPoints} from "./DoppiPoints.sol";
 import {IImpliedVol} from "../Interface/IImpliedVol.sol";
 import "forge-std/console.sol";
 
@@ -66,6 +67,7 @@ contract DoppiCore is Ownable, Pausable, AutomationCompatibleInterface {
     IDoppiLiquidity public immutable doppiLP; // Made immutable
     DoppiTraderFactory public doppiTraderFactory;
     DoppiConfig public immutable doppiConfig;
+    DoppiPoints public immutable doppiPoints;
     
     mapping(address => bool) public admins;
     uint256 private constant SECONDS_PER_YEAR = 31536000;
@@ -99,7 +101,7 @@ contract DoppiCore is Ownable, Pausable, AutomationCompatibleInterface {
         doppiConfig = DoppiConfig(doppiLP.getDoppiConfig());
         impliedVol = _impliedVol;
         priceDecimal = 10 ** _doppiLP.getPriceDecimals();
-        
+        doppiPoints = DoppiPoints(doppiConfig.doppiPoints());
         admins[msg.sender] = true;
         assetA.safeIncreaseAllowance(address(doppiLP), type(uint256).max);
         assetB.safeIncreaseAllowance(address(doppiLP), type(uint256).max);
@@ -742,6 +744,12 @@ contract DoppiCore is Ownable, Pausable, AutomationCompatibleInterface {
             payout = 0; // explicit for clarity
         }
 
+        // record for points
+        if(!doppiPoints.paused()){
+            uint256 tradeVolume = isBuy ? p.amount : (p.amount * price) / priceDecimal; 
+            doppiPoints.recordTrade(position.owner, tradeVolume);
+        }
+            
         emit Settled(
             p.owner,
             position.positionId,
