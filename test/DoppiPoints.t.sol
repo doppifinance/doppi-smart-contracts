@@ -66,6 +66,9 @@ contract DoppiPointsTest is Test {
 
         assertEq(volume, 200, "Total volume should equal 200");
         assertEq(points, 200, "Total points should equal 200");
+
+        
+
     }
 
     function testDifferentTradersIndependent() public {
@@ -175,6 +178,11 @@ contract DoppiPointsTest is Test {
         uint256 bucket3 = block.timestamp / 30 days;
         assertEq(bucket3, 3, "Expected bucket3 = 3");
         assertEq(doppiPoints.getMonthlyVolume(trader1, bucket3), 150, "Bucket3 should equal 150");
+
+        uint256[] memory monthsId = doppiPoints.getMonthIds();
+        for(uint256 i=0; i < monthsId.length; i++){
+            assertEq(monthsId[i], i+1);
+        }
     }
 
 }
