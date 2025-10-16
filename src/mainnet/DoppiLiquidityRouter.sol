@@ -46,13 +46,13 @@ contract DoppiLiquidityRouter is Ownable, Pausable, IDoppiLiquidityRouter {
         emit Deposited(msg.sender, _amount, _asset, shares);
     }
 
-    function redeem(uint256 _shares) external {
+    function redeem(uint256 _shares) external returns (uint256 assetsA, uint256 assetsB) {
         IERC20(doppiLP).safeTransferFrom(msg.sender, address(this), _shares);
         (uint256 ratioA, uint256 ratioB) = entryPointB.assetRatio();
         uint256 firstHalf = _shares * ratioA / (ratioA + ratioB);
         uint256 secondHalf = _shares - firstHalf;        
-        uint256 assetsA = entryPointA.redeem(firstHalf, msg.sender, address(this));
-        uint256 assetsB = entryPointB.redeem(secondHalf, msg.sender, address(this));
+        assetsA = entryPointA.redeem(firstHalf, msg.sender, address(this));
+        assetsB = entryPointB.redeem(secondHalf, msg.sender, address(this));
         emit Redeemed(msg.sender, _shares, assetsA, assetsB);
     }
 

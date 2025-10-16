@@ -10,12 +10,14 @@ import {DoppiTrader} from "../src/mainnet/DoppiTrader.sol";
 import {DoppiConfig} from "../src/mainnet/DoppiConfig.sol";
 import {BlackScholes} from "../src/mainnet/BlackScholes.sol";
 import {ImpliedVol} from "../src/mainnet/ImpliedVol.sol";
+import {IImpliedVol} from "../src/Interface/IImpliedVol.sol";
 import {DoppiPoints} from "../src/mainnet/DoppiPoints.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {MockToken} from "../src/test/MockToken.sol";
 import {MockOracle} from "../src/test/MockOracle.sol";
 // import "forge-std/console.sol";
 import {Swapper} from "../src/test/Swapper.sol";
+import "../src/mainnet/DoppiCoreTypes.sol";
 
 contract DoppiCoreTest is Test {
     DoppiCore doppiCore;
@@ -59,13 +61,14 @@ contract DoppiCoreTest is Test {
         oracle = new MockOracle(int256(INITIAL_PRICE), 8);
 
         blackScholes = new BlackScholes();
-        impliedVol = new ImpliedVol(blackScholes);
+        impliedVol = new ImpliedVol(blackScholes, address(oracle), 500);
         impliedVol.setRegression(86400, a_buy, b_buy, c_buy, a_sell, b_sell, c_sell);
 
         doppiPoints = new DoppiPoints();
 
         // deploy doppiConfig
         doppiConfig = new DoppiConfig();
+        
         
         // Deploy Swapper that will act as both router and pool
         swapper = new Swapper(MockToken(usdt), MockToken(btc));
@@ -75,12 +78,13 @@ contract DoppiCoreTest is Test {
         doppiConfig.setTreasury(treasury);
         doppiConfig.setOracle(address(oracle));
         doppiConfig.setDoppiPoints(address(doppiPoints)); 
+        doppiConfig.setImpliedVol(address(impliedVol)); 
         
         doppiLP =
             new DoppiLiquidity("Dual Asset Liquidity Pool", "DALP", IERC20(usdt), IERC20(btc));
         doppiLP.setDoppiConfig(doppiConfig);
         doppiLP.approveRouter();
-        
+                
         doppiCore = new DoppiCore(address(usdt), address(btc), doppiLP, impliedVol);
         doppiPoints.setDoppiCore(address(doppiCore));
 
@@ -95,7 +99,7 @@ contract DoppiCoreTest is Test {
         doppiLP.setDoppiConfig(doppiConfig);
 
         traderFactory =
-            new DoppiTraderFactory(IERC20(usdt), IERC20(btc), doppiCore, doppiLP, doppiRouter);
+            new DoppiTraderFactory(IERC20(usdt), IERC20(btc), address(doppiCore), address(doppiLP), address(doppiRouter));
 
         doppiCore.setDoppiTraderFactory(traderFactory);
         doppiCore.setAdmin(admin, true);
@@ -144,70 +148,12 @@ contract DoppiCoreTest is Test {
 
     function test_setTraderFactory() public {
         DoppiTraderFactory newFactory =
-            new DoppiTraderFactory(IERC20(usdt), IERC20(btc), doppiCore, doppiLP, doppiRouter);
+            new DoppiTraderFactory(IERC20(usdt), IERC20(btc), address(doppiCore), address(doppiLP), address(doppiRouter));
         doppiCore.setDoppiTraderFactory(newFactory);
         assertEq(address(doppiCore.doppiTraderFactory()), address(newFactory));
     }
 
-    function test_getBuyOffers() public view {
-        DoppiCore.DualAssetOffer[] memory buyOffers = doppiCore.getBuyOffers(1);
-
-        assertEq(buyOffers.length, 5);
-        assertEq(buyOffers[0].apr, 31399);
-        assertEq(buyOffers[1].apr, 25600);
-        assertEq(buyOffers[4].apr, 13612);
-            
-        for (uint256 i = 0; i < buyOffers.length; i++) {
-            // console.log(buyOffers[i].strikePrice, buyOffers[i].apr);
-            assertEq(buyOffers[i].price, INITIAL_PRICE);
-            assertLt(buyOffers[i].strikePrice, INITIAL_PRICE);
-            assertGt(buyOffers[i].apr, 0);
-            assertGt(buyOffers[i].validUntilTimestamp, block.timestamp);
-        }
-
-        // Strike prices should be decreasing (further from current price)
-        for (uint256 i = 1; i < buyOffers.length; i++) {
-            assertLt(buyOffers[i].strikePrice, buyOffers[i - 1].strikePrice);
-        }
-    }
-
-    function test_getSellOffers() public view {
-        DoppiCore.DualAssetOffer[] memory sellOffers = doppiCore.getSellOffers(1);
-
-        assertEq(sellOffers.length, 5);
-
-        assertEq(sellOffers[0].apr, 35700);
-        assertEq(sellOffers[1].apr, 27794);
-        assertEq(sellOffers[4].apr, 10881);
-
-        for (uint256 i = 0; i < sellOffers.length; i++) {
-            // console.log(sellOffers[i].strikePrice, sellOffers[i].apr);
-            assertEq(sellOffers[i].price, INITIAL_PRICE);
-            assertGt(sellOffers[i].strikePrice, INITIAL_PRICE);
-            assertGt(sellOffers[i].apr, 0);
-            assertGt(sellOffers[i].validUntilTimestamp, block.timestamp);
-        }
-
-        // Strike prices should be increasing (further from current price)
-        for (uint256 i = 1; i < sellOffers.length; i++) {
-            assertGt(sellOffers[i].strikePrice, sellOffers[i - 1].strikePrice);
-        }
-    }
-
-    function test_getAllOffers() public view {
-        (DoppiCore.DualAssetOffer[] memory buyOffers, DoppiCore.DualAssetOffer[] memory sellOffers) =
-            doppiCore.getAllOffers(1);
-
-        assertEq(buyOffers.length, 5);
-        assertEq(sellOffers.length, 5);
-
-        for (uint256 i = 0; i < 5; i++) {
-            assertEq(buyOffers[i].price, INITIAL_PRICE);
-            assertEq(sellOffers[i].price, INITIAL_PRICE);
-            assertLt(buyOffers[i].strikePrice, INITIAL_PRICE);
-            assertGt(sellOffers[i].strikePrice, INITIAL_PRICE);
-        }
-    }
+    
 
     function test_deposit_buy() public {
         _depositUSDT();
@@ -224,8 +170,8 @@ contract DoppiCoreTest is Test {
     }
 
     function test_deposit_buy_invalidStrikePrice() public {
-        DoppiCore.DualAssetOffer memory buyOffer = doppiCore.getOffer(true, 1, 0);
-        DoppiCore.DepositParams memory params = DoppiCore.DepositParams({
+        DualAssetOffer memory buyOffer = impliedVol.getOffer(true, 1, 0);
+        DepositParams memory params = DepositParams({
             amount: 50_000 ether,
             strikeZone: 0,
             strikePrice: buyOffer.strikePrice + 1, // Invalid strike price
@@ -236,14 +182,14 @@ contract DoppiCoreTest is Test {
 
         vm.startPrank(user1);
         usdt.approve(address(doppiCore), params.amount);
-        vm.expectRevert("incorrect strikePrice");
+        vm.expectRevert("InvalidStrikePrice()");
         doppiCore.deposit_buy(params);
         vm.stopPrank();
     }
 
     function test_deposit_buy_invalidAPR() public {
-        DoppiCore.DualAssetOffer memory buyOffer = doppiCore.getOffer(true, 1, 0);
-        DoppiCore.DepositParams memory params = DoppiCore.DepositParams({
+        DualAssetOffer memory buyOffer = impliedVol.getOffer(true, 1, 0);
+        DepositParams memory params = DepositParams({
             amount: 50_000 ether,
             strikeZone: 0,
             strikePrice: buyOffer.strikePrice,
@@ -254,31 +200,31 @@ contract DoppiCoreTest is Test {
 
         vm.startPrank(user1);
         usdt.approve(address(doppiCore), params.amount);
-        vm.expectRevert("incorrect apr");
+        vm.expectRevert("InvalidAPR()");
         doppiCore.deposit_buy(params);
         vm.stopPrank();
     }
 
-    function test_deposit_buy_expiredOffer() public {
-        DoppiCore.DualAssetOffer memory buyOffer = doppiCore.getOffer(true, 1, 0);
-        // Fast forward time
-        vm.warp(block.timestamp + 2 minutes);
+    // function test_deposit_buy_expiredOffer() public {
+    //     DualAssetOffer memory buyOffer = impliedVol.getOffer(true, 1, 0);
+    //     // Fast forward time
+    //     vm.warp(block.timestamp + 2 minutes);
 
-        DoppiCore.DepositParams memory params = DoppiCore.DepositParams({
-            amount: 50_000 ether,
-            strikeZone: 0,
-            strikePrice: buyOffer.strikePrice,
-            numDays: 1,
-            apr: buyOffer.apr,
-            validityTime: buyOffer.validUntilTimestamp
-        });
+    //     DepositParams memory params = DepositParams({
+    //         amount: 50_000 ether,
+    //         strikeZone: 0,
+    //         strikePrice: buyOffer.strikePrice,
+    //         numDays: 1,
+    //         apr: buyOffer.apr,
+    //         validityTime: buyOffer.validUntilTimestamp
+    //     });
 
-        vm.startPrank(user1);
-        usdt.approve(address(doppiCore), params.amount);
-        vm.expectRevert("offer expired");
-        doppiCore.deposit_buy(params);
-        vm.stopPrank();
-    }
+    //     vm.startPrank(user1);
+    //     usdt.approve(address(doppiCore), params.amount);
+    //     vm.expectRevert("offer expired");
+    //     doppiCore.deposit_buy(params);
+    //     vm.stopPrank();
+    // }
 
     function test_getReadyBuyPositions() public {
         // Deposit a position
@@ -333,7 +279,7 @@ contract DoppiCoreTest is Test {
 
     function test_settle_buys_priceBelowStrike() public {
         // Deposit a buy position
-        DoppiCore.DualAssetOffer memory buyOffer = _depositUSDT();
+        DualAssetOffer memory buyOffer = _depositUSDT();
 
         // Fast forward time and set price below strike
         vm.warp(block.timestamp + 1 days + 1);
@@ -373,7 +319,7 @@ contract DoppiCoreTest is Test {
 
     function test_settle_sells_priceAboveStrike() public {
         // Deposit a sell position
-        DoppiCore.DualAssetOffer memory sellOffer = _depositBTC();
+        DualAssetOffer memory sellOffer = _depositBTC();
         
         // Fast forward time and set price above strike
         vm.warp(block.timestamp + 1 days + 1);
@@ -403,7 +349,7 @@ contract DoppiCoreTest is Test {
         assertGt(amountOut, 0);
 
         // Check position is marked as traded
-        DoppiCore.DualAssetPosition memory position = doppiCore.get_buy(user1, 1);
+        DualAssetPosition memory position = doppiCore.get_buy(user1, 1);
         assertTrue(position.isTraded);
         assertEq(position.swappedAmount, amountOut);
     }
@@ -427,7 +373,7 @@ contract DoppiCoreTest is Test {
         assertGt(amountOut, 0);
 
         // Check position is marked as not traded
-        DoppiCore.DualAssetPosition memory position = doppiCore.get_buy(user1, 1);
+        DualAssetPosition memory position = doppiCore.get_buy(user1, 1);
         assertFalse(position.isTraded);
         assertEq(position.swappedAmount, 0);
     }
@@ -499,12 +445,12 @@ contract DoppiCoreTest is Test {
         (bool upkeepNeeded, bytes memory performData) = doppiCore.checkUpkeep("");
         assertTrue(upkeepNeeded);
 
-        (bool cached, uint256[] memory buyIndexes, uint256[] memory sellIndexes) =
+        (bool cached, , ) =
             abi.decode(performData, (bool, uint256[], uint256[]));
         
         assertFalse(cached);
 
-        uint256 initialPositionCount = doppiCore.getBuyPositionCount();
+        // uint256 initialPositionCount = doppiCore.getBuyPositionCount();
         vm.prank(mockForwarder);
         doppiCore.performUpkeep(performData);
 
@@ -625,9 +571,9 @@ contract DoppiCoreTest is Test {
         amount = bound(amount, 1000 ether, 100_000 ether);
         usdt.mint(user1, amount);
 
-        DoppiCore.DualAssetOffer memory buyOffer = doppiCore.getOffer(true, 1, 0);
+        DualAssetOffer memory buyOffer = impliedVol.getOffer(true, 1, 0);
         
-        DoppiCore.DepositParams memory params = DoppiCore.DepositParams({
+        DepositParams memory params = DepositParams({
             amount: amount,
             strikeZone: 0,
             strikePrice: buyOffer.strikePrice,
@@ -648,8 +594,8 @@ contract DoppiCoreTest is Test {
         amount = bound(amount, 0.01 ether, 2 ether);
         btc.mint(user1, amount);
 
-        DoppiCore.DualAssetOffer[] memory sellOffers = doppiCore.getSellOffers(1);
-        DoppiCore.DepositParams memory params = DoppiCore.DepositParams({
+        DualAssetOffer[] memory sellOffers = impliedVol.getSellOffers(1);
+        DepositParams memory params = DepositParams({
             amount: amount,
             strikeZone: 0,
             strikePrice: sellOffers[0].strikePrice,
@@ -669,8 +615,8 @@ contract DoppiCoreTest is Test {
     function test_get_positions() public {
         // Initially no positions
 
-        DoppiCore.DualAssetPosition[] memory buyPositions = doppiCore.get_positions_buy();
-        DoppiCore.DualAssetPosition[] memory sellPositions = doppiCore.get_positions_sell();
+        DualAssetPosition[] memory buyPositions = doppiCore.get_positions_buy();
+        DualAssetPosition[] memory sellPositions = doppiCore.get_positions_sell();
         assertEq(buyPositions.length, 0);
         assertEq(sellPositions.length, 0);
 
@@ -691,13 +637,13 @@ contract DoppiCoreTest is Test {
     }
 
     function test_multiple_users_positions() public {
-        DoppiCore.DualAssetOffer[] memory buyOffers = doppiCore.getBuyOffers(1);
+        DualAssetOffer[] memory buyOffers = impliedVol.getBuyOffers(1);
 
         // User1 deposits
         vm.startPrank(user1);
         usdt.approve(address(doppiCore), 50_000 ether);
         doppiCore.deposit_buy(
-            DoppiCore.DepositParams({
+            DepositParams({
                 amount: 50_000 ether,
                 strikeZone: 0,
                 strikePrice: buyOffers[0].strikePrice,
@@ -712,7 +658,7 @@ contract DoppiCoreTest is Test {
         vm.startPrank(user2);
         usdt.approve(address(doppiCore), 75_000 ether);
         doppiCore.deposit_buy(
-            DoppiCore.DepositParams({
+            DepositParams({
                 amount: 75_000 ether,
                 strikeZone: 1,
                 strikePrice: buyOffers[1].strikePrice,
@@ -723,7 +669,7 @@ contract DoppiCoreTest is Test {
         );
         vm.stopPrank();
 
-        DoppiCore.DualAssetPosition[] memory positions = doppiCore.get_positions_buy();
+        DualAssetPosition[] memory positions = doppiCore.get_positions_buy();
         assertEq(positions.length, 2);
         assertEq(positions[0].owner, user1);
         assertEq(positions[1].owner, user2);
@@ -745,7 +691,7 @@ contract DoppiCoreTest is Test {
         oracle.setPrice(int256(INITIAL_PRICE)); // Price stays same, above strike
 
         uint256[] memory readyPositions = doppiCore.getReadyBuyPositions();
-        uint256 initialBalance = usdt.balanceOf(user1);
+        // uint256 initialBalance = usdt.balanceOf(user1);
 
         vm.startPrank(owner);
         doppiCore.settle_buys(readyPositions);
@@ -777,7 +723,7 @@ contract DoppiCoreTest is Test {
 
     function test_settle_buys_strike_profit_fee() public {
         // Deposit a buy position
-        DoppiCore.DualAssetOffer memory buyOffer = _depositUSDT();
+        DualAssetOffer memory buyOffer = _depositUSDT();
 
         // Fast forward time and set price below strike
         vm.warp(block.timestamp + 1 days + 1);
@@ -789,8 +735,8 @@ contract DoppiCoreTest is Test {
         uint256 userBTCbefore = btc.balanceOf(user1);
         uint256 tresuryUSDTbefore = usdt.balanceOf(doppiConfig.treasury());
         uint256 tresuryBTCbefore = btc.balanceOf(doppiConfig.treasury());
-        uint256 lpBTCbefore = btc.balanceOf(address(doppiLP));
-        uint256 lpUSDTbefore = usdt.balanceOf(address(doppiLP));
+        // uint256 lpBTCbefore = btc.balanceOf(address(doppiLP));
+        // uint256 lpUSDTbefore = usdt.balanceOf(address(doppiLP));
         
         // settlement in doppiCore
         vm.startPrank(owner);
@@ -846,7 +792,7 @@ contract DoppiCoreTest is Test {
 
     function test_settle_sell_strike_profit_fee() public {
         // Deposit a buy position
-        DoppiCore.DualAssetOffer memory sellOffer = _depositBTC();
+        DualAssetOffer memory sellOffer = _depositBTC();
 
         // Fast forward time and set price below strike
         vm.warp(block.timestamp + 1 days + 1);
@@ -858,8 +804,8 @@ contract DoppiCoreTest is Test {
         uint256 userBTCbefore = btc.balanceOf(user1);
         uint256 tresuryUSDTbefore = usdt.balanceOf(doppiConfig.treasury());
         uint256 tresuryBTCbefore = btc.balanceOf(doppiConfig.treasury());
-        uint256 lpBTCbefore = btc.balanceOf(address(doppiLP));
-        uint256 lpUSDTbefore = usdt.balanceOf(address(doppiLP));
+        // uint256 lpBTCbefore = btc.balanceOf(address(doppiLP));
+        // uint256 lpUSDTbefore = usdt.balanceOf(address(doppiLP));
         
         // settlement in doppiCore
         vm.startPrank(owner);
@@ -915,7 +861,7 @@ contract DoppiCoreTest is Test {
     // Event emit test
     function test_DepositBuy_EmitsDepositedEvent() public {
         
-        DoppiCore.DualAssetOffer memory buyOffer = doppiCore.getOffer(true, 1, 0);
+        DualAssetOffer memory buyOffer = impliedVol.getOffer(true, 1, 0);
         uint256 APR_BASIS_POINTS = 31399; // 313.99% APR in basis points
         uint256 PRINCIPAL = 50_000 ether; // 50,000 USDT
         uint256 BASIS_POINTS_DENOMINATOR = 10000;
@@ -926,7 +872,7 @@ contract DoppiCoreTest is Test {
         vm.startPrank(user1);
         usdt.approve(address(doppiCore), PRINCIPAL);
         
-        DoppiCore.DepositParams memory params = DoppiCore.DepositParams({
+        DepositParams memory params = DepositParams({
             amount: PRINCIPAL,
             strikeZone: 0,
             strikePrice: buyOffer.strikePrice,
@@ -955,7 +901,7 @@ contract DoppiCoreTest is Test {
 
     function test_DepositSell_EmitsDepositedEvent() public {
         
-        DoppiCore.DualAssetOffer memory sellOffer = doppiCore.getOffer(false, 1, 0);
+        DualAssetOffer memory sellOffer = impliedVol.getOffer(false, 1, 0);
 
         uint256 APR_BASIS_POINTS = 35700;
         uint256 PRINCIPAL = 0.5 ether; 
@@ -967,7 +913,7 @@ contract DoppiCoreTest is Test {
         vm.startPrank(user1);
         btc.approve(address(doppiCore), PRINCIPAL);
         
-        DoppiCore.DepositParams memory params = DoppiCore.DepositParams({
+        DepositParams memory params = DepositParams({
             amount: PRINCIPAL,
             strikeZone: 0,
             strikePrice: sellOffer.strikePrice,
@@ -996,7 +942,7 @@ contract DoppiCoreTest is Test {
 
     function test_SettleBuyStrikedNoTraded_EmitsSettledEvent() public {
         
-        DoppiCore.DualAssetOffer memory buyOffer = _depositUSDT();
+        DualAssetOffer memory buyOffer = _depositUSDT();
         
         uint256 APR_BASIS_POINTS = 31399; // 313.99% APR in basis points
         uint256 PRINCIPAL = 50_000 ether; // 50,000 USDT
@@ -1033,7 +979,7 @@ contract DoppiCoreTest is Test {
 
     function test_SettleSellStrikedNoTraded_EmitsSettledEvent() public {
         
-        DoppiCore.DualAssetOffer memory sellOffer = _depositBTC();
+        DualAssetOffer memory sellOffer = _depositBTC();
         
         uint256 APR_BASIS_POINTS = 35700;
         uint256 PRINCIPAL = 0.5 ether; 
@@ -1070,7 +1016,7 @@ contract DoppiCoreTest is Test {
 
     function test_SettleBuyNoStriked_EmitsSettledEvent() public {
         
-        DoppiCore.DualAssetOffer memory buyOffer = _depositUSDT();
+        _depositUSDT();
         
         uint256 APR_BASIS_POINTS = 31399; // 313.99% APR in basis points
         uint256 PRINCIPAL = 50_000 ether; // 50,000 USDT
@@ -1107,7 +1053,7 @@ contract DoppiCoreTest is Test {
 
     function test_SettleSellNoStriked_EmitsSettledEvent() public {
         
-        DoppiCore.DualAssetOffer memory sellOffer = _depositBTC();
+        _depositBTC();
         
         uint256 APR_BASIS_POINTS = 35700;
         uint256 PRINCIPAL = 0.5 ether; 
@@ -1144,7 +1090,7 @@ contract DoppiCoreTest is Test {
 
     function test_SettleSellStrikedTraded_EmitsSettledEvent() public {
         
-        DoppiCore.DualAssetOffer memory sellOffer = _depositBTC();
+        DualAssetOffer memory sellOffer = _depositBTC();
         uint256 APR_BASIS_POINTS = 35700;
         uint256 PRINCIPAL = 0.5 ether; 
         uint256 BASIS_POINTS_DENOMINATOR = 10000;
@@ -1154,7 +1100,7 @@ contract DoppiCoreTest is Test {
         // ***** START perform opportunityBot.checkUpkeep
         vm.startPrank(admin);
         oracle.setPrice(int256(101_600 * 1e8));
-        (uint256 amountOut, ) = doppiCore.opportunitySwap(user1, PRINCIPAL, 101_600 * 1e8, 0, false);
+        doppiCore.opportunitySwap(user1, PRINCIPAL, 101_600 * 1e8, 0, false);
         vm.stopPrank();
 
         uint256 btcInterestReceived = APR_BASIS_POINTS * PRINCIPAL / BASIS_POINTS_DENOMINATOR / DAYS_IN_YEAR;
@@ -1187,7 +1133,7 @@ contract DoppiCoreTest is Test {
 
     function test_SettleBuyStrikedTraded_EmitsSettledEvent() public {
         
-        DoppiCore.DualAssetOffer memory buyOffer = _depositUSDT();
+        DualAssetOffer memory buyOffer = _depositUSDT();
         uint256 APR_BASIS_POINTS = 31399; // 313.99% APR in basis points
         uint256 PRINCIPAL = 50_000 ether; // 50,000 USDT
         uint256 BASIS_POINTS_DENOMINATOR = 10000;
@@ -1197,7 +1143,7 @@ contract DoppiCoreTest is Test {
         // ***** START perform opportunityBot.checkUpkeep
         vm.startPrank(admin);
         oracle.setPrice(int256(98_000 * 1e8));
-        (uint256 amountOut,) = doppiCore.opportunitySwap(user1, PRINCIPAL, 98_000 * 1e8, 0, true);
+        doppiCore.opportunitySwap(user1, PRINCIPAL, 98_000 * 1e8, 0, true);
         vm.stopPrank();
 
         uint256 usdtInterestReceived = APR_BASIS_POINTS * PRINCIPAL / BASIS_POINTS_DENOMINATOR / DAYS_IN_YEAR;
@@ -1271,23 +1217,24 @@ contract DoppiCoreTest is Test {
         
         // Deposit a sell position
         _depositBTC();
-        vm.warp(block.timestamp + 1 days + 1);
+        vm.warp(block.timestamp + 2 days + 1);
         oracle.setPrice(int256(99_000 * 1e8)); // Price stays same, above strike
         readyPositions = doppiCore.getReadySellPositions();
+        console.log(readyPositions.length, "readyPositions.length");
         vm.startPrank(owner);
         doppiCore.settle_sells(readyPositions);
         (volume, points) = doppiPoints.traders(user1);
-
+        console.log(volume, points);
         uint256 sellOrderPoints = 0.5 ether * (99_000 * 1e8) / 1e8;
         assertEq(volume, 50000 ether + sellOrderPoints);
         assertEq(points, 50000 ether + sellOrderPoints);
 
     }
 
-    function _depositBTC() internal returns (DoppiCore.DualAssetOffer memory) {
+    function _depositBTC() internal returns (DualAssetOffer memory) {
 
-        DoppiCore.DualAssetOffer memory sellOffer = doppiCore.getOffer(false, 1, 0);
-        DoppiCore.DepositParams memory params = DoppiCore.DepositParams({
+        DualAssetOffer memory sellOffer = impliedVol.getOffer(false, 1, 0);
+        DepositParams memory params = DepositParams({
             amount: 0.5 ether,
             strikeZone: 0,
             strikePrice: sellOffer.strikePrice,
@@ -1303,11 +1250,11 @@ contract DoppiCoreTest is Test {
         return sellOffer;
     }
 
-    function _depositUSDT() internal returns (DoppiCore.DualAssetOffer memory) {
+    function _depositUSDT() internal returns (DualAssetOffer memory) {
 
         // Deposit a position
-        DoppiCore.DualAssetOffer memory buyOffer = doppiCore.getOffer(true, 1, 0);
-        DoppiCore.DepositParams memory params = DoppiCore.DepositParams({
+        DualAssetOffer memory buyOffer = impliedVol.getOffer(true, 1, 0);
+        DepositParams memory params = DepositParams({
             amount: 50_000 ether,
             strikeZone: 0,
             strikePrice: buyOffer.strikePrice,

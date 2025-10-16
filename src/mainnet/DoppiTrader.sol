@@ -1,60 +1,25 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.26;
 
-import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
-import {Pausable} from "@openzeppelin/contracts/utils/Pausable.sol";
-import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import {DoppiCore} from "./DoppiCore.sol";
-import {IDoppiLiquidity} from "../Interface/IDoppiLiquidity.sol";
+import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import {IImpliedVol} from "../Interface/IImpliedVol.sol";
 import {IDoppiUpkeepManager} from "../Interface/IDoppiUpkeepManager.sol";
 import {IDoppiLiquidityRouter} from "../Interface/IDoppiLiquidityRouter.sol";
-import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
-import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {AutomationCompatibleInterface} from "../Interface/AutomationCompatibleInterface.sol";
-import {DoppiConfig} from "./DoppiConfig.sol";
+import {DALiquidityLib} from "../Library/DALiquidityLib.sol";
+import "./DoppiCoreTypes.sol";
+import "./DoppiTraderAdminView.sol";
 import "forge-std/console.sol";
 
-contract DoppiTrader is Ownable, Pausable, AutomationCompatibleInterface {
+contract DoppiTrader is DoppiTraderAdminView, AutomationCompatibleInterface {
     using SafeERC20 for IERC20;
-    using Math for uint256;
-
-    struct HedgeBulkTrade {
-        uint256 hedgeAmountInHedgeToken;
-        uint256 swappedHedgeAmount;
-        uint256 hedgePrice;
-        bool isNetBuy;
-    }
-    struct Trade {
-        uint256 payoutAmount;
-        uint256 origAmount;
-        uint256 origStrikePrice;
-    }
-    struct OrderConfig {
-        uint8 strikeZone;
-        uint24 weight;
-    }
-
-    struct UndoStat {
-        uint256 undo_assetB;
-        uint256 undo_assetA;
-    }
-
-    DoppiCore public immutable doppiCore;
-    IERC20 public immutable assetA;
-    IERC20 public immutable assetB;
-    IDoppiLiquidity public immutable doppiLP;
+    
     IDoppiUpkeepManager public immutable doppiUpkeepManager;
     IDoppiLiquidityRouter public immutable doppiRouter;
-    DoppiConfig public doppiConfig;
-    address public s_forwarderAddress;
-    address public validTrader;
-    uint32 public traderDefaultDay = 1;
+    IImpliedVol public immutable impliedVol;
     uint256 public minAssetAAmount;
     uint256 public minAssetBAmount;
     uint32 private nextBulkId = 1; 
-
-    Trade[] public buy_undo_list;
-    Trade[] public sell_undo_list;
     mapping(uint32 => HedgeBulkTrade) public hedgeBulkTrade; 
 
     OrderConfig[] public orderConfigs;
@@ -69,31 +34,32 @@ contract DoppiTrader is Ownable, Pausable, AutomationCompatibleInterface {
         address _trader,
         IERC20 _assetA,
         IERC20 _assetB,
-        IDoppiLiquidity _doppiLP,
-        IDoppiLiquidityRouter _doppiRouter,
-        DoppiCore _da,
+        address _doppiLP,
+        address _doppiRouter,
+        address _da,
         uint24[] memory _weights
     ) Ownable(msg.sender) {
         assetA = _assetA;
         assetB = _assetB;
-        doppiLP = _doppiLP;
-        doppiRouter = _doppiRouter;
-        doppiCore = _da;
+        doppiLP = IDoppiLiquidity(_doppiLP);
+        doppiRouter = IDoppiLiquidityRouter(_doppiRouter);
+        doppiCore = IDoppiCore(_da);
         validTrader = _trader;
-        doppiConfig = DoppiConfig(_doppiLP.getDoppiConfig());
+        doppiConfig = DoppiConfig(doppiLP.getDoppiConfig());
         _pause();
-        assetA.safeIncreaseAllowance(address(doppiCore), type(uint256).max);
-        assetB.safeIncreaseAllowance(address(doppiCore), type(uint256).max);
-        assetB.safeIncreaseAllowance(address(doppiRouter), type(uint256).max);
-        assetA.safeIncreaseAllowance(address(doppiRouter), type(uint256).max);
-        assetA.safeIncreaseAllowance(address(doppiLP), type(uint256).max);
-        assetB.safeIncreaseAllowance(address(doppiLP), type(uint256).max);
+        assetA.safeIncreaseAllowance(_da, type(uint256).max);
+        assetB.safeIncreaseAllowance(_da, type(uint256).max);
+        assetB.safeIncreaseAllowance(_doppiRouter, type(uint256).max);
+        assetA.safeIncreaseAllowance(_doppiRouter, type(uint256).max);
+        assetA.safeIncreaseAllowance(_doppiLP, type(uint256).max);
+        assetB.safeIncreaseAllowance(_doppiLP, type(uint256).max);
 
         // Initialize with default weights
         _initializeOrderConfigs(_weights);
         minAssetAAmount = doppiConfig.minimal_assetA();
         minAssetBAmount = doppiConfig.minimal_assetB();
         doppiUpkeepManager = IDoppiUpkeepManager(doppiConfig.doppiUpKeepManager());
+        impliedVol = IImpliedVol(doppiConfig.impliedVol());
     }
 
     function start(uint256 _amountA, uint256 _amountB) external onlyTrader whenPaused {
@@ -144,7 +110,7 @@ contract DoppiTrader is Ownable, Pausable, AutomationCompatibleInterface {
             strikeZones.length <= doppiConfig.MAX_ORDER() && weights.length <= doppiConfig.MAX_ORDER(), 
             "not more than max"
         );
-        uint24 sum = _sumArray(weights);
+        uint24 sum = DALiquidityLib.sumArray(weights);
         require(sum == 10000, "sum must equal 100%");
 
         delete orderConfigs;
@@ -193,65 +159,6 @@ contract DoppiTrader is Ownable, Pausable, AutomationCompatibleInterface {
             sell_undo_list.push(Trade(assetAAmount, _amount, _strikePrice));
             undoStat.undo_assetA += assetAAmount;
         }
-    }
-
-    function get_buy_undos() external view returns (Trade[] memory) {
-        if (buy_undo_list.length == 0) return new Trade[](0);
-        return buy_undo_list;
-    }
-
-    function get_sell_undos() external view returns (Trade[] memory) {
-        if (sell_undo_list.length == 0) return new Trade[](0);
-        return sell_undo_list;
-    }
-
-    function get_buy_unrealized_PNL() external view returns (int256) {
-        int256 pnl = 0;
-        uint256 price = doppiLP.getPrice();
-        uint8 priceDecimals = doppiLP.getPriceDecimals();
-        uint256 length = buy_undo_list.length;
-        
-        for (uint256 i = 0; i < length; ) {
-            uint256 currentValue = buy_undo_list[i].payoutAmount * price / (10 ** priceDecimals);
-            pnl += int256(currentValue) - int256(buy_undo_list[i].origAmount);
-            unchecked { ++i; }
-        }
-        return pnl;
-    }
-
-    function get_sell_unrealized_PNL() external view returns (int256) {
-        int256 pnl = 0;
-        uint256 price = doppiLP.getPrice();
-        uint8 priceDecimals = doppiLP.getPriceDecimals();
-        uint256 length = sell_undo_list.length;
-
-        for (uint256 i = 0; i < length; ) {
-            uint256 currentValue = sell_undo_list[i].payoutAmount * (10 ** priceDecimals) / price;
-            pnl += int256(currentValue) - int256(sell_undo_list[i].origAmount);
-            unchecked { ++i; }
-        }
-
-        return pnl;
-    }
-
-    function setPause() external onlyTrader {
-        _pause();
-    }
-
-    function setUnPause() external onlyTrader {
-        _unpause();
-    }
-
-    function setDefaultDay(uint32 _day) external onlyTrader {
-        traderDefaultDay = _day;
-    }
-
-    function setForwarderAddress(address forwarderAddress) external onlyTrader {
-        s_forwarderAddress = forwarderAddress;
-    }
-
-    function setDoppiConfig(DoppiConfig _doppiConfig) external onlyOwner {
-        doppiConfig = _doppiConfig;
     }
 
     function checkUpkeep(bytes calldata) external view override returns (bool upkeepNeeded, bytes memory performData) {
@@ -340,22 +247,25 @@ contract DoppiTrader is Ownable, Pausable, AutomationCompatibleInterface {
     }
 
     function _placeBulk() internal {
-        ( 
-            DoppiCore.DepositParams[] memory buyDeposits,
-            DoppiCore.DepositParams[] memory sellDeposits,
-            DoppiCore.DualAssetOffer[] memory buyOffers,
-            DoppiCore.DualAssetOffer[] memory sellOffers,
+        (
+            DepositParams[] memory buyDeposits,
+            DualAssetOffer[] memory buyOffers,
             uint256 amountInHedgeAssetB,
-            uint256 hedgeAmountA,
+            uint256 hedgeAmountA
+        ) = _prepareOrders(true);
+        
+        (
+            DepositParams[] memory sellDeposits,
+            DualAssetOffer[] memory sellOffers,
             uint256 amountInHedgeAssetA,
             uint256 hedgeAmountB
-        ) = _prepareBothOrders();
+        ) = _prepareOrders(false);
         
         _placeOrders(true, buyDeposits, buyOffers);
         _placeOrders(false, sellDeposits, sellOffers);
         
         (bool isNetBuy, uint256 netAmount)  
-            = _netoutBuySell(amountInHedgeAssetB, hedgeAmountA, amountInHedgeAssetA, hedgeAmountB);
+            = DALiquidityLib.netoutBuySell(amountInHedgeAssetB, hedgeAmountA, amountInHedgeAssetA, hedgeAmountB);
 
         if ((isNetBuy ? assetA : assetB).balanceOf(address(doppiLP)) < netAmount) return;
         
@@ -413,79 +323,10 @@ contract DoppiTrader is Ownable, Pausable, AutomationCompatibleInterface {
         amountInHedgeAsset = isBuy ? hedgeAmount * (10 ** priceDecimals) / _price : hedgeAmount * _price / (10 ** priceDecimals);
     }
 
-    function _prepareBothOrders() internal view returns (
-        DoppiCore.DepositParams[] memory buyDeposits,
-        DoppiCore.DepositParams[] memory sellDeposits,
-        DoppiCore.DualAssetOffer[] memory buyOffers,
-        DoppiCore.DualAssetOffer[] memory sellOffers,
-        uint256 amountInHedgeAssetB,
-        uint256 hedgeAmountA,
-        uint256 amountInHedgeAssetA,
-        uint256 hedgeAmountB
-    ) {
-        uint256 length = orderConfigs.length;
-        
-        if (length == 0) {
-            return (buyDeposits, sellDeposits, buyOffers, sellOffers, 0, 0, 0, 0);
-        }
-        
-        uint256 availableAssetAamount = _availableBalance(true);
-        uint256 availableAssetBamount = _availableBalance(false);
-        
-        // Cache the boolean conditions
-        bool hasAssetA = availableAssetAamount > 0;
-        bool hasAssetB = availableAssetBamount > 0;
-        
-        // Only allocate arrays if needed
-        if (hasAssetA) {
-            buyDeposits = new DoppiCore.DepositParams[](length);
-            buyOffers = new DoppiCore.DualAssetOffer[](length);
-        }
-        
-        if (hasAssetB) {
-            sellDeposits = new DoppiCore.DepositParams[](length);
-            sellOffers = new DoppiCore.DualAssetOffer[](length);
-        }
-        
-        OrderConfig[] memory cachedOrderConfigs = orderConfigs;
-        
-        for (uint256 i = 0; i < length; ) {
-            if (hasAssetA) {  // ← Uses cached boolean instead of repeated comparison
-                (DoppiCore.DepositParams memory buyDeposit, DoppiCore.DualAssetOffer memory buyoffer) = 
-                    _prepareOrder(true, availableAssetAamount, cachedOrderConfigs[i]);
-                
-                buyDeposits[i] = buyDeposit;
-                buyOffers[i] = buyoffer;
-
-                (uint256 amtInHedgeAssetB, uint256 hAmountA) = 
-                    _hedgeAmount(buyDeposit.amount, buyoffer.delta, buyoffer.price, true);
-                
-                amountInHedgeAssetB += amtInHedgeAssetB;
-                hedgeAmountA += hAmountA;
-            }    
-
-            if (hasAssetB) { 
-                (DoppiCore.DepositParams memory sellDeposit, DoppiCore.DualAssetOffer memory selloffer) = 
-                    _prepareOrder(false, availableAssetBamount, cachedOrderConfigs[i]);
-                
-                sellDeposits[i] = sellDeposit;
-                sellOffers[i] = selloffer;
-                
-                (uint256 amtInHedgeAssetA, uint256 hAmountB) = 
-                    _hedgeAmount(sellDeposit.amount, selloffer.delta, selloffer.price, false);
-                
-                amountInHedgeAssetA += amtInHedgeAssetA;
-                hedgeAmountB += hAmountB;
-            }
-            
-            unchecked { ++i; }
-        }
-    }
-
     function _prepareOrders(bool isBuy) internal view returns 
         (
-            DoppiCore.DepositParams[] memory deposits,
-            DoppiCore.DualAssetOffer[] memory offers,
+            DepositParams[] memory deposits,
+            DualAssetOffer[] memory offers,
             uint256 amountInHedgeAssetB,
             uint256 hedgeAmountA
         ){
@@ -496,11 +337,11 @@ contract DoppiTrader is Ownable, Pausable, AutomationCompatibleInterface {
         uint256 availableAsset = _availableBalance(isBuy);
         if (availableAsset == 0) return (deposits, offers, 0, 0);
         
-        deposits = new DoppiCore.DepositParams[](length);
-        offers = new DoppiCore.DualAssetOffer[](length);
+        deposits = new DepositParams[](length);
+        offers = new DualAssetOffer[](length);
         for (uint256 i = 0; i < length; ) {
-            (DoppiCore.DepositParams memory deposit,
-                DoppiCore.DualAssetOffer memory offer) = _prepareOrder(isBuy, availableAsset, orderConfigs[i]);
+            (DepositParams memory deposit,
+                DualAssetOffer memory offer) = _prepareOrder(isBuy, availableAsset, orderConfigs[i]);
             deposits[i] = deposit;
             offers[i] = offer;
 
@@ -515,14 +356,14 @@ contract DoppiTrader is Ownable, Pausable, AutomationCompatibleInterface {
     }
 
     function _prepareOrder(bool isBuy, uint256 totalamount, OrderConfig memory _orderConfig) internal view returns (
-            DoppiCore.DepositParams memory deposit,
-            DoppiCore.DualAssetOffer memory offer )
+            DepositParams memory deposit,
+            DualAssetOffer memory offer )
     {
         uint256 totalWeight = 10000;
-        offer = doppiCore.getOffer(isBuy, traderDefaultDay, _orderConfig.strikeZone);
+        offer = impliedVol.getOffer(isBuy, traderDefaultDay, _orderConfig.strikeZone);
 
         uint256 depositAmount = (totalamount * _orderConfig.weight) / totalWeight;
-        deposit = DoppiCore.DepositParams(
+        deposit = DepositParams(
             depositAmount, 
             _orderConfig.strikeZone,
             offer.strikePrice,
@@ -534,8 +375,8 @@ contract DoppiTrader is Ownable, Pausable, AutomationCompatibleInterface {
 
     function _placeOrders(
         bool isBuy,
-        DoppiCore.DepositParams[] memory deposits, 
-        DoppiCore.DualAssetOffer[] memory offers) internal returns (bool) {
+        DepositParams[] memory deposits, 
+        DualAssetOffer[] memory offers) internal returns (bool) {
         
         uint256 availableAmount = _availableBalance(isBuy);
 
@@ -547,8 +388,8 @@ contract DoppiTrader is Ownable, Pausable, AutomationCompatibleInterface {
 
     function _place_buys() internal {
         ( 
-            DoppiCore.DepositParams[] memory buyDeposits,
-            DoppiCore.DualAssetOffer[] memory buyOffers,
+            DepositParams[] memory buyDeposits,
+            DualAssetOffer[] memory buyOffers,
             uint256 amountInHedgeAsset,
         ) = _prepareOrders(true);
 
@@ -564,8 +405,8 @@ contract DoppiTrader is Ownable, Pausable, AutomationCompatibleInterface {
 
     function _place_sells() internal {
         ( 
-            DoppiCore.DepositParams[] memory sellDeposits,
-            DoppiCore.DualAssetOffer[] memory sellOffers,
+            DepositParams[] memory sellDeposits,
+            DualAssetOffer[] memory sellOffers,
             uint256 amountInHedgeAsset,
         ) = _prepareOrders(false);
 
@@ -577,18 +418,6 @@ contract DoppiTrader is Ownable, Pausable, AutomationCompatibleInterface {
         _openHedge(amountInHedgeAsset, price, true);       
     }
     
-    function _netoutBuySell(uint256 _totalSellB, uint256 _totalSellOut, uint256 _totalBuyA, uint256 _totalBuyAOut) 
-        internal pure returns (bool isNetBuy, uint256 netSellOrBuy) 
-    {
-        if(_totalSellB > _totalBuyAOut){
-            isNetBuy = false;
-            netSellOrBuy = _totalSellB - _totalBuyAOut;
-        } else {
-            isNetBuy = true;
-            netSellOrBuy = _totalBuyA - _totalSellOut;
-        }
-    }
-
     function _checkUndoTrade(bool _isBuy, uint256 _price)
         internal
         view
@@ -652,15 +481,6 @@ contract DoppiTrader is Ownable, Pausable, AutomationCompatibleInterface {
         }
     }
 
-    function _sumArray(uint24[] calldata arr) private pure returns(uint24) {
-        uint24 i;
-        uint24 sum = 0;
-            
-        for(i = 0; i < arr.length; i++)
-            sum = sum + arr[i];
-        return sum;
-    }
-
     function _availableBalance(bool _isBuy) private view returns (uint256 availableAmount) {
         
         availableAmount = _isBuy ? assetA.balanceOf(address(this)) : assetB.balanceOf(address(this));
@@ -679,8 +499,4 @@ contract DoppiTrader is Ownable, Pausable, AutomationCompatibleInterface {
         _;
     }
 
-    modifier onlyTrader() {
-        require(msg.sender == validTrader, "invalid trader");
-        _;
-    }
 }

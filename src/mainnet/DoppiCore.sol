@@ -1,11 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.26;
-
-import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
-import {Pausable} from "@openzeppelin/contracts/utils/Pausable.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
-import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {AutomationCompatibleInterface} from "../Interface/AutomationCompatibleInterface.sol";
 import {IDoppiLiquidity} from "../Interface/IDoppiLiquidity.sol";
 import {IDoppiTrader} from "../Interface/IDoppiTrader.sol";
@@ -13,84 +9,44 @@ import {DoppiTraderFactory} from "./DoppiTraderFactory.sol";
 import {DoppiConfig} from "./DoppiConfig.sol";
 import {DoppiPoints} from "./DoppiPoints.sol";
 import {IImpliedVol} from "../Interface/IImpliedVol.sol";
-import "forge-std/console.sol";
+import "./DoppiCoreTypes.sol";
+import "./DoppiCoreAdmin.sol";
+import "./DoppiCoreView.sol";
 
-contract DoppiCore is Ownable, Pausable, AutomationCompatibleInterface {
+// import "forge-std/console.sol";
+
+contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, AutomationCompatibleInterface {
     using SafeERC20 for IERC20;
-    using Math for uint256;
-
-    struct PendingSettlement {
-        uint256[] indexes;
-        uint256 settlementPrice;
-    }
-
-    struct DualAssetPosition {
-        uint256 amount;
-        uint256 price;
-        uint256 strikePrice;
-        uint32 expiryTimestamp; // Changed to uint32 to save storage
-        uint32 apr;
-        address owner;
-        uint256 swappedAmount;
-        bool isTraded;
-        uint256 interest;
-        uint256 hedgeAmountInHedgeToken;
-        uint256 swappedHedgeAmount;
-        uint256 hedgePrice;
-    }
-
-    struct DualAssetOffer {
-        uint256 price;
-        uint256 strikePrice;
-        uint32 apr;
-        uint256 delta;
-        uint32 validUntilTimestamp; // Changed to uint32
-    }
-
-    struct KeyPosition {
-        address owner;
-        uint32 positionId; // Changed to uint32
-    }
-
-    struct DepositParams {
-        uint256 amount;
-        uint8 strikeZone;
-        uint256 strikePrice;
-        uint32 numDays;
-        uint32 apr;
-        uint32 validityTime; // Changed to uint32
-    }
 
     IERC20 public immutable assetA; // Made immutable
     IERC20 public immutable assetB; // Made immutable
     IImpliedVol public immutable impliedVol; // Made immutable
     IDoppiLiquidity public immutable doppiLP; // Made immutable
-    DoppiTraderFactory public doppiTraderFactory;
     DoppiConfig public immutable doppiConfig;
     DoppiPoints public immutable doppiPoints;
     
-    mapping(address => bool) public admins;
     uint256 private constant SECONDS_PER_YEAR = 31536000;
     uint256 private constant SECONDS_PER_DAY = 86400;
     uint256 private constant BASIS_POINTS = 10000;
     
-    // Packed storage for positions
-    mapping(address => mapping(uint32 => DualAssetPosition)) public positions_buy; // Changed to uint32
-    mapping(address => mapping(uint32 => DualAssetPosition)) public positions_sell; // Changed to uint32
     PendingSettlement public pendingSettlementBuy;
     PendingSettlement public pendingSettlementSell;
     uint256 public currentUpkeepIndex;
-    uint256 public UPKEEPS_PER_CHECK = 20; // Process 20 upkeeps per check
     uint256 public priceDecimal;
-
-    KeyPosition[] public buyPositionKeys;
-    KeyPosition[] public sellPositionKeys;
     uint32 private nextPositionId = 1; // Changed to uint32
-    address public s_forwarderAddress;
     
     event Deposited(address indexed trader, uint256 positionId, address asset, uint256 amount, uint256 interest, uint256 strikePrice, uint32 apr, uint32 numDays);
     event Settled(address indexed trader, uint256 positionId, bool striked, bool isProfit, uint256 profitLoss, uint256 payout, uint256 interest, address profitToken, address payoutToken, address interestToken);
     event HedgeSettled(address indexed trader, uint256 positionId, bool isProfit, uint256 profitLoss, address profitToken);
+
+    error InvalidStrikePrice();
+    error InvalidAPR();
+    error APRNotAvaiable();        
+    error InvalidAmount();
+    error InvalidOfferLength();
+    error PriceMismatch();
+    error NotExpired();
+    error NoPosition();
 
     constructor(address _assetA, address _assetB, IDoppiLiquidity _doppiLP, IImpliedVol _impliedVol)
         Ownable(msg.sender)
@@ -109,20 +65,19 @@ contract DoppiCore is Ownable, Pausable, AutomationCompatibleInterface {
 
     // Single deposit functionality
     function deposit_buy(DepositParams calldata params) external whenNotPaused {
-        DualAssetOffer memory buyOffer = getOffer(true, params.numDays, params.strikeZone);
-        require(buyOffer.strikePrice == params.strikePrice, "incorrect strikePrice");
-        require(buyOffer.apr == params.apr, "incorrect apr");
-        require(buyOffer.apr > 0, "apr not available");
-        require(params.validityTime >= block.timestamp, "offer expired");
+        DualAssetOffer memory buyOffer = impliedVol.getOffer(true, params.numDays, params.strikeZone);
+        if(buyOffer.strikePrice != params.strikePrice) revert InvalidStrikePrice();
+        if(buyOffer.apr != params.apr) revert InvalidAPR();
+        if(buyOffer.apr == 0) revert APRNotAvaiable();
         _depositBuy(params, buyOffer, true);
     }
 
     function deposit_sell(DepositParams calldata params) external whenNotPaused {
-        DualAssetOffer memory sellOffer = getOffer(false, params.numDays, params.strikeZone);
-        require(sellOffer.strikePrice == params.strikePrice, "incorrect strikePrice");
-        require(sellOffer.apr == params.apr, "incorrect apr");
-        require(sellOffer.apr > 0, "apr not available");
-        require(params.validityTime >= block.timestamp, "offer expired");
+        
+        DualAssetOffer memory sellOffer = impliedVol.getOffer(false, params.numDays, params.strikeZone);
+        if(sellOffer.strikePrice != params.strikePrice) revert InvalidStrikePrice();
+        if(sellOffer.apr != params.apr) revert InvalidAPR();
+        if(sellOffer.apr == 0) revert APRNotAvaiable();
         _depositSell(params, sellOffer, true);
     }
 
@@ -132,12 +87,13 @@ contract DoppiCore is Ownable, Pausable, AutomationCompatibleInterface {
 
     function bulkDeposit(bool isBuy, DepositParams[] calldata params, DualAssetOffer[] memory _offers, bool _hedge) external onlyTraderBot whenNotPaused {
         uint256 length = params.length;
-        require(length == _offers.length, "Array length mismatch");
+        if(length != _offers.length) revert InvalidOfferLength();
         
         for (uint256 i = 0; i < length; ) {
             DepositParams calldata param = params[i];
-            require(param.amount > 0, "Zero amount");
-            require(param.apr > 0, "Zero APR");
+            if(param.amount == 0) revert InvalidAmount();
+            if(param.apr == 0) revert InvalidAPR();
+
             isBuy ? _depositBuy(param, _offers[i], _hedge) : _depositSell(param, _offers[i], _hedge);
             unchecked { ++i; }
         }
@@ -161,7 +117,7 @@ contract DoppiCore is Ownable, Pausable, AutomationCompatibleInterface {
         returns (uint256 amountOut, uint256 profit)
     {
         uint256 price = doppiLP.getPrice();
-        require(price == _price, "price mismatch");
+        if(price != _price) revert PriceMismatch();
         return _oppTrade(_owner, _amountPay, _price, _keyIndex, _isBuy, false);
     }
 
@@ -171,7 +127,7 @@ contract DoppiCore is Ownable, Pausable, AutomationCompatibleInterface {
         returns (uint256 amountOut, uint256 profit)
     {
         uint256 price = doppiLP.getPrice();
-        require(price == _price, "price mismatch");
+        if(price != _price) revert PriceMismatch();
         return _oppTrade(_owner, _amountPay, _price, _keyIndex, _isBuy, true);
     }
 
@@ -213,274 +169,6 @@ contract DoppiCore is Ownable, Pausable, AutomationCompatibleInterface {
                 abi.decode(performData, (bool, uint256[], uint256[]));
             _processNewSettlements(buyIndexes, sellIndexes);
         }
-    }
-
-    // return buy or sell single offer
-    function getOffer(bool _isBuy, uint32 _numDays, uint8 _strikeZone)
-        public
-        view
-        returns (DualAssetOffer memory offer)
-    {
-        uint256 price = doppiLP.getPrice();
-        uint256 strikePrice = _getStrikePrice(price, _strikeZone + 1, _isBuy);
-        (uint32 apr, uint256 delta) = _isBuy
-            ? impliedVol.getBuyAPR(SECONDS_PER_DAY * _numDays, price, strikePrice)
-            : impliedVol.getSellAPR(SECONDS_PER_DAY * _numDays, price, strikePrice);
-        offer = DualAssetOffer(price, strikePrice, apr, delta, uint32(block.timestamp + 60));
-    }
-
-    // Offer generation
-    function getBuyOffers(uint32 _numDays) public view returns (DualAssetOffer[] memory buyoffers) {
-        buyoffers = new DualAssetOffer[](5);
-
-        for (uint8 i = 0; i < 5; ) {
-            buyoffers[i] = getOffer(true, _numDays, i);
-            unchecked { ++i; }
-        }
-        return buyoffers;
-    }
-
-    function getSellOffers(uint32 _numDays) public view returns (DualAssetOffer[] memory selloffers) {
-        selloffers = new DualAssetOffer[](5);
-        for (uint8 i = 0; i < 5; ) {
-            selloffers[i] = getOffer(false, _numDays, i);
-            unchecked { ++i; }
-        }
-        return selloffers;
-    }
-
-    function getAllOffers(uint32 _numDays)
-        public
-        view
-        returns (DualAssetOffer[] memory buyoffers, DualAssetOffer[] memory selloffers)
-    {
-        buyoffers = new DualAssetOffer[](5);
-        selloffers = new DualAssetOffer[](5);
-        for (uint8 i = 0; i < 5; ) {
-            buyoffers[i] = getOffer(true, _numDays, i);
-            selloffers[i] = getOffer(false, _numDays, i);
-            unchecked { ++i; }
-        }
-    }
-
-    function get_buy_positions_id(address _owner) external view returns (KeyPosition[] memory) {
-        uint256 count = 0;
-        uint256 length = buyPositionKeys.length;
-        for (uint256 i = 0; i < length; ) {
-            if (buyPositionKeys[i].owner == _owner) {
-                count++;
-            }
-            unchecked { ++i; }
-        }
-        
-        KeyPosition[] memory result = new KeyPosition[](count);
-        count = 0;
-        for (uint256 i = 0; i < length; ) {
-            if (buyPositionKeys[i].owner == _owner) {
-                result[count] = buyPositionKeys[i];
-                count++;
-            }
-            unchecked { ++i; }
-        }
-        return result;
-    }
-
-    function get_sell_positions_id(address _owner) external view returns (KeyPosition[] memory) {
-        uint256 count = 0;
-        uint256 length = sellPositionKeys.length;
-        for (uint256 i = 0; i < length; ) {
-            if (sellPositionKeys[i].owner == _owner) {
-                count++;
-            }
-            unchecked { ++i; }
-        }
-        
-        KeyPosition[] memory result = new KeyPosition[](count);
-        count = 0;
-        for (uint256 i = 0; i < length; ) {
-            if (sellPositionKeys[i].owner == _owner) {
-                result[count] = sellPositionKeys[i];
-                count++;
-            }
-            unchecked { ++i; }
-        }
-        return result;
-    }
-
-    // View functions for positions
-    function get_positions_buy(address _owner) external view returns (DualAssetPosition[] memory) {
-        uint256 count = 0;
-        uint256 length = buyPositionKeys.length;
-        for (uint256 i = 0; i < length; ) {
-            if (buyPositionKeys[i].owner == _owner) {
-                count++;
-            }
-            unchecked { ++i; }
-        }
-        
-        DualAssetPosition[] memory result = new DualAssetPosition[](count);
-        count = 0;
-        for (uint256 i = 0; i < length; ) {
-            if (buyPositionKeys[i].owner == _owner) {
-                result[count] = positions_buy[buyPositionKeys[i].owner][buyPositionKeys[i].positionId];
-                count++;
-            }
-            unchecked { ++i; }
-        }
-        return result;
-    }
-
-    function get_positions_sell(address _owner) external view returns (DualAssetPosition[] memory) {
-        uint256 count = 0;
-        uint256 length = sellPositionKeys.length;
-        for (uint256 i = 0; i < length; ) {
-            if (sellPositionKeys[i].owner == _owner) {
-                count++;
-            }
-            unchecked { ++i; }
-        }
-        
-        DualAssetPosition[] memory result = new DualAssetPosition[](count);
-        count = 0;
-        for (uint256 i = 0; i < length; ) {
-            if (sellPositionKeys[i].owner == _owner) {
-                result[count] = positions_sell[sellPositionKeys[i].owner][sellPositionKeys[i].positionId];
-                count++;
-            }
-            unchecked { ++i; }
-        }
-        return result;
-    }
-
-    function get_positions_buy() external view returns (DualAssetPosition[] memory) {
-        uint256 length = buyPositionKeys.length;
-        DualAssetPosition[] memory result = new DualAssetPosition[](length);
-        for (uint256 i = 0; i < length; ) {
-            result[i] = positions_buy[buyPositionKeys[i].owner][buyPositionKeys[i].positionId];
-            unchecked { ++i; }
-        }
-        return result;
-    }
-
-    function get_positions_sell() external view returns (DualAssetPosition[] memory) {
-        uint256 length = sellPositionKeys.length;
-        DualAssetPosition[] memory result = new DualAssetPosition[](length);
-        for (uint256 i = 0; i < length; ) {
-            result[i] = positions_sell[sellPositionKeys[i].owner][sellPositionKeys[i].positionId];
-            unchecked { ++i; }
-        }
-        return result;
-    }
-
-    function get_buy(address _owner, uint32 _positionId) external view returns (DualAssetPosition memory) {
-        return positions_buy[_owner][_positionId];
-    }
-
-    function get_sell(address _owner, uint32 _positionId) external view returns (DualAssetPosition memory) {
-        return positions_sell[_owner][_positionId];
-    }
-
-    function getBuyPositionCount(address _owner) external view returns (uint256) {
-        uint256 count = 0;
-        uint256 length = buyPositionKeys.length;
-        for (uint256 i = 0; i < length; ) {
-            if (buyPositionKeys[i].owner == _owner) {
-                count++;
-            }
-            unchecked { ++i; }
-        }
-        return count;
-    }
-
-    function getBuyPositionCount() external view returns (uint256) {
-        return buyPositionKeys.length;
-    }
-
-    function getSellPositionCount(address _owner) external view returns (uint256) {
-        uint256 count = 0;
-        uint256 length = sellPositionKeys.length;
-        for (uint256 i = 0; i < length; ) {
-            if (sellPositionKeys[i].owner == _owner) {
-                count++;
-            }
-            unchecked { ++i; }
-        }
-        return count;
-    }
-
-    function getSellPositionCount() external view returns (uint256) {
-        return sellPositionKeys.length;
-    }
-
-    function getReadyBuyPositions() public view returns (uint256[] memory) {
-        uint256 count = 0;
-        uint256 length = buyPositionKeys.length;
-        for (uint256 i = 0; i < length; ) {
-            if (positions_buy[buyPositionKeys[i].owner][buyPositionKeys[i].positionId].expiryTimestamp <= block.timestamp) {
-                count++;
-            }
-            unchecked { ++i; }
-        }
-        
-        uint256[] memory readyIndexes = new uint256[](count);
-        uint256 idx = 0;
-        for (uint256 i = length; i > 0; ) {
-            uint256 index = i - 1;
-            if (positions_buy[buyPositionKeys[index].owner][buyPositionKeys[index].positionId].expiryTimestamp <= block.timestamp) {
-                readyIndexes[idx] = index;
-                idx++;
-            }
-            unchecked { --i; }
-        }
-        return readyIndexes;
-    }
-
-    function getReadySellPositions() public view returns (uint256[] memory) {
-        uint256 count = 0;
-        uint256 length = sellPositionKeys.length;
-        for (uint256 i = 0; i < length; ) {
-            if (positions_sell[sellPositionKeys[i].owner][sellPositionKeys[i].positionId].expiryTimestamp <= block.timestamp) {
-                count++;
-            }
-            unchecked { ++i; }
-        }
-        
-        uint256[] memory readyIndexes = new uint256[](count);
-        uint256 idx = 0;
-        for (uint256 i = length; i > 0; ) {
-            uint256 index = i - 1;
-            if (positions_sell[sellPositionKeys[index].owner][sellPositionKeys[index].positionId].expiryTimestamp <= block.timestamp) {
-                readyIndexes[idx] = index;
-                idx++;
-            }
-            unchecked { --i; }
-        }
-        return readyIndexes;
-    }
-
-    // Configuration functions
-    function setUpkeeps_per_check(uint24 _percheck) external onlyOwner {
-        UPKEEPS_PER_CHECK = _percheck;
-    }
-
-    function setDoppiTraderFactory(DoppiTraderFactory _traderFactory) external onlyOwner {
-        doppiTraderFactory = _traderFactory;
-    }
-
-    function setAdmin(address _admin, bool _status) external onlyOwner {
-        admins[_admin] = _status;
-    }
-
-    function setForwarderAddress(address forwarderAddress) external onlyOwner {
-        s_forwarderAddress = forwarderAddress;
-    }
-
-    function setPause() external onlyOwner {
-        _pause();
-    }
-
-    function setUnPause() external onlyOwner {
-        _unpause();
     }
 
     // Internal functions
@@ -679,7 +367,7 @@ contract DoppiCore is Ownable, Pausable, AutomationCompatibleInterface {
             ? positions_buy[position.owner][position.positionId]
             : positions_sell[position.owner][position.positionId];
 
-        require(p.expiryTimestamp <= block.timestamp, "not ready for settlement");
+        if(p.expiryTimestamp > block.timestamp) revert NotExpired();
 
         // Track results for event emission (computed in each branch)
         address profitToken;
@@ -746,8 +434,18 @@ contract DoppiCore is Ownable, Pausable, AutomationCompatibleInterface {
 
         // record for points
         if(!doppiPoints.paused()){
+            
+            address owner;
             uint256 tradeVolume = isBuy ? p.amount : (p.amount * price) / priceDecimal; 
-            doppiPoints.recordTrade(position.owner, tradeVolume);
+            if (
+                address(doppiTraderFactory) != address(0) &&
+                doppiTraderFactory.isTraderBot(position.owner)
+            ) {
+                owner = IDoppiTrader(position.owner).get_validTrader();
+            }else{
+                owner = p.owner;
+            }
+            doppiPoints.recordTrade(owner, tradeVolume);
         }
             
         emit Settled(
@@ -783,12 +481,6 @@ contract DoppiCore is Ownable, Pausable, AutomationCompatibleInterface {
             buyPositionKeys[index] = buyPositionKeys[lastIndex];
         }
         buyPositionKeys.pop();
-    }
-
-    function _getStrikePrice(uint256 _price, uint8 _strikeZone, bool _isBuy) internal view returns (uint256) {
-        uint256 priceGapWithDecimals = doppiConfig.PRICE_GAP_PEROFFER() * priceDecimal;
-        _price = (_price / priceGapWithDecimals) * priceGapWithDecimals;
-        return _isBuy ? _price - (priceGapWithDecimals * _strikeZone) : _price + (priceGapWithDecimals * _strikeZone);
     }
 
     // Settlement helper functions
@@ -941,7 +633,7 @@ contract DoppiCore is Ownable, Pausable, AutomationCompatibleInterface {
             p = _isUnwind
                 ? positions_sell[_owner][sellPositionKeys[_keyIndex].positionId]
                 : positions_buy[_owner][buyPositionKeys[_keyIndex].positionId];
-            require(p.amount > 0, "position not found");
+            if(p.amount == 0) revert NoPosition();
 
             amountOut = doppiLP.swap(_amountPay, _price, _isBuy);
 
@@ -958,7 +650,7 @@ contract DoppiCore is Ownable, Pausable, AutomationCompatibleInterface {
             p = _isUnwind
                 ? positions_buy[_owner][buyPositionKeys[_keyIndex].positionId]
                 : positions_sell[_owner][sellPositionKeys[_keyIndex].positionId];
-            require(p.amount > 0, "position not found");
+            if(p.amount == 0) revert NoPosition();
 
             amountOut = doppiLP.swap(_amountPay, _price, _isBuy);
             if (_isUnwind) {

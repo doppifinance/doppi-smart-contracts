@@ -90,4 +90,25 @@ library DALiquidityLib {
         }
         return (false, 0);
     }
+
+    function sumArray(uint24[] calldata arr) public pure returns(uint24) {
+        uint24 i;
+        uint24 sum = 0;
+            
+        for(i = 0; i < arr.length; i++)
+            sum = sum + arr[i];
+        return sum;
+    }
+
+    function netoutBuySell(uint256 _totalSellB, uint256 _totalSellOut, uint256 _totalBuyA, uint256 _totalBuyAOut) 
+        public pure returns (bool isNetBuy, uint256 netSellOrBuy) 
+    {
+        if(_totalSellB > _totalBuyAOut){
+            isNetBuy = false;
+            netSellOrBuy = _totalSellB - _totalBuyAOut;
+        } else {
+            isNetBuy = true;
+            netSellOrBuy = _totalBuyA - _totalSellOut;
+        }
+    }
 }

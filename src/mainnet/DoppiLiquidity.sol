@@ -102,8 +102,9 @@ contract DoppiLiquidity is ERC20, Ownable, Pausable, IDoppiLiquidity, Automation
         uint256 price = DALiquidityLib.getPrice(config.chainLinkFeed);
         uint256 assetBInAValue = assetB.balanceOf(address(this)) * price / config.decimals;
         uint256 assetAvalue = assetA.balanceOf(address(this));
-        ratioA = assetAvalue * 1e18 / (assetBInAValue + assetAvalue);
-        ratioB = 1e18 - ratioA;
+        uint256 total = assetBInAValue + assetAvalue;
+        ratioA = total > 0 ? assetAvalue * 1e18 / total : 0;
+        ratioB = total > 0 ? 1e18 - ratioA : 0;
     }
 
     function totalAssetsInAssetA() public view override returns (uint256) {

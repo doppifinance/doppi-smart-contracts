@@ -11,6 +11,7 @@ interface IDoppiTrader {
         uint256 originalStrikePrice;
     }
 
+    function get_validTrader() external view returns (address);
     function pauseTrades(bool pause) external;
     function createUnwindPosition(uint256 _amount, uint256 _strikePrice, bool _isBuyUndo) external;
     function get_buy_undos() external view returns (Trade[] memory);

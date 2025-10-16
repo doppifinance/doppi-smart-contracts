@@ -3,6 +3,7 @@ pragma solidity ^0.8.26;
 
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {Pausable} from "@openzeppelin/contracts/utils/Pausable.sol";
+import "forge-std/console.sol";
 
 interface IDoppiToken {
     function mint(address to, uint256 amount) external;
@@ -10,7 +11,7 @@ interface IDoppiToken {
 }
 
 interface IDoppiPoints {
-    function getPoints(address user) external view returns (uint256);
+    function getPoints(address user) external view returns (uint256, uint256);
     function resetPoint(address user) external;
 }
 
@@ -58,7 +59,7 @@ contract DoppiClaim is Ownable, Pausable {
     function claim() external whenNotPaused {
         address user = msg.sender;
 
-        uint256 points = doppiPoints.getPoints(user);
+        (uint256 points, ) = doppiPoints.getPoints(user);
         (uint256 l1, uint256 l2, uint256 l3) = doppiReferral.getTotalReferralRewards(user);
 
         uint256 totalPoints = points + l1 + l2 + l3;

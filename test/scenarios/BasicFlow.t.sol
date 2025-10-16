@@ -17,6 +17,7 @@ import {MockDoppiUpKeepManager} from "../../src/test/MockDoppiUpkeepManager.sol"
 import {DoppiOpportunity} from "../../src/mainnet/DoppiOpportunity.sol";
 import {Swapper} from "../../src/test/Swapper.sol";
 import {DoppiConfig} from "../../src/mainnet/DoppiConfig.sol";
+import "../../src/mainnet/DoppiCoreTypes.sol";
 
 
 contract BasicFlowTest is Test {
@@ -72,7 +73,7 @@ contract BasicFlowTest is Test {
         doppiCore = new DoppiCore(address(usdt), address(btc), doppiLP, impliedVol);
         opportunityBot = new DoppiOpportunity(address(doppiCore), address(doppiLP));
         doppiRouter = new DoppiLiquidityRouter(IERC20(usdt), IERC20(btc), doppiLP);
-        doppiFactory = new DoppiTraderFactory(IERC20(usdt), IERC20(btc), doppiCore, doppiLP, doppiRouter);
+        doppiFactory = new DoppiTraderFactory(IERC20(usdt), IERC20(btc), address(doppiCore), address(doppiLP), address(doppiRouter));
 
         doppiPoints.setDoppiCore(address(doppiCore));
         opportunityBot.setForwarderAddress(mockForwarder);
@@ -122,14 +123,14 @@ contract BasicFlowTest is Test {
 
         // ***** START perform opportunityBot.checkUpkeep
         _doppiOpportunityCheckUpkeep_performUpkeep(126_500 * 1e8); // set higher price for sell opp
-        DoppiCore.KeyPosition[] memory keyPositions = doppiCore.get_sell_positions_id(address(traderBot));
+        KeyPosition[] memory keyPositions = doppiCore.get_sell_positions_id(address(traderBot));
         for(uint8 i=0; i< keyPositions.length; i++){
-            DoppiCore.DualAssetPosition memory pos = doppiCore.get_sell(address(traderBot), keyPositions[i].positionId);
+            DualAssetPosition memory pos = doppiCore.get_sell(address(traderBot), keyPositions[i].positionId);
             assertEq(pos.isTraded, true);
         }
         keyPositions = doppiCore.get_buy_positions_id(address(traderBot));
         for(uint8 i=0; i< keyPositions.length; i++){
-            DoppiCore.DualAssetPosition memory pos = doppiCore.get_buy(address(traderBot), keyPositions[i].positionId);
+            DualAssetPosition memory pos = doppiCore.get_buy(address(traderBot), keyPositions[i].positionId);
             assertEq(pos.isTraded, false);
         }
         // ***** END 
@@ -137,7 +138,7 @@ contract BasicFlowTest is Test {
         _doppiOpportunityCheckUpkeep_performUpkeep(99_500 * 1e8); 
         keyPositions = doppiCore.get_sell_positions_id(address(traderBot));
         for(uint8 i=0; i< keyPositions.length; i++){
-            DoppiCore.DualAssetPosition memory pos = doppiCore.get_sell(address(traderBot), keyPositions[i].positionId);
+            DualAssetPosition memory pos = doppiCore.get_sell(address(traderBot), keyPositions[i].positionId);
             assertEq(pos.isTraded, false);
         
         }
@@ -176,7 +177,7 @@ contract BasicFlowTest is Test {
 
         uint256 id = doppiFactory.deployTraderBot(weights);
         vm.stopPrank();
-        _traderbot = doppiFactory.traderBots(id);
+        _traderbot = DoppiTrader(doppiFactory.traderBots(id));
         vm.prank(trader);
         _traderbot.setForwarderAddress(mockForwarder);
         vm.stopPrank();
@@ -201,8 +202,9 @@ contract BasicFlowTest is Test {
         int256 b_sell = -0.02447200000000008 * 1e27;
         int256 c_sell = 1485.8762857142906 * 1e27;
         BlackScholes blackScholes = new BlackScholes();
-        _impliedVol = new ImpliedVol(blackScholes);
+        _impliedVol = new ImpliedVol(blackScholes, address(doppiConfig.chainLinkFeed()), 500);
         _impliedVol.setRegression(86400, a_buy, b_buy, c_buy, a_sell, b_sell, c_sell);
+        doppiConfig.setImpliedVol(address(_impliedVol)); 
     }
 
     function _setupMockSwapper(address _usdt, address _btc, address _oracle) internal returns (Swapper _swapper) {

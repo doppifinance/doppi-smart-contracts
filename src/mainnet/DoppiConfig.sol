@@ -20,9 +20,9 @@ contract DoppiConfig is Ownable {
     uint32 public swapMargin; // 0.5% doppiLP internal swap back targetPrice margin
     uint32 public ratioLP; // traderbot split ratio for doppiLP and doppi trader bot
     uint32 public DEFAULT_DAYS;
-    uint256 public PRICE_GAP_PEROFFER;
     address public treasury;
     address public doppiUpKeepManager;
+    address public impliedVol;
     address public doppiPoints;
     uint24 public MAX_ORDER;
     uint24 public treasury_fee; 
@@ -42,7 +42,6 @@ contract DoppiConfig is Ownable {
         swapMargin = 5000; // 0.5% doppiLP internal swap back targetPrice margin
         ratioLP = 5000; // traderbot split ratio for doppiLP and doppi trader bot
         DEFAULT_DAYS = 1;
-        PRICE_GAP_PEROFFER = 500;
         treasury;
         MAX_ORDER = 5;
         treasury_fee = 1000;
@@ -63,6 +62,10 @@ contract DoppiConfig is Ownable {
 
     function setDoppiUpKeepManager(address _doppiUpKeepManager) external onlyOwner {
         doppiUpKeepManager = _doppiUpKeepManager;
+    }
+
+    function setImpliedVol(address _impliedVol) external onlyOwner {
+        impliedVol = _impliedVol;
     }
 
     function setMinimal(uint256 _assetA, uint256 _assetB) external onlyOwner {
@@ -107,9 +110,6 @@ contract DoppiConfig is Ownable {
     }
 
     // Configuration functions
-    function setPriceGapPerOffer(uint32 _priceGap) external onlyOwner {
-        PRICE_GAP_PEROFFER = _priceGap;
-    }
 
     function setDefault_days(uint32 _days) external onlyOwner {
         DEFAULT_DAYS = _days;

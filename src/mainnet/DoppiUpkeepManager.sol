@@ -14,8 +14,6 @@ import {DALiquidityLib} from "../Library/DALiquidityLib.sol";
 import {AggregatorV3Interface} from "../Interface/AggregatorV3Interface.sol";
 import {AutomationCompatibleInterface} from "../Interface/AutomationCompatibleInterface.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
-
-
 import "forge-std/console.sol";
 
 contract DoppiUpkeepManager is Ownable, AutomationCompatibleInterface {
@@ -56,6 +54,7 @@ contract DoppiUpkeepManager is Ownable, AutomationCompatibleInterface {
     // State variables
     mapping(address => DoppiUpkeepInfo) public doppiUpkeeps;
     mapping(uint256 => address) public doppiUpKeepsId;
+    mapping(address => address[]) public traderToBot;
     mapping(uint256 => DoppiUpkeepPayment) public doppiUpkeepPayment;
     address[] public upkeepIds;
     
@@ -174,13 +173,15 @@ contract DoppiUpkeepManager is Ownable, AutomationCompatibleInterface {
         
         require(doppiUpkeeps[_traderbot].upkeepId == 0, "already exists");
         require(fundToken.transferFrom(msg.sender, address(this), DEFAULT_AMOUNT), "fundToken transfer failed");
-        uint256 linkAmount = _swapToLinkERC677();
+        uint256 linkAmount = _swapToLinkERC677(DEFAULT_AMOUNT);
         // call registerUpkeep
         upKeepId = _registerUpkeep(_traderbot, uint96(linkAmount));
         
         doppiUpkeepPayment[upKeepId].lastBlockCharged = block.number;
         doppiUpkeepPayment[upKeepId].lastPaidAmount = 0;
         doppiUpkeepPayment[upKeepId].trader = msg.sender;
+
+        traderToBot[msg.sender].push(_traderbot);
         
         emit UpkeepRegistered(upKeepId, _traderbot, DEFAULT_AMOUNT, linkAmount);
     
@@ -189,6 +190,8 @@ contract DoppiUpkeepManager is Ownable, AutomationCompatibleInterface {
 
     function stopWithdraw(uint256 _upkeepId) external onlyTrader(_upkeepId) validUpkeepId(_upkeepId) {
         
+        IAutomationRegistryConsumer.UpkeepInfo memory result = registryConsumer.getUpkeep(_upkeepId);
+        require(result.maxValidBlocknumber < block.number, "not cancel yet");
         uint256 initBal = linkToken.balanceOf(address(this));
         registryConsumer.withdrawFunds(_upkeepId, address(this));
         (uint96 fee, address trader) = _getUnPaidDoppiFee(_upkeepId);
@@ -204,7 +207,7 @@ contract DoppiUpkeepManager is Ownable, AutomationCompatibleInterface {
     function fundUpkeep(uint256 _upkeepId, uint96 _amount) external onlyTrader(_upkeepId) validUpkeepId(_upkeepId) {
         
         require(fundToken.transferFrom(msg.sender, address(this), _amount), "fundToken transfer failed");
-        uint256 linkAmount = _swapToLinkERC677();
+        uint256 linkAmount = _swapToLinkERC677(_amount);
         (uint256 fee, ) = _getUnPaidDoppiFee(_upkeepId);
         uint256 finalamount = linkAmount - fee;
         _fundUpkeep(_upkeepId, uint96(finalamount));
@@ -225,6 +228,10 @@ contract DoppiUpkeepManager is Ownable, AutomationCompatibleInterface {
     
     function getUpkeepIdByBot(address _traderbot) external view returns (uint256) {
         return doppiUpkeeps[_traderbot].upkeepId;
+    }
+    
+    function getTraderBotByTrader(address _trader) external view returns (address[] memory) {
+        return traderToBot[_trader];
     }
     
     function getAllUpkeeps() external view returns (DoppiUpkeepInfo[] memory) {
@@ -250,6 +257,11 @@ contract DoppiUpkeepManager is Ownable, AutomationCompatibleInterface {
     function getForwarder(uint256 _upkeepId) external view returns (address) {
         return registryConsumer.getForwarder(_upkeepId);
     }
+
+    function getUnPaidDoppiFee(uint256 _upkeepId) external view returns (uint96 fee, address trader) {
+        return _getUnPaidDoppiFee(_upkeepId);
+    }
+
     
     function withdrawLINK(uint96 _amount) external onlyOwner {
         require(linkToken.transfer(msg.sender, _amount), "LINK transfer failed");
@@ -289,7 +301,6 @@ contract DoppiUpkeepManager is Ownable, AutomationCompatibleInterface {
                 uint256 price = DALiquidityLib.getPrice(chainLinkFeed);
                 uint256 feeInfundToken = (fee * price) / priceDecimals;
                 bool needTopUp = result.balance < topUpBorder;
-                // console.log(needTopUp, allowance);
                 if((needTopUp && allowance >= DEFAULT_AMOUNT) || (!needTopUp && allowance >= feeInfundToken)){
                     checkUpKeeps[count].topUp = result.balance < topUpBorder;
                     checkUpKeeps[count].tobepaid = amountLastSpent;
@@ -336,7 +347,7 @@ contract DoppiUpkeepManager is Ownable, AutomationCompatibleInterface {
 
             if(checkUpKeeps[i].topUp){
                 fundToken.transferFrom(p.trader, address(this), DEFAULT_AMOUNT);
-                uint256 linkOut = _swapToLinkERC677();
+                uint256 linkOut = _swapToLinkERC677(DEFAULT_AMOUNT);
                 _fundUpkeep(upkeepId, uint96(linkOut - checkUpKeeps[i].fee));
                 linkToken.transfer(treasury, checkUpKeeps[i].fee);
             }else{
@@ -366,12 +377,12 @@ contract DoppiUpkeepManager is Ownable, AutomationCompatibleInterface {
         registryConsumer.addFunds(_upkeepId, _amount);
     }
 
-    function _swapToLinkERC677() internal returns (uint256 linkOut) {
+    function _swapToLinkERC677(uint256 _amount) internal returns (uint256 linkOut) {
         // swap fundToken to link
         uint256 price = DALiquidityLib.getPrice(chainLinkFeed);
-        uint256 amountOut = (DEFAULT_AMOUNT * priceDecimals) / price;
+        uint256 amountOut = (_amount * priceDecimals) / price;
         // bridge link to erc677 link
-        linkOut = _swapExactInputV3(DEFAULT_AMOUNT, address(this), amountOut);
+        linkOut = _swapExactInputV3(_amount, address(this), amountOut);
         pegSwap.swap(linkOut, address(link), address(linkToken));
     }
 

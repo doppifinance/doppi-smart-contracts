@@ -1,7 +1,33 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
+import "../mainnet/DoppiCoreTypes.sol";
 
 interface IImpliedVol {
+    
+    function getOffer(
+        bool _isBuy,
+        uint32 _numDays,
+        uint8 _strikeZone
+    ) external view returns (DualAssetOffer memory offer);
+
+    function getBuyOffers(
+        uint32 _numDays
+    ) external view returns (DualAssetOffer[] memory buyoffers);
+
+    function getSellOffers(
+        uint32 _numDays
+    ) external view returns (DualAssetOffer[] memory selloffers);
+
+    function getAllOffers(
+        uint32 _numDays
+    )
+        external
+        view
+        returns (
+            DualAssetOffer[] memory buyoffers,
+            DualAssetOffer[] memory selloffers
+        );
+
     function setRegression(
         uint256 _daysInTimestamp,
         int256 _buya,
@@ -11,16 +37,19 @@ interface IImpliedVol {
         int256 _sellb,
         int256 _sellc
     ) external;
-    function getImpliedVol(uint256 _daysInTimestamp, uint256 _price, bool _isBuy)
-        external
-        view
-        returns (uint256 markIV);
-    function getBuyAPR(uint256 timeToExpiry, uint256 _spot, uint256 _strikeBuy)
-        external
-        view
-        returns (uint32 buyapr, uint256 delta);
-    function getSellAPR(uint256 timeToExpiry, uint256 _spot, uint256 _strikeSell)
-        external
-        view
-        returns (uint32 sellapr, uint256 delta);
+    function getImpliedVol(
+        uint256 _daysInTimestamp,
+        uint256 _price,
+        bool _isBuy
+    ) external view returns (uint256 markIV);
+    function getBuyAPR(
+        uint256 timeToExpiry,
+        uint256 _spot,
+        uint256 _strikeBuy
+    ) external view returns (uint32 buyapr, uint256 delta);
+    function getSellAPR(
+        uint256 timeToExpiry,
+        uint256 _spot,
+        uint256 _strikeSell
+    ) external view returns (uint32 sellapr, uint256 delta);
 }

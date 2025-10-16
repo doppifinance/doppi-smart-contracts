@@ -9,10 +9,12 @@ import {DoppiLiquidityRouter} from "../src/mainnet/DoppiLiquidityRouter.sol";
 import {DoppiConfig} from "../src/mainnet/DoppiConfig.sol";
 import {BlackScholes} from "../src/mainnet/BlackScholes.sol";
 import {ImpliedVol} from "../src/mainnet/ImpliedVol.sol";
+import {IImpliedVol} from "../src/Interface/IImpliedVol.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {MockToken} from "../src/test/MockToken.sol";
 import {MockOracle} from "../src/test/MockOracle.sol";
 import {Swapper} from "../src/test/Swapper.sol";
+import "../src/mainnet/DoppiCoreTypes.sol";
 
 contract DoppiOpportunityTest is Test {
     DoppiOpportunity doppiOpportunity;
@@ -50,7 +52,7 @@ contract DoppiOpportunityTest is Test {
         oracle = new MockOracle(int256(100_000 * 1e8), 8);
 
         blackScholes = new BlackScholes();
-        impliedVol = new ImpliedVol(blackScholes);
+        impliedVol = new ImpliedVol(blackScholes, address(oracle), 500);
         impliedVol.setRegression(86400, a_buy, b_buy, c_buy, a_sell, b_sell, c_sell);
 
         // deploy doppiConfig
@@ -63,12 +65,13 @@ contract DoppiOpportunityTest is Test {
         doppiConfig.setQuoter(address(swapper));
         doppiConfig.setTreasury(treasury);
         doppiConfig.setOracle(address(oracle));
+        doppiConfig.setImpliedVol(address(impliedVol)); 
 
         doppiLP =
             new DoppiLiquidity("Dual Asset Liquidity Pool", "DALP", IERC20(usdt), IERC20(btc));
         doppiLP.setDoppiConfig(doppiConfig);
         doppiLP.approveRouter();
-        
+
         // Create router and set entry points
         doppiRouter = new DoppiLiquidityRouter(IERC20(usdt), IERC20(btc), doppiLP);
         doppiLP.setEntryPoint(address(doppiRouter.entryPointA()), true);
@@ -113,7 +116,7 @@ contract DoppiOpportunityTest is Test {
         assertGt(performData.length, 0);
         vm.prank(mockForwarder);
         doppiOpportunity.performUpkeep(performData);
-        DoppiCore.DualAssetPosition memory pos = doppiCore.get_buy(user1, 1);
+        DualAssetPosition memory pos = doppiCore.get_buy(user1, 1);
         assertEq(pos.isTraded, true);
     }
 
@@ -126,7 +129,7 @@ contract DoppiOpportunityTest is Test {
         assertGt(performData.length, 0);
         vm.prank(mockForwarder);
         doppiOpportunity.performUpkeep(performData);
-        DoppiCore.DualAssetPosition memory pos = doppiCore.get_sell(user2, 1);
+        DualAssetPosition memory pos = doppiCore.get_sell(user2, 1);
         assertEq(pos.isTraded, true);
     }
 
@@ -136,7 +139,7 @@ contract DoppiOpportunityTest is Test {
         (bool upkeepNeeded, bytes memory performData) = doppiOpportunity.checkUpkeep("");
         vm.prank(mockForwarder);
         doppiOpportunity.performUpkeep(performData);
-        DoppiCore.DualAssetPosition memory pos = doppiCore.get_sell(user2, 1);
+        DualAssetPosition memory pos = doppiCore.get_sell(user2, 1);
         assertEq(pos.isTraded, true);
 
         // unwind for profit opportunity
@@ -166,7 +169,7 @@ contract DoppiOpportunityTest is Test {
         (bool upkeepNeeded, bytes memory performData) = doppiOpportunity.checkUpkeep("");
         vm.prank(mockForwarder);
         doppiOpportunity.performUpkeep(performData);
-        DoppiCore.DualAssetPosition memory pos = doppiCore.get_buy(user1, 1);
+        DualAssetPosition memory pos = doppiCore.get_buy(user1, 1);
         assertEq(pos.isTraded, true);
 
         // unwind for profit opportunity
@@ -248,7 +251,7 @@ contract DoppiOpportunityTest is Test {
         (bool upkeepNeeded, bytes memory performData) = doppiOpportunity.checkUpkeep("");
         assertTrue(upkeepNeeded);
         
-        (uint256 price, uint256[] memory buyIndexes, uint256[] memory sellIndexes) =
+        (, uint256[] memory buyIndexes, ) =
             abi.decode(performData, (uint256, uint256[], uint256[]));
         assertEq(buyIndexes.length, 2);
 
@@ -256,8 +259,8 @@ contract DoppiOpportunityTest is Test {
         doppiOpportunity.performUpkeep(performData);
         vm.stopPrank();
 
-        DoppiCore.DualAssetPosition memory pos2 = doppiCore.get_buy(user1, 1);
-        DoppiCore.DualAssetPosition memory pos3 = doppiCore.get_buy(user1, 2);
+        DualAssetPosition memory pos2 = doppiCore.get_buy(user1, 1);
+        DualAssetPosition memory pos3 = doppiCore.get_buy(user1, 2);
         assertTrue(pos2.isTraded);
         assertTrue(pos3.isTraded);
         
@@ -271,7 +274,7 @@ contract DoppiOpportunityTest is Test {
         doppiOpportunity.performUpkeep(performData);
         vm.stopPrank();
         
-        DoppiCore.DualAssetPosition memory pos1 = doppiCore.get_buy(user1, 3);
+        DualAssetPosition memory pos1 = doppiCore.get_buy(user1, 3);
         assertTrue(pos1.isTraded);
         
         // third checkUpkeep no more opportunity
@@ -281,8 +284,8 @@ contract DoppiOpportunityTest is Test {
 
     // internal function
     function depositUSDT() internal {
-        DoppiCore.DualAssetOffer memory buyOffer = doppiCore.getOffer(true, 1, 0);
-        DoppiCore.DepositParams memory params = DoppiCore.DepositParams({
+        DualAssetOffer memory buyOffer = impliedVol.getOffer(true, 1, 0);
+        DepositParams memory params = DepositParams({
             amount: 50_000 ether,
             strikeZone: 0,
             strikePrice: buyOffer.strikePrice,
@@ -298,8 +301,8 @@ contract DoppiOpportunityTest is Test {
     }
 
     function depositBTC() internal {
-        DoppiCore.DualAssetOffer memory offer = doppiCore.getOffer(false, 1, 0);
-        DoppiCore.DepositParams memory params = DoppiCore.DepositParams({
+        DualAssetOffer memory offer = impliedVol.getOffer(false, 1, 0);
+        DepositParams memory params = DepositParams({
             amount: 1 ether,
             strikeZone: 0,
             strikePrice: offer.strikePrice,

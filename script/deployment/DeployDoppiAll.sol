@@ -1,0 +1,214 @@
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+
+import "forge-std/Script.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import "../../src/Interface/IAutomationRegistrar.sol";
+import "../../src/Interface/IAutomationRegistryConsumer.sol";
+import {IBlackScholes} from "../../src/Interface/IBlackScholes.sol";
+import {DoppiTraderFactory} from "../../src/mainnet/DoppiTraderFactory.sol";
+import {DoppiTrader} from "../../src/mainnet/DoppiTrader.sol";
+import {DoppiCore} from "../../src/mainnet/DoppiCore.sol";
+import {DoppiLiquidity} from "../../src/mainnet/DoppiLiquidity.sol";
+import {DoppiLiquidityRouter} from "../../src/mainnet/DoppiLiquidityRouter.sol";
+import {BlackScholes} from "../../src/mainnet/BlackScholes.sol";
+import {ImpliedVol} from "../../src/mainnet/ImpliedVol.sol";
+import {DoppiPoints} from "../../src/mainnet/DoppiPoints.sol";
+import {DoppiOpportunity} from "../../src/mainnet/DoppiOpportunity.sol";
+import {DoppiConfig} from "../../src/mainnet/DoppiConfig.sol";
+import {DoppiUpkeepManager} from "../../src/mainnet/DoppiUpkeepManager.sol";
+import {MockRegistryConsumer} from "../../src/test/MockRegistryConsumer.sol";
+
+
+contract DeployDoppiAll is Script {
+    
+    address constant LINK = address(0x404460C6A5EdE2D891e8297795264fDe62ADBB75);
+    address constant USDT = address(0x55d398326f99059fF775485246999027B3197955);
+    address constant BTC = address(0x7130d2A12B9BCbFAe4f2634d864A1Ee1Ce3Ead9c);
+    address constant BNBLINK = address(0xF8A0BF9cF54Bb92F17374d9e9A321E6a111a51bD);
+    address constant CHAINLINK_BTC_USD = address(0x264990fbd0A4796A3E3d8E37C4d5F87a3aCa5Ebf);
+    address constant CHAINLINK_LINK_USD = address(0xca236E327F629f9Fc2c30A4E95775EbF0B89fac8);
+    address constant LINK_PEGGED_SWAP = address(0x1FCc3B22955e76Ca48bF025f1A6993685975Bb9e);
+    address constant PCSWAP_V3_ROUTER = address(0x13f4EA83D0bd40E75C8222255bc855a974568Dd4);
+    address constant PCSWAP_V3_QUOTER = address(0xB048Bbc1Ee6b733FFfCFb9e9CeF7375518e25997);
+    address constant CHAINLINK_RegistryConsumer = address(0xDc21E279934fF6721CaDfDD112DAfb3261f09A2C);
+    address constant CHAINLINK_Registrar = address(0xf671F60bCC964B309D22424886FF202807381B32);
+    address constant treasury = address(0xaD8234bC07168d9f7E49c3780e4b5fefa6620f8A);
+    address constant admin = address(0xaD8234bC07168d9f7E49c3780e4b5fefa6620f8A);
+    address constant forwarder = address(0x70997970C51812dc3A010C7d01b50e0d17dc79C8);
+    
+    function run() external {
+        
+        uint256 deployerPrivateKey = vm.envUint("PRIVATE_KEY");
+        vm.startBroadcast(deployerPrivateKey);
+
+        BlackScholes blackScholes = _deployBlackScholes();
+        ImpliedVol impliedVol = _deployImpliedVol(address(blackScholes));
+        DoppiPoints doppiPoints = _deployDoppiPoints();
+        DoppiConfig doppiConfig = _deployDoppiConfig(address(doppiPoints));
+        doppiConfig.setImpliedVol(address(impliedVol)); 
+        DoppiLiquidity doppiLP = _deployDoppiLiquidity(doppiConfig);
+        DoppiCore doppiCore = _deployDoppiCore(doppiLP, impliedVol, doppiPoints);
+        DoppiOpportunity doppiOpportunity = _deployDoppiOpportunity(address(doppiCore), address(doppiLP), doppiConfig);
+        
+        
+        console.log("Deploying DoppiLiquidityRouter...");
+        DoppiLiquidityRouter doppiRouter = new DoppiLiquidityRouter(IERC20(USDT), IERC20(BTC), doppiLP);
+        console.log("DoppiLiquidityRouter deployed at:", address(doppiRouter));
+        
+        console.log("Deploying DoppiTraderFactory...");
+        DoppiTraderFactory doppiFactory = new DoppiTraderFactory(IERC20(USDT), IERC20(BTC), address(doppiCore), address(doppiLP), address(doppiRouter));
+        console.log("DoppiTraderFactory deployed at:", address(doppiFactory));
+        
+        DoppiUpkeepManager doppiUpkeepManager = _deployDoppiUpkeepManager(doppiConfig, address(doppiFactory));
+        
+        _setDoppiLiquidityProperties(doppiLP, address(doppiCore), doppiRouter, address(doppiFactory));
+
+        _setDoppiCoreProperties(doppiCore, doppiFactory, address(doppiOpportunity));
+
+        // set setForwarderAddress for all necessary contracts
+        // doppiOpportunity.setForwarderAddress(forwarder);
+        
+        vm.stopBroadcast();
+
+        // Log deployment addresses for easy access
+        console.log("\n=== Deployment Summary ===");
+        console.log("BlackScholes:", address(blackScholes));
+        console.log("ImpliedVol:", address(impliedVol));
+        console.log("DoppiPoints:", address(doppiPoints));
+        console.log("DoppiConfig:", address(doppiConfig));
+        console.log("DoppiLiquidity:", address(doppiLP));
+        console.log("DoppiCore:", address(doppiCore));
+        console.log("DoppiOpportunity:", address(doppiOpportunity));
+        console.log("DoppiLiquidityRouter:", address(doppiRouter));
+        console.log("DoppiTraderFactory:", address(doppiFactory));
+        console.log("DoppiUpkeepManager:", address(doppiUpkeepManager));
+    }
+
+    function _setDoppiCoreProperties(
+        DoppiCore _doppiCore, 
+        DoppiTraderFactory _doppiFactory,
+        address _doppiOpportunity
+        ) internal {
+        
+        console.log("Setting DoppiCore Properties...");
+        _doppiCore.setForwarderAddress(forwarder);
+        _doppiCore.setAdmin(_doppiOpportunity, true);
+        _doppiCore.setDoppiTraderFactory(_doppiFactory);
+    }
+
+    function _setDoppiLiquidityProperties(
+        DoppiLiquidity _doppiLP, 
+        address _doppiCore, 
+        DoppiLiquidityRouter _doppiRouter,
+        address _doppiFactory
+        ) internal {
+        
+        console.log("Setting DoppiLiquidity Properties...");
+        // _doppiLP.setForwarderAddress(forwarder);
+        _doppiLP.setDoppiCore(_doppiCore);
+        _doppiLP.setEntryPoint(address(_doppiRouter.entryPointA()), true);
+        _doppiLP.setEntryPoint(address(_doppiRouter.entryPointB()), true);
+        _doppiLP.approveEntryPoint(address(_doppiRouter.entryPointA()), USDT);
+        _doppiLP.approveEntryPoint(address(_doppiRouter.entryPointB()), BTC);
+        _doppiLP.setDoppiTraderFactory(_doppiFactory);
+        // doppiCore.setDoppiTraderFactory(doppiFactory);
+    }
+
+    function _deployDoppiCore(DoppiLiquidity _doppiLP, ImpliedVol _impliedVol, DoppiPoints _doppiPoints) internal returns (DoppiCore) {
+        
+        console.log("Deploying DoppiCore...");
+        DoppiCore doppiCore = new DoppiCore(USDT, BTC, _doppiLP, _impliedVol);
+        console.log("DoppiCore deployed at:", address(doppiCore));
+        _doppiPoints.setDoppiCore(address(doppiCore));
+        return doppiCore;
+    }
+        
+        
+    function _deployDoppiOpportunity(address _doppiCore, address _doppiLP, DoppiConfig doppiConfig) internal returns (DoppiOpportunity) {
+    
+        console.log("Deploying DoppiOpportunity...");
+        DoppiOpportunity doppiOpportunity = new DoppiOpportunity(_doppiCore, _doppiLP);
+        console.log("DoppiOpportunity deployed at:", address(doppiOpportunity));
+        // doppiOpportunity.setForwarderAddress(forwarder);
+        doppiOpportunity.setDoppiConfig(doppiConfig);
+        return doppiOpportunity;
+    }
+
+    function _deployDoppiLiquidity(DoppiConfig _doppiConfig) internal returns (DoppiLiquidity) {
+        
+        console.log("Deploying DoppiLiquidity...");
+        DoppiLiquidity _doppiLP = new DoppiLiquidity("Doppi BTC-USDT LP", "BTCB-USDT", IERC20(USDT), IERC20(BTC));
+        console.log("DoppiLiquidity deployed at:", address(_doppiLP));
+        _doppiLP.setDoppiConfig(_doppiConfig); 
+        _doppiLP.approveRouter();
+        return _doppiLP;
+    }
+
+    function _deployBlackScholes() internal returns (BlackScholes) {
+        
+        console.log("Deploying BlackScholes...");
+        BlackScholes blackScholes = new BlackScholes();
+        console.log("BlackScholes deployed at:", address(blackScholes));
+        return blackScholes;
+    }
+
+    function _deployImpliedVol(address _blackScholes) internal returns (ImpliedVol) {
+        
+        console.log("Deploying ImpliedVol...");
+        ImpliedVol impliedVol = new ImpliedVol(IBlackScholes(_blackScholes), CHAINLINK_BTC_USD, 500);
+        console.log("ImpliedVol deployed at:", address(impliedVol));
+        return impliedVol;
+    }
+
+    function _deployDoppiPoints() internal returns (DoppiPoints) {
+        console.log("Deploying DoppiPoints...");
+        DoppiPoints doppiPoints = new DoppiPoints();
+        console.log("DoppiPoints deployed at:", address(doppiPoints));
+        return doppiPoints;
+    }
+
+    function _deployDoppiConfig(address _doppiPoints) internal returns (DoppiConfig) {
+        
+        console.log("Deploying DoppiConfig...");
+        DoppiConfig doppiConfig = new DoppiConfig();
+        console.log("DoppiConfig deployed at:", address(doppiConfig));
+        doppiConfig.setRouter(PCSWAP_V3_ROUTER);
+        doppiConfig.setQuoter(PCSWAP_V3_QUOTER);
+        doppiConfig.setTreasury(treasury);
+        doppiConfig.setPancakeV3Pool(PCSWAP_V3_ROUTER); 
+        doppiConfig.setOracle(CHAINLINK_BTC_USD);
+        doppiConfig.setSlippage(500);
+        // doppiConfig.setDoppiUpKeepManager(address(mockDoppiUpKeepManager));
+        doppiConfig.setDoppiPoints(_doppiPoints); 
+
+        return doppiConfig;
+    }
+
+    function _deployDoppiUpkeepManager(DoppiConfig _doppiConfig, address _doppiFactory) internal returns (DoppiUpkeepManager) {
+
+        console.log("Deploying DoppiUpkeepManager...");
+        IAutomationRegistrar registrar = IAutomationRegistrar(CHAINLINK_Registrar);
+        // IAutomationRegistryConsumer registryConsumer = IAutomationRegistryConsumer(CHAINLINK_RegistryConsumer);
+        MockRegistryConsumer mockRegistryConsumer = new MockRegistryConsumer();
+
+        DoppiUpkeepManager doppiUpkeepManager = new DoppiUpkeepManager(
+            address(mockRegistryConsumer), 
+            address(registrar), 
+            CHAINLINK_LINK_USD, 
+            address(PCSWAP_V3_ROUTER),
+            LINK_PEGGED_SWAP,
+            USDT, 
+            LINK, // erc677 link
+            BNBLINK, //bnb link
+            _doppiFactory,
+            treasury
+        );
+        console.log("DoppiUpkeepManager deployed at:", address(doppiUpkeepManager));
+        _doppiConfig.setDoppiUpKeepManager(address(doppiUpkeepManager));
+        return doppiUpkeepManager;
+    }  
+        
+
+            
+}

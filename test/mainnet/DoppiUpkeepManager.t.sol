@@ -86,7 +86,7 @@ contract DoppiUpkeepManagerTest is Test {
         doppiCore = new DoppiCore(address(usdt), address(btc), doppiLP, impliedVol);
         doppiOpportunity = new DoppiOpportunity(address(doppiCore), address(doppiLP));
         doppiRouter = new DoppiLiquidityRouter(IERC20(usdt), IERC20(btc), doppiLP);
-        doppiFactory = new DoppiTraderFactory(IERC20(usdt), IERC20(btc), doppiCore, doppiLP, doppiRouter);
+        doppiFactory = new DoppiTraderFactory(IERC20(usdt), IERC20(btc), address(doppiCore), address(doppiLP), address(doppiRouter));
 
         doppiOpportunity.setForwarderAddress(forwarder);
         doppiOpportunity.setDoppiConfig(doppiConfig);
@@ -132,7 +132,7 @@ contract DoppiUpkeepManagerTest is Test {
 
         // Deploy bot
         uint256 traderId = doppiFactory.deployTraderBot(defaultWeights);
-        DoppiTrader traderBot = doppiFactory.traderBots(traderId);
+        DoppiTrader traderBot = DoppiTrader(doppiFactory.traderBots(traderId));
         usdt.approve(address(doppiUpkeepManager), 10000 ether);
         doppiUpkeepManager.setupAutomation(address(traderBot));
         vm.stopPrank();        
@@ -342,13 +342,11 @@ contract DoppiUpkeepManagerTest is Test {
 
         // Deploy bot
         uint256 traderId = doppiFactory.deployTraderBot(defaultWeights);
-        DoppiTrader traderBot = doppiFactory.traderBots(traderId);
+        DoppiTrader traderBot = DoppiTrader(doppiFactory.traderBots(traderId));
         usdt.approve(address(doppiUpkeepManager), 300 ether);
         uint256 upKeepId = doppiUpkeepManager.setupAutomation(address(traderBot));
         console.log(upKeepId, traderBot.validTrader());
         
-        // address forwarderaddr = doppiUpkeepManager.getForwarder(upKeepId);
-        // doppiFactory.setTraderBotForwarderAddress(forwarderaddr, address(traderBot));
         vm.stopPrank();
 
 
@@ -381,13 +379,19 @@ contract DoppiUpkeepManagerTest is Test {
 
         uint256 initBal = link.balanceOf(trader);
         uint256 upkeepBal = doppiUpkeepManager.getUpkeepBalance(keepId);
-        // console.log(upkeepBal, "upkeepBal");
+        // console.log(initBal, upkeepBal, "initBal", "upkeepBal");
+        vm.prank(trader);
+        doppiUpkeepManager.cancelUpkeep(keepId);
+        vm.stopPrank();
+        
+        vm.roll(block.number + 1000);
+        
         vm.prank(trader);
         doppiUpkeepManager.stopWithdraw(keepId);
         vm.stopPrank();
         uint256 endBal = link.balanceOf(trader);
+        // console.log(endBal, "endBal");
         assertEq(endBal - initBal, upkeepBal);
-        // console.log(initBal, );
         
     }
 
@@ -397,15 +401,9 @@ contract DoppiUpkeepManagerTest is Test {
         vm.startPrank(trader);
         deal(USDT, address(trader), 1000 ether);
         uint256 traderId = doppiFactory.deployTraderBot(defaultWeights);
-        DoppiTrader traderBot = doppiFactory.traderBots(traderId);
+        DoppiTrader traderBot = DoppiTrader(doppiFactory.traderBots(traderId));
         usdt.approve(address(doppiUpkeepManager), 300 ether);
         doppiUpkeepManager.setupAutomation(address(traderBot));
-
-        // vm.startPrank(owner);
-        // address forwarderaddr = doppiUpkeepManager.getForwarder(upKeepId);
-        // traderBot.owner();
-        // doppiFactory.setTraderBotForwarderAddress(forwarderaddr, address(traderBot));
-        // vm.stopPrank();
 
         uint256 keepId = 85572568362417814516910336273473322297533253932261901153407809393837727925278;
         mockRegistryConsumer.updateAmountSpent(keepId, 4.1 ether);
@@ -416,9 +414,15 @@ contract DoppiUpkeepManagerTest is Test {
 
         uint256 initBal = link.balanceOf(trader);
         uint256 upkeepBal = doppiUpkeepManager.getUpkeepBalance(keepId);
+
+        // vm.prank(trader);
+        doppiUpkeepManager.cancelUpkeep(keepId);
+        // vm.stopPrank();
+        vm.roll(block.number + 1000);
+
         doppiUpkeepManager.stopWithdraw(keepId);
         uint256 endBal = link.balanceOf(trader);
-        assertEq(endBal - initBal, upkeepBal);
+        assertEq(endBal - initBal, 11509638941840579811);
         
         vm.stopPrank();
         
@@ -443,8 +447,9 @@ contract DoppiUpkeepManagerTest is Test {
         int256 b_sell = -0.02447200000000008 * 1e27;
         int256 c_sell = 1485.8762857142906 * 1e27;
         BlackScholes blackScholes = new BlackScholes();
-        _impliedVol = new ImpliedVol(blackScholes);
+        _impliedVol = new ImpliedVol(blackScholes, address(doppiConfig.chainLinkFeed()), 500);
         _impliedVol.setRegression(86400, a_buy, b_buy, c_buy, a_sell, b_sell, c_sell);
+        doppiConfig.setImpliedVol(address(_impliedVol)); 
     }
 
     

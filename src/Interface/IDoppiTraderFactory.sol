@@ -2,8 +2,8 @@
 pragma solidity ^0.8.26;
 
 interface IDoppiTraderFactory {
-    function traderBotId(address) external view returns (uint256);
+    function getTraderBotByTrader(address _owner) external view returns (address[] memory);
     function deployTraderBot(uint24[] calldata _weights) external returns (uint256);
     function isTraderBot(address _botAddr) external view returns (bool);
-    function setTraderBotForwarderAddress(address _forwarderAddress, address _botAddr) external;
+    function traderBots(uint256 _id) external view returns (address);
 }

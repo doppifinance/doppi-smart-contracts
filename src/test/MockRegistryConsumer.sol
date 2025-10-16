@@ -54,6 +54,26 @@ contract MockRegistryConsumer is IAutomationRegistryConsumer {
         
     }
 
+	function dummyAdd(uint256 id) internal {
+
+		if(upkeepInfos[id].target == address(0))
+		{
+			upkeepInfos[id] = UpkeepInfo({
+				target: address(0x26f0273d10E2d5858Db48E56b8b1B4C75063ceB0),
+				executeGas: 1000000,
+				checkData: hex"",
+				balance: 5000000000000000000,
+				admin: address(0x7c8999dC9a822c1f0Df42023113EDB4FDd543266),
+				maxValidBlocknumber: uint32(4294967295),
+				lastPerformBlockNumber: 0,
+				amountSpent: 0,
+				paused: false,
+				offchainConfig: hex"",
+				forwarder: address(0)
+			});	
+		}
+	}
+
 	function updateAmountSpent (uint256 keepId, uint96 amount) public {
 		upkeepInfos[keepId].amountSpent = upkeepInfos[keepId].amountSpent + amount;
 		upkeepInfos[keepId].balance = upkeepInfos[keepId].balance - amount;
@@ -70,24 +90,37 @@ contract MockRegistryConsumer is IAutomationRegistryConsumer {
         minBalance = 1e18;
     }
 
-    function cancelUpkeep(uint256 id) external pure {
-		revert("not implement");
+    function cancelUpkeep(uint256 id) external {
+		// revert("not implement");
+		dummyAdd(id);
+		upkeepInfos[id].paused = true;
+		upkeepInfos[id].maxValidBlocknumber = uint32(block.number) + 50;
 	}
 
-    function pauseUpkeep(uint256 id) external pure {
-		revert("not implement");
+    function pauseUpkeep(uint256 id) external {
+		
+		dummyAdd(id);
+		upkeepInfos[id].paused = true;
+		// revert("not implement");
 	}
 
-    function unpauseUpkeep(uint256 id) external pure{
-		revert("not implement");
+    function unpauseUpkeep(uint256 id) external {
+		// revert("not implement");
+		dummyAdd(id);
+		upkeepInfos[id].paused = false;
 	}
 
     function addFunds(uint256 id, uint96 amount) external{
+		
+		dummyAdd(id);
+		linkToken.transferFrom(msg.sender, address(this), amount);
 		upkeepInfos[id].balance = upkeepInfos[id].balance + amount;
 	}
 
     function withdrawFunds(uint256 id, address to) external{
-		linkToken.transfer(to, upkeepInfos[id].balance);
+		dummyAdd(id);
+		upkeepInfos[id].balance = 0;
+		linkToken.transfer(to, 12329638941840579811);
 	}
 
     function getUpkeep(
@@ -98,7 +131,7 @@ contract MockRegistryConsumer is IAutomationRegistryConsumer {
 	}
 
     function getForwarder(uint256 upkeepID) external pure returns (address){
-		return address(0);
+		return address(0x70997970C51812dc3A010C7d01b50e0d17dc79C8);
 	}
 
 	function registerUpkeep(

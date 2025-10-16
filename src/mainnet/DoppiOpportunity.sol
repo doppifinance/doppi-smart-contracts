@@ -35,8 +35,8 @@ contract DoppiOpportunity is Ownable, Pausable, AutomationCompatibleInterface {
         if(paused()) return (false, bytes(""));
 
         uint256 price = doppiLP.getPrice();
-        DoppiCore.DualAssetPosition[] memory buys = doppiCore.get_positions_buy();
-        DoppiCore.DualAssetPosition[] memory sells = doppiCore.get_positions_sell();
+        DualAssetPosition[] memory buys = doppiCore.get_positions_buy();
+        DualAssetPosition[] memory sells = doppiCore.get_positions_sell();
         
         (uint256 buyCount, uint256[] memory buyIndexes) = _checkOpportunity(price, buys, true);
         (uint256 sellCount, uint256[] memory sellIndexes) = _checkOpportunity(price, sells, false);
@@ -83,17 +83,17 @@ contract DoppiOpportunity is Ownable, Pausable, AutomationCompatibleInterface {
 
     function _opportunity_bot(uint256 price, uint256[] memory buyIndexes, uint256[] memory sellIndexes) internal {
         if (buyIndexes.length > 0) {
-            DoppiCore.DualAssetPosition[] memory buys = doppiCore.get_positions_buy();
+            DualAssetPosition[] memory buys = doppiCore.get_positions_buy();
             _performOpportunity(price, buyIndexes, buys, true);
         }
         
         if (sellIndexes.length > 0) {
-            DoppiCore.DualAssetPosition[] memory sells = doppiCore.get_positions_sell();
+            DualAssetPosition[] memory sells = doppiCore.get_positions_sell();
             _performOpportunity(price, sellIndexes, sells, false);
         }
     }
 
-    function _checkOpportunity(uint256 price, DoppiCore.DualAssetPosition[] memory _orders, bool _isBuy)
+    function _checkOpportunity(uint256 price, DualAssetPosition[] memory _orders, bool _isBuy)
         internal
         view
         returns (uint256 count, uint256[] memory indexes)
@@ -136,7 +136,7 @@ contract DoppiOpportunity is Ownable, Pausable, AutomationCompatibleInterface {
     function _performOpportunity(
         uint256 price,
         uint256[] memory _indexes,
-        DoppiCore.DualAssetPosition[] memory _orders,
+        DualAssetPosition[] memory _orders,
         bool _isBuy
     ) internal {
         
@@ -159,7 +159,7 @@ contract DoppiOpportunity is Ownable, Pausable, AutomationCompatibleInterface {
 
     function _isNotTradedTriggered(
         bool _isBuy,
-        DoppiCore.DualAssetPosition memory _order,
+        DualAssetPosition memory _order,
         uint256 _price,
         uint256 _buffer
     ) internal pure returns (bool) {
@@ -174,7 +174,7 @@ contract DoppiOpportunity is Ownable, Pausable, AutomationCompatibleInterface {
 
     function _isTradedTriggered(
         bool _isBuy,
-        DoppiCore.DualAssetPosition memory _order,
+        DualAssetPosition memory _order,
         uint256 _price,
         uint256 _buffer
     ) internal pure returns (bool) {

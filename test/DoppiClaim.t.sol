@@ -55,20 +55,21 @@ contract DoppiClaimTest is Test {
         vm.prank(alice);
         doppiClaim.claim();
 
+        (uint256 totalPoints, ) = doppiPoints.getPoints(alice);
         assertEq(token.balanceOf(alice), 100 ether, "Alice should get 100 tokens");
-        assertEq(doppiPoints.getPoints(alice), 0, "Points should reset");
+        assertEq(totalPoints, 0, "Points should reset");
     }
 
     function testClaimWithOnlyReferralRewards() public {
         
         _registerCode();
 
-        vm.warp(block.timestamp + 31 days);
+        vm.warp(vm.getBlockTimestamp() + 31 days);
 
         vm.prank(mockDoppiCore);
         doppiPoints.recordTrade(bob, 10000 ether); // trader1 trades 100 USDT
 
-        vm.warp(block.timestamp + 31 days);
+        vm.warp(vm.getBlockTimestamp() + 31 days);
         (uint256 l1, uint256 l2, uint256 l3) = referral.getTotalReferralRewards(alice);
         assertEq(l1, 150 ether, "Alice expected to get 150 tokens");
 
@@ -94,16 +95,17 @@ contract DoppiClaimTest is Test {
         doppiPoints.recordTrade(alice, 100 ether); // trader1 trades 100 USDT
 
         // referral rewards
-        vm.warp(block.timestamp + 31 days);
+        vm.warp(vm.getBlockTimestamp() + 31 days);
         vm.prank(mockDoppiCore);
         doppiPoints.recordTrade(bob, 10000 ether); // trader1 trades 100 USDT
 
-        vm.warp(block.timestamp + 31 days);
+        vm.warp(vm.getBlockTimestamp() + 31 days);
         vm.prank(alice);
         doppiClaim.claim();
 
+        (uint256 totalPoints, ) = doppiPoints.getPoints(alice);
         assertEq(token.balanceOf(alice), 250 ether, "Alice should get 250 tokens total");
-        assertEq(doppiPoints.getPoints(alice), 0, "Points reset");
+        assertEq(totalPoints, 0, "Points reset");
         (uint256 l1,uint256 l2,uint256 l3) = referral.getTotalReferralRewards(alice);
         assertEq(l1+l2+l3, 0, "Referral rewards reset");
     }
@@ -141,11 +143,11 @@ contract DoppiClaimTest is Test {
         doppiPoints.recordTrade(alice, 100 ether); // trader1 trades 100 USDT
 
         // referral rewards
-        vm.warp(block.timestamp + 31 days);
+        vm.warp(vm.getBlockTimestamp() + 31 days);
         vm.prank(mockDoppiCore);
         doppiPoints.recordTrade(bob, 10000 ether); // trader1 trades 100 USDT
 
-        vm.warp(block.timestamp + 31 days);
+        vm.warp(vm.getBlockTimestamp() + 31 days);
         
         vm.expectEmit(true, false, false, true);
         emit Claimed(alice, 100 ether, 150 ether, 0, 0, 250 ether);

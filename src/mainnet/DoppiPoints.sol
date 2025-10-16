@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.20;
+pragma solidity ^0.8.26;
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {Pausable} from "@openzeppelin/contracts/utils/Pausable.sol";
 import {DALiquidityLib} from "../Library/DALiquidityLib.sol";
@@ -54,8 +54,10 @@ contract DoppiPoints is Ownable, Pausable {
     }
 
     // Get total points for a trader
-    function getPoints(address trader) external view returns (uint256) {
-        return traders[trader].points;
+    function getPoints(address trader) external view returns (uint256 totalPoints, uint256 totalVolume) {
+        
+        totalPoints = traders[trader].points;
+        totalVolume = traders[trader].totalVolume; 
     }
 
     /// @notice Get trader's volume for a specific monthId

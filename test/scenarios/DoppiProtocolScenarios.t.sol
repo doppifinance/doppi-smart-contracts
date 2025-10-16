@@ -9,6 +9,7 @@ import {DoppiLiquidity} from "../../src/mainnet/DoppiLiquidity.sol";
 import {DoppiLiquidityRouter} from "../../src/mainnet/DoppiLiquidityRouter.sol";
 import {BlackScholes} from "../../src/mainnet/BlackScholes.sol";
 import {ImpliedVol} from "../../src/mainnet/ImpliedVol.sol";
+import {IImpliedVol} from "../../src/Interface/IImpliedVol.sol";
 import {DoppiPoints} from "../../src/mainnet/DoppiPoints.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {MockToken} from "../../src/test/MockToken.sol";
@@ -17,6 +18,7 @@ import {MockDoppiUpKeepManager} from "../../src/test/MockDoppiUpkeepManager.sol"
 import {DoppiOpportunity} from "../../src/mainnet/DoppiOpportunity.sol";
 import {Swapper} from "../../src/test/Swapper.sol";
 import {DoppiConfig} from "../../src/mainnet/DoppiConfig.sol";
+import "../../src/mainnet/DoppiCoreTypes.sol";
 
 
 contract DoppiProtocolScenariosTest is Test {
@@ -69,13 +71,12 @@ contract DoppiProtocolScenariosTest is Test {
         doppiConfig.setDoppiUpKeepManager(address(mockDoppiUpKeepManager));
         doppiConfig.setDoppiPoints(address(doppiPoints)); 
         
-        
         impliedVol = _setupIV();
         doppiLP = _setupLP(address(usdt), address(btc));
         doppiCore = new DoppiCore(address(usdt), address(btc), doppiLP, impliedVol);
         opportunityBot = new DoppiOpportunity(address(doppiCore), address(doppiLP));
         doppiRouter = new DoppiLiquidityRouter(IERC20(usdt), IERC20(btc), doppiLP);
-        doppiFactory = new DoppiTraderFactory(IERC20(usdt), IERC20(btc), doppiCore, doppiLP, doppiRouter);
+        doppiFactory = new DoppiTraderFactory(IERC20(usdt), IERC20(btc), address(doppiCore), address(doppiLP), address(doppiRouter));
 
         doppiPoints.setDoppiCore(address(doppiCore));
         opportunityBot.setForwarderAddress(mockForwarder);
@@ -90,7 +91,7 @@ contract DoppiProtocolScenariosTest is Test {
         doppiLP.approveEntryPoint(address(doppiRouter.entryPointB()), address(btc));
         doppiLP.setDoppiTraderFactory(address(doppiFactory));
         doppiCore.setDoppiTraderFactory(doppiFactory);
-        
+
         // Distribute initial tokens
         usdt.mint(liquidityProvider, 10000 * 10 ** usdt.decimals());
         btc.mint(liquidityProvider, 20 * 10 ** btc.decimals());
@@ -121,7 +122,7 @@ contract DoppiProtocolScenariosTest is Test {
         // Phase 2: Trader Bot Creation
         vm.startPrank(trader1);
         uint256 traderId = doppiFactory.deployTraderBot(defaultWeights);
-        DoppiTrader traderBot = doppiFactory.traderBots(traderId);
+        DoppiTrader traderBot = DoppiTrader(doppiFactory.traderBots(traderId));
         traderBot.setForwarderAddress(mockForwarder);
         assertTrue(doppiFactory.isTraderBot(address(traderBot)));
         vm.stopPrank();
@@ -140,8 +141,8 @@ contract DoppiProtocolScenariosTest is Test {
         usdt.approve(address(doppiCore), 500 * 10 ** usdt.decimals());
         
         // Get offers and deposit
-        (DoppiCore.DualAssetOffer[] memory buyOffers, ) = doppiCore.getAllOffers(1);
-        doppiCore.deposit_buy(DoppiCore.DepositParams({
+        (DualAssetOffer[] memory buyOffers, ) = impliedVol.getAllOffers(1);
+        doppiCore.deposit_buy(DepositParams({
             amount: 500 * 10 ** usdt.decimals(),
             strikeZone: 0,
             strikePrice: buyOffers[0].strikePrice,
@@ -168,7 +169,7 @@ contract DoppiProtocolScenariosTest is Test {
         // Trader 1 creates bot
         vm.startPrank(trader1);
         uint256 trader1Id = doppiFactory.deployTraderBot(defaultWeights);
-        DoppiTrader trader1Bot = doppiFactory.traderBots(trader1Id);
+        DoppiTrader trader1Bot = DoppiTrader(doppiFactory.traderBots(trader1Id));
         trader1Bot.setForwarderAddress(mockForwarder);
         
         usdt.mint(address(trader1Bot), 2000 * 10 ** usdt.decimals());
@@ -187,7 +188,7 @@ contract DoppiProtocolScenariosTest is Test {
         aggressiveWeights[3] = 1000;
         // aggressiveWeights[4] = 0;
         uint256 trader2Id = doppiFactory.deployTraderBot(aggressiveWeights);
-        DoppiTrader trader2Bot = doppiFactory.traderBots(trader2Id);
+        DoppiTrader trader2Bot = DoppiTrader(doppiFactory.traderBots(trader2Id));
         trader2Bot.setForwarderAddress(mockForwarder);
         
         usdt.mint(address(trader2Bot), 1500 * 10 ** usdt.decimals());
@@ -233,8 +234,8 @@ contract DoppiProtocolScenariosTest is Test {
             vm.startPrank(users[i]);
             usdt.approve(address(doppiCore), 200 * 10 ** usdt.decimals());
             
-            (DoppiCore.DualAssetOffer[] memory buyOffers, ) = doppiCore.getAllOffers(1);
-            doppiCore.deposit_buy(DoppiCore.DepositParams({
+            (DualAssetOffer[] memory buyOffers, ) = impliedVol.getAllOffers(1);
+            doppiCore.deposit_buy(DepositParams({
                 amount: 200 * 10 ** usdt.decimals(),
                 strikeZone: i % 5,
                 strikePrice: buyOffers[i % 5].strikePrice,
@@ -257,7 +258,7 @@ contract DoppiProtocolScenariosTest is Test {
         
         // Deploy bot
         uint256 traderId = doppiFactory.deployTraderBot(defaultWeights);
-        DoppiTrader traderBot = doppiFactory.traderBots(traderId);
+        DoppiTrader traderBot = DoppiTrader(doppiFactory.traderBots(traderId));
         
         traderBot.setForwarderAddress(mockForwarder);
         
@@ -301,7 +302,7 @@ contract DoppiProtocolScenariosTest is Test {
 
         vm.startPrank(trader1);
         uint256 traderId = doppiFactory.deployTraderBot(defaultWeights);
-        DoppiTrader traderBot = doppiFactory.traderBots(traderId);
+        DoppiTrader traderBot = DoppiTrader(doppiFactory.traderBots(traderId));
         traderBot.setForwarderAddress(mockForwarder);
 
         usdt.mint(address(traderBot), 1000 * 10 ** usdt.decimals());
@@ -314,8 +315,8 @@ contract DoppiProtocolScenariosTest is Test {
         // Note: In real scenario, this would be done via oracle manipulation
         // For test, we just verify the contract state changes
         _doppiOpportunityCheckUpkeep_performUpkeep(97_500 * 1e8); 
-        DoppiCore.KeyPosition[] memory keyPositions = doppiCore.get_buy_positions_id(address(traderBot));
-        DoppiCore.DualAssetPosition memory pos = doppiCore.get_buy(address(traderBot), keyPositions[0].positionId);
+        KeyPosition[] memory keyPositions = doppiCore.get_buy_positions_id(address(traderBot));
+        DualAssetPosition memory pos = doppiCore.get_buy(address(traderBot), keyPositions[0].positionId);
         assertEq(pos.isTraded, true);
         pos = doppiCore.get_buy(address(traderBot), keyPositions[1].positionId);
         assertEq(pos.isTraded, true);
@@ -350,7 +351,7 @@ contract DoppiProtocolScenariosTest is Test {
         usdt.approve(address(doppiCore), 100 * 10 ** usdt.decimals());        
         
         vm.expectRevert();
-        doppiCore.deposit_buy(DoppiCore.DepositParams({
+        doppiCore.deposit_buy(DepositParams({
             amount: 100 * 1e18,
             strikeZone: 0,
             strikePrice: 100000 * 10 ** 8, // Example strike price
@@ -381,7 +382,7 @@ contract DoppiProtocolScenariosTest is Test {
         // Phase 2: Trader Bot Creation
         vm.startPrank(trader1);
         uint256 traderId = doppiFactory.deployTraderBot(defaultWeights);
-        DoppiTrader traderBot = doppiFactory.traderBots(traderId);
+        DoppiTrader traderBot = DoppiTrader(doppiFactory.traderBots(traderId));
         vm.stopPrank();
 
         vm.startPrank(trader1);
@@ -395,7 +396,7 @@ contract DoppiProtocolScenariosTest is Test {
         btc.mint(address(traderBot), 2 * 10 ** btc.decimals());
         usdt.approve(address(traderBot), 1000 * 10 ** usdt.decimals());
         btc.approve(address(traderBot), 2 * 10 ** btc.decimals());
-        vm.expectRevert("Zero APR");
+        vm.expectRevert("InvalidAPR()");
         traderBot.start(1000 ether, 2 ether);
         vm.stopPrank();
 
@@ -412,7 +413,7 @@ contract DoppiProtocolScenariosTest is Test {
         weights[3] = 2500;
         weights[4] = 4500;
         uint256 id = doppiFactory.deployTraderBot(weights);
-        _traderbot = doppiFactory.traderBots(id);
+        _traderbot = DoppiTrader(doppiFactory.traderBots(id));
         _traderbot.setForwarderAddress(mockForwarder);
         vm.stopPrank();
     }
@@ -436,8 +437,9 @@ contract DoppiProtocolScenariosTest is Test {
         int256 b_sell = -0.02447200000000008 * 1e27;
         int256 c_sell = 1485.8762857142906 * 1e27;
         BlackScholes blackScholes = new BlackScholes();
-        _impliedVol = new ImpliedVol(blackScholes);
+        _impliedVol = new ImpliedVol(blackScholes, address(doppiConfig.chainLinkFeed()), 500);
         _impliedVol.setRegression(86400, a_buy, b_buy, c_buy, a_sell, b_sell, c_sell);
+        doppiConfig.setImpliedVol(address(_impliedVol)); 
     }
 
     function _setupMockSwapper(address _usdt, address _btc, address _oracle) internal returns (Swapper _swapper) {

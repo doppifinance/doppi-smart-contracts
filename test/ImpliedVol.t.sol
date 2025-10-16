@@ -3,14 +3,19 @@ pragma solidity ^0.8.26;
 
 import "forge-std/Test.sol";
 import {ImpliedVol} from "../src/mainnet/ImpliedVol.sol";
-// import {IBlackScholes} from "../Interface/IBlackScholes.sol";
 import {BlackScholes} from "../src/mainnet/BlackScholes.sol";
+import {MockOracle} from "../src/test/MockOracle.sol";
+import "../src/mainnet/DoppiCoreTypes.sol";
 
 contract ImpliedVolTest is Test {
     ImpliedVol markIV;
     BlackScholes blackScholes;
     address owner = address(this);
     uint256 priceDecimal = 1e8;
+    uint256 constant INITIAL_PRICE = 100_000 * 1e8;
+    address chainLinkFeed = address(0x264990fbd0A4796A3E3d8E37C4d5F87a3aCa5Ebf);
+    MockOracle oracle;
+
     function setUp() public {
         int256 a_buy = 0.0000000807142857142833 * 1e27;
         int256 b_buy = -0.019095857142856592 * 1e27;
@@ -21,7 +26,8 @@ contract ImpliedVolTest is Test {
         int256 c_sell = 1485.8762857142906 * 1e27;
 
         blackScholes = new BlackScholes();
-        markIV = new ImpliedVol(blackScholes);
+        oracle = new MockOracle(int256(INITIAL_PRICE), 8);
+        markIV = new ImpliedVol(blackScholes, address(oracle), 500);
         markIV.setRegression(86400, a_buy, b_buy, c_buy, a_sell, b_sell, c_sell);
     }
 
@@ -88,5 +94,65 @@ contract ImpliedVolTest is Test {
         // console.log(sellapr, delta);
         assertEq(sellapr, 0);
         assertEq(delta, 0); 
+    }
+
+    function test_getBuyOffers() public view {
+        DualAssetOffer[] memory buyOffers = markIV.getBuyOffers(1);
+
+        assertEq(buyOffers.length, 5);
+        assertEq(buyOffers[0].apr, 31399);
+        assertEq(buyOffers[1].apr, 25600);
+        assertEq(buyOffers[4].apr, 13612);
+            
+        for (uint256 i = 0; i < buyOffers.length; i++) {
+            // console.log(buyOffers[i].strikePrice, buyOffers[i].apr);
+            assertEq(buyOffers[i].price, INITIAL_PRICE);
+            assertLt(buyOffers[i].strikePrice, INITIAL_PRICE);
+            assertGt(buyOffers[i].apr, 0);
+            assertGt(buyOffers[i].validUntilTimestamp, block.timestamp);
+        }
+
+        // Strike prices should be decreasing (further from current price)
+        for (uint256 i = 1; i < buyOffers.length; i++) {
+            assertLt(buyOffers[i].strikePrice, buyOffers[i - 1].strikePrice);
+        }
+    }
+
+    function test_getSellOffers() public view {
+        DualAssetOffer[] memory sellOffers = markIV.getSellOffers(1);
+
+        assertEq(sellOffers.length, 5);
+
+        assertEq(sellOffers[0].apr, 35700);
+        assertEq(sellOffers[1].apr, 27794);
+        assertEq(sellOffers[4].apr, 10881);
+
+        for (uint256 i = 0; i < sellOffers.length; i++) {
+            // console.log(sellOffers[i].strikePrice, sellOffers[i].apr);
+            assertEq(sellOffers[i].price, INITIAL_PRICE);
+            assertGt(sellOffers[i].strikePrice, INITIAL_PRICE);
+            assertGt(sellOffers[i].apr, 0);
+            assertGt(sellOffers[i].validUntilTimestamp, block.timestamp);
+        }
+
+        // Strike prices should be increasing (further from current price)
+        for (uint256 i = 1; i < sellOffers.length; i++) {
+            assertGt(sellOffers[i].strikePrice, sellOffers[i - 1].strikePrice);
+        }
+    }
+
+    function test_getAllOffers() public view {
+        (DualAssetOffer[] memory buyOffers, DualAssetOffer[] memory sellOffers) =
+            markIV.getAllOffers(1);
+
+        assertEq(buyOffers.length, 5);
+        assertEq(sellOffers.length, 5);
+
+        for (uint256 i = 0; i < 5; i++) {
+            assertEq(buyOffers[i].price, INITIAL_PRICE);
+            assertEq(sellOffers[i].price, INITIAL_PRICE);
+            assertLt(buyOffers[i].strikePrice, INITIAL_PRICE);
+            assertGt(sellOffers[i].strikePrice, INITIAL_PRICE);
+        }
     }
 }
