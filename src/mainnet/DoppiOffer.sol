@@ -3,7 +3,7 @@ pragma solidity ^0.8.20;
 
 import "../Library/SignedSafeDecimalMath.sol";
 import "../Library/SafeDecimalMath.sol";
-import "../Interface/IImpliedVol.sol";
+import "../Interface/IDoppiOffer.sol";
 import {DALiquidityLib} from "../Library/DALiquidityLib.sol";
 import {AggregatorV3Interface} from "../Interface/AggregatorV3Interface.sol";
 import {IBlackScholes} from "../Interface/IBlackScholes.sol";
@@ -11,7 +11,7 @@ import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import "forge-std/console.sol";
 
 // Simple MarkIV Contract
-contract ImpliedVol is IImpliedVol, Ownable {
+contract DoppiOffer is IDoppiOffer, Ownable {
     using SafeDecimalMath for uint256;
     using SignedSafeDecimalMath for int256;
 
@@ -19,8 +19,10 @@ contract ImpliedVol is IImpliedVol, Ownable {
         int256 a;
         int256 b;
         int256 c;
+        uint256 lastUpdated;
     }
 
+    uint256 public TOTAL_OFFER = 5;
     uint256 public PRICE_GAP_PEROFFER;
     AggregatorV3Interface chainLinkFeed; 
     uint256 private constant SECONDS_PER_YEAR = 31536000;
@@ -36,6 +38,10 @@ contract ImpliedVol is IImpliedVol, Ownable {
         chainLinkFeed = AggregatorV3Interface(_newOracle);
         PRICE_GAP_PEROFFER = _gapOffer;
         admins[msg.sender] = true;
+    }
+
+    function setTotalOffer(uint32 _total) external onlyOwner {
+        TOTAL_OFFER = _total;
     }
 
     function setPriceGapPerOffer(uint32 _priceGap) external onlyOwner {
@@ -63,16 +69,19 @@ contract ImpliedVol is IImpliedVol, Ownable {
         buyRegression[_daysInTimestamp].a = _buya;
         buyRegression[_daysInTimestamp].b = _buyb;
         buyRegression[_daysInTimestamp].c = _buyc;
+        buyRegression[_daysInTimestamp].lastUpdated = block.timestamp;
+        
         sellRegression[_daysInTimestamp].a = _sella;
         sellRegression[_daysInTimestamp].b = _sellb;
         sellRegression[_daysInTimestamp].c = _sellc;
+        sellRegression[_daysInTimestamp].lastUpdated = block.timestamp;
     }
 
     /// Format it to 1e16 ie. 30.66 * 1e16
     function getImpliedVol(uint256 _daysInTimestamp, uint256 _price, bool _isBuy)
         external
         view
-        returns (uint256 markIV)
+        returns (uint256 markIV, uint256 lastUpdated)
     {
         return _getImpliedVol(_daysInTimestamp, _price, _isBuy);
     }
@@ -82,8 +91,9 @@ contract ImpliedVol is IImpliedVol, Ownable {
         view
         returns (uint32 sellapr, uint256 delta)
     {
-        uint256 vsell = _getImpliedVol(timeToExpiry, _strikeSell, false);
+        (uint256 vsell, uint256 lastUpdated) = _getImpliedVol(timeToExpiry, _strikeSell, false);
         if(vsell == 0) return (0, 0);
+        if(lastUpdated < block.timestamp - SECONDS_PER_DAY) return (0, 0);
         IBlackScholes.PricesDeltaStdVega memory data =
             blackScholes.pricesDeltaStdVega(timeToExpiry, vsell, _spot, _strikeSell, 0);
         delta = blackScholes.abs(data.callDelta / 1e14);
@@ -96,8 +106,9 @@ contract ImpliedVol is IImpliedVol, Ownable {
         view
         returns (uint32 buyapr, uint256 delta)
     {
-        uint256 vbuy = _getImpliedVol(timeToExpiry, _strikeBuy, true);
+        (uint256 vbuy, uint256 lastUpdated) = _getImpliedVol(timeToExpiry, _strikeBuy, true);
         if(vbuy == 0) return (0, 0);
+        if(lastUpdated < block.timestamp - SECONDS_PER_DAY) return (0, 0);
         IBlackScholes.PricesDeltaStdVega memory data =
             blackScholes.pricesDeltaStdVega(timeToExpiry, vbuy, _spot, _strikeBuy, 0);
 
@@ -106,18 +117,21 @@ contract ImpliedVol is IImpliedVol, Ownable {
         buyapr = SafeCast.toUint32((data.putPrice - hedgeCost) * 10000 * SECONDS_PER_YEAR / timeToExpiry / _spot);
     }
 
-    // New functions for offer generation
+    function getSingleOffer(bool _isBuy, uint32 _numDays, uint8 _strikeZone, uint256 _price)
+        external
+        view
+        returns (DualAssetOffer memory offer)
+    {
+        return _getOffer(_isBuy, _numDays, _strikeZone, _price);
+    }
+
     function getOffer(bool _isBuy, uint32 _numDays, uint8 _strikeZone)
         external
         view
         returns (DualAssetOffer memory offer)
     {
         uint256 price = DALiquidityLib.getPrice(chainLinkFeed);
-        uint256 strikePrice = _getStrikePrice(price, _strikeZone + 1, _isBuy);
-        (uint32 apr, uint256 delta) = _isBuy
-            ? this.getBuyAPR(SECONDS_PER_DAY * _numDays, price, strikePrice)
-            : this.getSellAPR(SECONDS_PER_DAY * _numDays, price, strikePrice);
-        offer = DualAssetOffer(price, strikePrice, apr, delta, uint32(block.timestamp + 60), uint32(block.timestamp + 1 days));
+        return _getOffer(_isBuy, _numDays, _strikeZone, price);
     }
 
     function getBuyOffers(uint32 _numDays) 
@@ -125,9 +139,10 @@ contract ImpliedVol is IImpliedVol, Ownable {
         view 
         returns (DualAssetOffer[] memory buyoffers) 
     {
-        buyoffers = new DualAssetOffer[](5);
-        for (uint8 i = 0; i < 5; ) {
-            buyoffers[i] = this.getOffer(true, _numDays, i);
+        uint256 price = DALiquidityLib.getPrice(chainLinkFeed);
+        buyoffers = new DualAssetOffer[](TOTAL_OFFER);
+        for (uint8 i = 0; i < TOTAL_OFFER; ) {
+            buyoffers[i] = _getOffer(true, _numDays, i, price);
             unchecked { ++i; }
         }
         return buyoffers;
@@ -138,9 +153,10 @@ contract ImpliedVol is IImpliedVol, Ownable {
         view 
         returns (DualAssetOffer[] memory selloffers) 
     {
-        selloffers = new DualAssetOffer[](5);
-        for (uint8 i = 0; i < 5; ) {
-            selloffers[i] = this.getOffer(false, _numDays, i);
+        uint256 price = DALiquidityLib.getPrice(chainLinkFeed);
+        selloffers = new DualAssetOffer[](TOTAL_OFFER);
+        for (uint8 i = 0; i < TOTAL_OFFER; ) {
+            selloffers[i] = _getOffer(false, _numDays, i, price);
             unchecked { ++i; }
         }
         return selloffers;
@@ -168,14 +184,26 @@ contract ImpliedVol is IImpliedVol, Ownable {
         admins[_admin] = _status;
     }
 
+    function _getOffer(bool _isBuy, uint32 _numDays, uint8 _strikeZone, uint256 _price)
+        internal view returns (DualAssetOffer memory offer)
+    {
+        uint256 duration = SECONDS_PER_DAY * _numDays;
+        uint256 strikePrice = _getStrikePrice(_price, _strikeZone + 1, _isBuy);
+        (uint32 apr, uint256 delta) = _isBuy
+            ? this.getBuyAPR(duration, _price, strikePrice)
+            : this.getSellAPR(duration, _price, strikePrice);
+        offer = DualAssetOffer(_price, strikePrice, apr, delta, uint32(block.timestamp + duration));
+    }
+
     function _getImpliedVol(uint256 _daysInTimestamp, uint256 _price, bool _isBuy)
         internal
         view
-        returns (uint256 markIV)
+        returns (uint256 markIV, uint256 lastUpdated)
     {
         int256 price = int256(_price);
         RegressionVar memory regr = _isBuy ? buyRegression[_daysInTimestamp] : sellRegression[_daysInTimestamp];
         markIV = uint256((((((regr.a * price) / priceDecimal) * price) / priceDecimal) + ((regr.b * price) / priceDecimal) + regr.c)) / 1e11;
+        lastUpdated = regr.lastUpdated;
     }
 
     function _getHedgeAdjust(uint256 _iv, uint256 _price, uint256 _strikeprice, uint256 _delta, uint256 _timeToExpiry)

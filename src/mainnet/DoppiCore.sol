@@ -8,19 +8,19 @@ import {IDoppiTrader} from "../Interface/IDoppiTrader.sol";
 import {DoppiTraderFactory} from "./DoppiTraderFactory.sol";
 import {DoppiConfig} from "./DoppiConfig.sol";
 import {DoppiPoints} from "./DoppiPoints.sol";
-import {IImpliedVol} from "../Interface/IImpliedVol.sol";
+import {IDoppiOffer} from "../Interface/IDoppiOffer.sol";
 import "./DoppiCoreTypes.sol";
 import "./DoppiCoreAdmin.sol";
 import "./DoppiCoreView.sol";
 
-// import "forge-std/console.sol";
+import "forge-std/console.sol";
 
 contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, AutomationCompatibleInterface {
     using SafeERC20 for IERC20;
 
     IERC20 public immutable assetA; // Made immutable
     IERC20 public immutable assetB; // Made immutable
-    IImpliedVol public immutable impliedVol; // Made immutable
+    IDoppiOffer public immutable impliedVol; // Made immutable
     IDoppiLiquidity public immutable doppiLP; // Made immutable
     DoppiConfig public immutable doppiConfig;
     DoppiPoints public immutable doppiPoints;
@@ -48,7 +48,7 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, AutomationCompatibleInterfa
     error NotExpired();
     error NoPosition();
 
-    constructor(address _assetA, address _assetB, IDoppiLiquidity _doppiLP, IImpliedVol _impliedVol)
+    constructor(address _assetA, address _assetB, IDoppiLiquidity _doppiLP, IDoppiOffer _impliedVol)
         Ownable(msg.sender)
     {
         assetA = IERC20(_assetA);
@@ -295,12 +295,11 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, AutomationCompatibleInterfa
         // Calculate interest using precomputed values
         uint256 duration = SECONDS_PER_DAY * numDays;
         uint256 interest = (amount * _buyOffer.apr * duration) / (BASIS_POINTS * SECONDS_PER_YEAR);
-        uint32 expiry = uint32(block.timestamp + duration);
         positions_buy[sender][positionId] = DualAssetPosition(
             amount,
             _buyOffer.price,
             _buyOffer.strikePrice,
-            expiry,
+            _buyOffer.expiry,
             _buyOffer.apr,
             sender,
             0,
@@ -338,13 +337,11 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, AutomationCompatibleInterfa
         // Calculate interest using precomputed values
         uint256 duration = SECONDS_PER_DAY * numDays;
         uint256 interest = (amount * _sellOffer.apr * duration) / (BASIS_POINTS * SECONDS_PER_YEAR);
-        // Cache expiry
-        uint32 expiry = uint32(block.timestamp + duration);
         positions_sell[sender][positionId] = DualAssetPosition(
             amount,
             _sellOffer.price,
             _sellOffer.strikePrice,
-            expiry,
+            _sellOffer.expiry,
             _sellOffer.apr,
             sender,
             0,

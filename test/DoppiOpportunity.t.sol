@@ -8,8 +8,8 @@ import {DoppiLiquidity} from "../src/mainnet/DoppiLiquidity.sol";
 import {DoppiLiquidityRouter} from "../src/mainnet/DoppiLiquidityRouter.sol";
 import {DoppiConfig} from "../src/mainnet/DoppiConfig.sol";
 import {BlackScholes} from "../src/mainnet/BlackScholes.sol";
-import {ImpliedVol} from "../src/mainnet/ImpliedVol.sol";
-import {IImpliedVol} from "../src/Interface/IImpliedVol.sol";
+import {DoppiOffer} from "../src/mainnet/DoppiOffer.sol";
+import {IDoppiOffer} from "../src/Interface/IDoppiOffer.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {MockToken} from "../src/test/MockToken.sol";
 import {MockOracle} from "../src/test/MockOracle.sol";
@@ -23,7 +23,7 @@ contract DoppiOpportunityTest is Test {
     DoppiLiquidityRouter doppiRouter;
     DoppiConfig doppiConfig;
     BlackScholes blackScholes;
-    ImpliedVol impliedVol;
+    DoppiOffer impliedVol;
     MockToken usdt;
     MockToken btc;
     MockOracle oracle;
@@ -39,6 +39,8 @@ contract DoppiOpportunityTest is Test {
     event OppUnwindPerformed(bool isBuy, address indexed trader, uint256 price, uint256 swappedAmount, uint256 amountOut, uint256 profit, address profitToken);
     
     function setUp() public {
+        
+        vm.warp(vm.getBlockTimestamp() + 30 days); 
         int256 a_buy = 0.0000000807142857142833 * 1e27;
         int256 b_buy = -0.019095857142856592 * 1e27;
         int256 c_buy = 1159.8454285713972 * 1e27;
@@ -52,7 +54,7 @@ contract DoppiOpportunityTest is Test {
         oracle = new MockOracle(int256(100_000 * 1e8), 8);
 
         blackScholes = new BlackScholes();
-        impliedVol = new ImpliedVol(blackScholes, address(oracle), 500);
+        impliedVol = new DoppiOffer(blackScholes, address(oracle), 500);
         impliedVol.setRegression(86400, a_buy, b_buy, c_buy, a_sell, b_sell, c_sell);
 
         // deploy doppiConfig
@@ -291,7 +293,7 @@ contract DoppiOpportunityTest is Test {
             strikePrice: buyOffer.strikePrice,
             numDays: 1,
             apr: buyOffer.apr,
-            validityTime: buyOffer.validUntilTimestamp
+            expiry: buyOffer.expiry
         });
 
         vm.startPrank(user1);
@@ -308,7 +310,7 @@ contract DoppiOpportunityTest is Test {
             strikePrice: offer.strikePrice,
             numDays: 1,
             apr: offer.apr,
-            validityTime: offer.validUntilTimestamp
+            expiry: offer.expiry
         });
 
         vm.startPrank(user2);

@@ -8,8 +8,8 @@ import {DoppiCore} from "../../src/mainnet/DoppiCore.sol";
 import {DoppiLiquidity} from "../../src/mainnet/DoppiLiquidity.sol";
 import {DoppiLiquidityRouter} from "../../src/mainnet/DoppiLiquidityRouter.sol";
 import {BlackScholes} from "../../src/mainnet/BlackScholes.sol";
-import {ImpliedVol} from "../../src/mainnet/ImpliedVol.sol";
-import {IImpliedVol} from "../../src/Interface/IImpliedVol.sol";
+import {DoppiOffer} from "../../src/mainnet/DoppiOffer.sol";
+import {IDoppiOffer} from "../../src/Interface/IDoppiOffer.sol";
 import {DoppiPoints} from "../../src/mainnet/DoppiPoints.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {MockToken} from "../../src/test/MockToken.sol";
@@ -28,7 +28,7 @@ contract DoppiProtocolScenariosTest is Test {
     DoppiLiquidity doppiLP;
     DoppiLiquidityRouter doppiRouter;
     // BlackScholes blackScholes;
-    ImpliedVol impliedVol;
+    DoppiOffer impliedVol;
     MockToken usdt;
     MockToken btc;
     MockOracle oracle;
@@ -148,7 +148,7 @@ contract DoppiProtocolScenariosTest is Test {
             strikePrice: buyOffers[0].strikePrice,
             numDays: 1,
             apr: buyOffers[0].apr,
-            validityTime: buyOffers[0].validUntilTimestamp
+            expiry: buyOffers[0].expiry
         }));
         vm.stopPrank();
 
@@ -241,7 +241,7 @@ contract DoppiProtocolScenariosTest is Test {
                 strikePrice: buyOffers[i % 5].strikePrice,
                 numDays: 1,
                 apr: buyOffers[i % 5].apr,
-                validityTime: buyOffers[i % 5].validUntilTimestamp
+                expiry: buyOffers[i % 5].expiry
             }));
             vm.stopPrank();
         }
@@ -357,7 +357,7 @@ contract DoppiProtocolScenariosTest is Test {
             strikePrice: 100000 * 10 ** 8, // Example strike price
             numDays: 1,
             apr: 500, // Example APR
-            validityTime: 17000000 + 3600
+            expiry: 17000000 + 3600
         }));
         vm.stopPrank();
 
@@ -427,8 +427,9 @@ contract DoppiProtocolScenariosTest is Test {
     }
     
 
-    function _setupIV() internal returns (ImpliedVol _impliedVol) {
+    function _setupIV() internal returns (DoppiOffer _impliedVol) {
         
+        vm.warp(vm.getBlockTimestamp() + 30 days); 
         int256 a_buy = 0.0000000807142857142833 * 1e27;
         int256 b_buy = -0.019095857142856592 * 1e27;
         int256 c_buy = 1159.8454285713972 * 1e27;
@@ -437,7 +438,7 @@ contract DoppiProtocolScenariosTest is Test {
         int256 b_sell = -0.02447200000000008 * 1e27;
         int256 c_sell = 1485.8762857142906 * 1e27;
         BlackScholes blackScholes = new BlackScholes();
-        _impliedVol = new ImpliedVol(blackScholes, address(doppiConfig.chainLinkFeed()), 500);
+        _impliedVol = new DoppiOffer(blackScholes, address(doppiConfig.chainLinkFeed()), 500);
         _impliedVol.setRegression(86400, a_buy, b_buy, c_buy, a_sell, b_sell, c_sell);
         doppiConfig.setImpliedVol(address(_impliedVol)); 
     }

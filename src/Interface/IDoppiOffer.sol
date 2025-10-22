@@ -2,7 +2,7 @@
 pragma solidity ^0.8.20;
 import "../mainnet/DoppiCoreTypes.sol";
 
-interface IImpliedVol {
+interface IDoppiOffer {
     
     function getOffer(
         bool _isBuy,
@@ -41,7 +41,7 @@ interface IImpliedVol {
         uint256 _daysInTimestamp,
         uint256 _price,
         bool _isBuy
-    ) external view returns (uint256 markIV);
+    ) external view returns (uint256 markIV, uint256 lastUpdated);
     function getBuyAPR(
         uint256 timeToExpiry,
         uint256 _spot,
@@ -52,4 +52,7 @@ interface IImpliedVol {
         uint256 _spot,
         uint256 _strikeSell
     ) external view returns (uint32 sellapr, uint256 delta);
+
+    function getSingleOffer(bool _isBuy, uint32 _numDays, uint8 _strikeZone, uint256 _price)
+        external view returns (DualAssetOffer memory offer);
 }

@@ -2,7 +2,7 @@
 pragma solidity ^0.8.20;
 
 import "forge-std/Script.sol";
-import "../../src/mainnet/ImpliedVol.sol";
+import "../../src/mainnet/DoppiOffer.sol";
 
 contract SetImpliedVolRegression is Script {
     function run() external {
@@ -16,7 +16,7 @@ contract SetImpliedVolRegression is Script {
 
         vm.startBroadcast(deployerPrivateKey);
 
-        ImpliedVol impliedVol = ImpliedVol(impliedVolAddress);
+        DoppiOffer impliedVol = DoppiOffer(impliedVolAddress);
 
         // Example regression parameters (adjust these values as needed)
         // Note: a, b, c must be * 1e27 according to contract comments
@@ -33,7 +33,7 @@ contract SetImpliedVolRegression is Script {
         // Call setRegression
         impliedVol.setRegression(daysInTimestamp, buyA, buyB, buyC, sellA, sellB, sellC);
 
-        console.log("Regression parameters set successfully for ImpliedVol at:", impliedVolAddress);
+        console.log("Regression parameters set successfully for DoppiOffer at:", impliedVolAddress);
         console.log("Days in timestamp:", daysInTimestamp);
         console.log("Buy regression - a:", vm.toString(buyA));
         console.log("Buy regression - b:", vm.toString(buyB));

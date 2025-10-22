@@ -10,7 +10,7 @@ import "../../src/mainnet/DoppiCoreTypes.sol";
 contract SettleDoppiCoreOrders is Script {
     
     // Replace with your actual DoppiCore contract address
-    address public constant DOPPI_CORE = 0x2FE09E2f6fe5D7270749b191ddE88Fb096A614A0; // Add your DoppiCore address here
+    address public constant DOPPI_CORE = 0x3eCDB7F8eD2C4F0C8dc45D568003F120856d5F8e; // Add your DoppiCore address here
     address public constant DOPPI_POINTS = 0x0F30b6db7ffFe0D465f989BFcC8a73A7cc4D69E9; // Add your DoppiCore address here
     address public constant DOPPI_TRADER = 0x1Fbe951f061779e09CC2108A36B363cF22f8a161; // Add your DoppiCore address here
     
@@ -58,21 +58,11 @@ contract SettleDoppiCoreOrders is Script {
         // }
 
 
-        console.log("Current blocktime:", block.timestamp);
-        
         uint256 buyCount = doppiCore.getBuyPositionCount();
-        console.log(buyCount, "buyCount");
         DualAssetPosition[] memory positions = doppiCore.get_positions_buy();
         for(uint256 i; i <positions.length; i++){
             console.log("expiryTimestamp", positions[i].expiryTimestamp, block.timestamp);
-            // console.log("owner", positions[i].owner);
-            // doppiTrader = DoppiTrader(positions[i].owner);
-            // console.log("valid trader", doppiTrader.get_validTrader());
         }
-        // Forward time by 1 day (86400 seconds)
-        // vm.warp(block.timestamp + 196400);
-        
-        // console.log("New blocktime:", block.timestamp);
         
         (bool upkeepNeeded, bytes memory performData) = doppiCore.checkUpkeep("");
         
@@ -89,7 +79,6 @@ contract SettleDoppiCoreOrders is Script {
             console.log("No upkeep needed at this time");
         }
         
-        // vm.stopPrank();
         vm.stopBroadcast();
     }
     

@@ -8,7 +8,7 @@ import {DoppiCore} from "../src/mainnet/DoppiCore.sol";
 import {DoppiLiquidity} from "../src/mainnet/DoppiLiquidity.sol";
 import {DoppiLiquidityRouter} from "../src/mainnet/DoppiLiquidityRouter.sol";
 import {BlackScholes} from "../src/mainnet/BlackScholes.sol";
-import {ImpliedVol} from "../src/mainnet/ImpliedVol.sol";
+import {DoppiOffer} from "../src/mainnet/DoppiOffer.sol";
 import {DoppiPoints} from "../src/mainnet/DoppiPoints.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {MockToken} from "../src/test/MockToken.sol";
@@ -27,7 +27,7 @@ contract DoppiTraderTest is Test {
     DoppiConfig doppiConfig;
     DoppiLiquidityRouter doppiRouter;
     BlackScholes blackScholes;
-    ImpliedVol impliedVol;
+    DoppiOffer impliedVol;
     MockToken usdt;
     MockToken btc;
     MockOracle oracle;
@@ -49,6 +49,7 @@ contract DoppiTraderTest is Test {
     event UnwindPerformed(address indexed trader, bool isBuy, uint256 amountOut, uint256 profit, address token);
 
     function setUp() public {
+        vm.warp(vm.getBlockTimestamp() + 30 days); 
         int256 a_buy = 0.0000000807142857142833 * 1e27;
         int256 b_buy = -0.019095857142856592 * 1e27;
         int256 c_buy = 1159.8454285713972 * 1e27;
@@ -62,7 +63,7 @@ contract DoppiTraderTest is Test {
         oracle = new MockOracle(int256(100_000 * 1e8), 8);
 
         blackScholes = new BlackScholes();
-        impliedVol = new ImpliedVol(blackScholes, address(oracle), 500);
+        impliedVol = new DoppiOffer(blackScholes, address(oracle), 500);
         impliedVol.setRegression(86400, a_buy, b_buy, c_buy, a_sell, b_sell, c_sell);
 
         doppiPoints = new DoppiPoints();
@@ -328,7 +329,9 @@ contract DoppiTraderTest is Test {
         assertEq(positions.length, 0);
 
         // ***** END 
-        
+
+        _updateIV();
+
         // ***** validate trader checkupkeep to place new batch of orders
 
         oracle.setPrice(int256(98_600 * 1e8));
@@ -721,7 +724,7 @@ contract DoppiTraderTest is Test {
         strikeZones[2] = 6;
         weights[2] = 1000;
         
-        vm.expectRevert("not more than max zone");
+        vm.expectRevert("ExceedMaxZone()");
         doppiTrader.setMultipleOrderConfigs(strikeZones, weights);
         vm.stopPrank();
     }
@@ -745,7 +748,7 @@ contract DoppiTraderTest is Test {
         strikeZones[5] = 5;
         weights[5] = 4000;
         
-        vm.expectRevert("not more than max");
+        vm.expectRevert("MaxLimit()");
         doppiTrader.setMultipleOrderConfigs(strikeZones, weights);
         vm.stopPrank();
     }
@@ -766,7 +769,7 @@ contract DoppiTraderTest is Test {
         weights[3] = 500;
         strikeZones[4] = 4;
         weights[4] = 500;
-        vm.expectRevert("sum must equal 100%");
+        vm.expectRevert("MustHundred()");
         doppiTrader.setMultipleOrderConfigs(strikeZones, weights);
         vm.stopPrank();
     }
@@ -803,6 +806,9 @@ contract DoppiTraderTest is Test {
         doppiCore.performUpkeep(performData);
         vm.stopPrank();
         
+        // update IV for next orders
+        _updateIV();
+
         // Set price to trigger . Place new orders
         oracle.setPrice(int256(103_000 * 1e8));
         (upkeepNeeded, performData) = doppiTrader.checkUpkeep("");
@@ -835,6 +841,17 @@ contract DoppiTraderTest is Test {
         btc.approve(address(doppiTrader), 100 ether);
         doppiTrader.start(amountUSDT, amountBTC);
         vm.stopPrank();
+    }
+
+    function _updateIV() internal {
+        int256 a_buy = 0.0000000807142857142833 * 1e27;
+        int256 b_buy = -0.019095857142856592 * 1e27;
+        int256 c_buy = 1159.8454285713972 * 1e27;
+
+        int256 a_sell = 0.000000102857142857143 * 1e27;
+        int256 b_sell = -0.02447200000000008 * 1e27;
+        int256 c_sell = 1485.8762857142906 * 1e27;
+        impliedVol.setRegression(86400, a_buy, b_buy, c_buy, a_sell, b_sell, c_sell);
     }
 
 }

@@ -7,7 +7,6 @@ struct DualAssetOffer {
     uint256 strikePrice;
     uint32 apr;
     uint256 delta;
-    uint32 validUntilTimestamp;
     uint32 expiry;
 }
 
@@ -43,7 +42,7 @@ struct DepositParams {
     uint256 strikePrice;
     uint32 numDays;
     uint32 apr;
-    uint32 validityTime; // Changed to uint32
+    uint32 expiry; // Changed to uint32
 }
 
 struct HedgeBulkTrade {

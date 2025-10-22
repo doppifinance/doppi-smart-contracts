@@ -2,13 +2,13 @@
 pragma solidity ^0.8.26;
 
 import "forge-std/Test.sol";
-import {ImpliedVol} from "../src/mainnet/ImpliedVol.sol";
+import {DoppiOffer} from "../src/mainnet/DoppiOffer.sol";
 import {BlackScholes} from "../src/mainnet/BlackScholes.sol";
 import {MockOracle} from "../src/test/MockOracle.sol";
 import "../src/mainnet/DoppiCoreTypes.sol";
 
-contract ImpliedVolTest is Test {
-    ImpliedVol markIV;
+contract DoppiOfferTest is Test {
+    DoppiOffer markIV;
     BlackScholes blackScholes;
     address owner = address(this);
     uint256 priceDecimal = 1e8;
@@ -27,12 +27,13 @@ contract ImpliedVolTest is Test {
 
         blackScholes = new BlackScholes();
         oracle = new MockOracle(int256(INITIAL_PRICE), 8);
-        markIV = new ImpliedVol(blackScholes, address(oracle), 500);
+        markIV = new DoppiOffer(blackScholes, address(oracle), 500);
+        vm.warp(vm.getBlockTimestamp() + 30 days); 
         markIV.setRegression(86400, a_buy, b_buy, c_buy, a_sell, b_sell, c_sell);
     }
 
     function test_getRegression() public view {
-        (ImpliedVol.RegressionVar memory buy, ImpliedVol.RegressionVar memory sell) = markIV.getRegression(86400);
+        (DoppiOffer.RegressionVar memory buy, DoppiOffer.RegressionVar memory sell) = markIV.getRegression(86400);
         assertEq((buy.a), 0.0000000807142857142833 * 1e27);
         assertEq((buy.b), -0.019095857142856592 * 1e27);
         assertEq((buy.c), 1159.8454285713972 * 1e27);
@@ -42,15 +43,15 @@ contract ImpliedVolTest is Test {
     }
 
     function test_getNotAvailImpliedVol() public view {
-        uint256 ivSell_1 = markIV.getImpliedVol(86400 * 2, 121000 * priceDecimal, false);
-        uint256 ivBuy_2 = markIV.getImpliedVol(86400 * 2, 112000 * priceDecimal, true);
+        (uint256 ivSell_1, ) = markIV.getImpliedVol(86400 * 2, 121000 * priceDecimal, false);
+        (uint256 ivBuy_2, ) = markIV.getImpliedVol(86400 * 2, 112000 * priceDecimal, true);
         assertEq(ivSell_1, 0);
         assertEq(ivBuy_2, 0);
     }
 
     function test_getImpliedVol() public view {
-        uint256 ivSell_1 = markIV.getImpliedVol(86400, 121000 * priceDecimal, false);
-        uint256 ivBuy_2 = markIV.getImpliedVol(86400, 112000 * priceDecimal, true);
+        (uint256 ivSell_1, ) = markIV.getImpliedVol(86400, 121000 * priceDecimal, false);
+        (uint256 ivBuy_2, ) = markIV.getImpliedVol(86400, 112000 * priceDecimal, true);
         // console.log(ivSell_1, ivBuy_2);
         assertEq((ivSell_1), 306957142857115830); // 30.6957142857115830
         assertEq((ivBuy_2), 335894285714286112); // 33.5894285714286112
@@ -96,6 +97,16 @@ contract ImpliedVolTest is Test {
         assertEq(delta, 0); 
     }
 
+    function test_getOffers_notUpdated() public {
+        
+        vm.warp(vm.getBlockTimestamp() + 1.1 days); // passed 1 day and not updated
+        DualAssetOffer[] memory buyOffers = markIV.getBuyOffers(1);
+        assertEq(buyOffers[0].apr, 0);
+        DualAssetOffer[] memory sellOffers = markIV.getSellOffers(1);
+        assertEq(sellOffers[0].apr, 0);
+    }
+
+
     function test_getBuyOffers() public view {
         DualAssetOffer[] memory buyOffers = markIV.getBuyOffers(1);
 
@@ -109,7 +120,7 @@ contract ImpliedVolTest is Test {
             assertEq(buyOffers[i].price, INITIAL_PRICE);
             assertLt(buyOffers[i].strikePrice, INITIAL_PRICE);
             assertGt(buyOffers[i].apr, 0);
-            assertGt(buyOffers[i].validUntilTimestamp, block.timestamp);
+            // assertGt(buyOffers[i].validUntilTimestamp, block.timestamp);
         }
 
         // Strike prices should be decreasing (further from current price)
@@ -132,7 +143,7 @@ contract ImpliedVolTest is Test {
             assertEq(sellOffers[i].price, INITIAL_PRICE);
             assertGt(sellOffers[i].strikePrice, INITIAL_PRICE);
             assertGt(sellOffers[i].apr, 0);
-            assertGt(sellOffers[i].validUntilTimestamp, block.timestamp);
+            // assertGt(sellOffers[i].validUntilTimestamp, block.timestamp);
         }
 
         // Strike prices should be increasing (further from current price)

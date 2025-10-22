@@ -22,6 +22,13 @@ abstract contract DoppiTraderAdminView is Ownable, Pausable {
     uint32 public traderDefaultDay = 1;
     DoppiConfig public doppiConfig;
     
+    function getTotalBalancesInLP() external view returns (uint256 totalAssetA, uint256 totalAssetB) {
+        uint256 totalAssetLP = doppiLP.totalAssetsInAssetA();
+        (uint256 ratioA, ) = doppiLP.assetRatio();        
+        totalAssetA = totalAssetLP * ratioA / 1e18;
+        totalAssetB = totalAssetLP - totalAssetA;
+    }
+
     function getTotalBalances() external view returns (uint256 totalAssetA, uint256 totalAssetB, uint256 price) {
         
         price = doppiLP.getPrice();

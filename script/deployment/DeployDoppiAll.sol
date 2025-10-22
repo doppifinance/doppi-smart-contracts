@@ -12,7 +12,7 @@ import {DoppiCore} from "../../src/mainnet/DoppiCore.sol";
 import {DoppiLiquidity} from "../../src/mainnet/DoppiLiquidity.sol";
 import {DoppiLiquidityRouter} from "../../src/mainnet/DoppiLiquidityRouter.sol";
 import {BlackScholes} from "../../src/mainnet/BlackScholes.sol";
-import {ImpliedVol} from "../../src/mainnet/ImpliedVol.sol";
+import {DoppiOffer} from "../../src/mainnet/DoppiOffer.sol";
 import {DoppiPoints} from "../../src/mainnet/DoppiPoints.sol";
 import {DoppiOpportunity} from "../../src/mainnet/DoppiOpportunity.sol";
 import {DoppiConfig} from "../../src/mainnet/DoppiConfig.sol";
@@ -43,7 +43,7 @@ contract DeployDoppiAll is Script {
         vm.startBroadcast(deployerPrivateKey);
 
         BlackScholes blackScholes = _deployBlackScholes();
-        ImpliedVol impliedVol = _deployImpliedVol(address(blackScholes));
+        DoppiOffer impliedVol = _deployDoppiOffer(address(blackScholes));
         DoppiPoints doppiPoints = _deployDoppiPoints();
         DoppiConfig doppiConfig = _deployDoppiConfig(address(doppiPoints));
         doppiConfig.setImpliedVol(address(impliedVol)); 
@@ -74,7 +74,7 @@ contract DeployDoppiAll is Script {
         // Log deployment addresses for easy access
         console.log("\n=== Deployment Summary ===");
         console.log("BlackScholes:", address(blackScholes));
-        console.log("ImpliedVol:", address(impliedVol));
+        console.log("DoppiOffer:", address(impliedVol));
         console.log("DoppiPoints:", address(doppiPoints));
         console.log("DoppiConfig:", address(doppiConfig));
         console.log("DoppiLiquidity:", address(doppiLP));
@@ -115,7 +115,7 @@ contract DeployDoppiAll is Script {
         // doppiCore.setDoppiTraderFactory(doppiFactory);
     }
 
-    function _deployDoppiCore(DoppiLiquidity _doppiLP, ImpliedVol _impliedVol, DoppiPoints _doppiPoints) internal returns (DoppiCore) {
+    function _deployDoppiCore(DoppiLiquidity _doppiLP, DoppiOffer _impliedVol, DoppiPoints _doppiPoints) internal returns (DoppiCore) {
         
         console.log("Deploying DoppiCore...");
         DoppiCore doppiCore = new DoppiCore(USDT, BTC, _doppiLP, _impliedVol);
@@ -153,11 +153,11 @@ contract DeployDoppiAll is Script {
         return blackScholes;
     }
 
-    function _deployImpliedVol(address _blackScholes) internal returns (ImpliedVol) {
+    function _deployDoppiOffer(address _blackScholes) internal returns (DoppiOffer) {
         
-        console.log("Deploying ImpliedVol...");
-        ImpliedVol impliedVol = new ImpliedVol(IBlackScholes(_blackScholes), CHAINLINK_BTC_USD, 500);
-        console.log("ImpliedVol deployed at:", address(impliedVol));
+        console.log("Deploying DoppiOffer...");
+        DoppiOffer impliedVol = new DoppiOffer(IBlackScholes(_blackScholes), CHAINLINK_BTC_USD, 500);
+        console.log("DoppiOffer deployed at:", address(impliedVol));
         return impliedVol;
     }
 

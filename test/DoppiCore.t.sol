@@ -9,8 +9,8 @@ import {DoppiTraderFactory} from "../src/mainnet/DoppiTraderFactory.sol";
 import {DoppiTrader} from "../src/mainnet/DoppiTrader.sol";
 import {DoppiConfig} from "../src/mainnet/DoppiConfig.sol";
 import {BlackScholes} from "../src/mainnet/BlackScholes.sol";
-import {ImpliedVol} from "../src/mainnet/ImpliedVol.sol";
-import {IImpliedVol} from "../src/Interface/IImpliedVol.sol";
+import {DoppiOffer} from "../src/mainnet/DoppiOffer.sol";
+import {IDoppiOffer} from "../src/Interface/IDoppiOffer.sol";
 import {DoppiPoints} from "../src/mainnet/DoppiPoints.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {MockToken} from "../src/test/MockToken.sol";
@@ -26,7 +26,7 @@ contract DoppiCoreTest is Test {
     DoppiLiquidityRouter doppiRouter;
     DoppiTraderFactory traderFactory;
     BlackScholes blackScholes;
-    ImpliedVol impliedVol;
+    DoppiOffer impliedVol;
     MockToken usdt;
     MockToken btc;
     MockOracle oracle;
@@ -48,6 +48,7 @@ contract DoppiCoreTest is Test {
 
 
     function setUp() public {
+        vm.warp(vm.getBlockTimestamp() + 30 days); 
         int256 a_buy = 0.0000000807142857142833 * 1e27;
         int256 b_buy = -0.019095857142856592 * 1e27;
         int256 c_buy = 1159.8454285713972 * 1e27;
@@ -61,7 +62,7 @@ contract DoppiCoreTest is Test {
         oracle = new MockOracle(int256(INITIAL_PRICE), 8);
 
         blackScholes = new BlackScholes();
-        impliedVol = new ImpliedVol(blackScholes, address(oracle), 500);
+        impliedVol = new DoppiOffer(blackScholes, address(oracle), 500);
         impliedVol.setRegression(86400, a_buy, b_buy, c_buy, a_sell, b_sell, c_sell);
 
         doppiPoints = new DoppiPoints();
@@ -177,7 +178,7 @@ contract DoppiCoreTest is Test {
             strikePrice: buyOffer.strikePrice + 1, // Invalid strike price
             numDays: 1,
             apr: buyOffer.apr,
-            validityTime: buyOffer.validUntilTimestamp
+            expiry: buyOffer.expiry
         });
 
         vm.startPrank(user1);
@@ -195,7 +196,7 @@ contract DoppiCoreTest is Test {
             strikePrice: buyOffer.strikePrice,
             numDays: 1,
             apr: buyOffer.apr + 1, // Invalid APR
-            validityTime: buyOffer.validUntilTimestamp
+            expiry: buyOffer.expiry
         });
 
         vm.startPrank(user1);
@@ -216,7 +217,7 @@ contract DoppiCoreTest is Test {
     //         strikePrice: buyOffer.strikePrice,
     //         numDays: 1,
     //         apr: buyOffer.apr,
-    //         validityTime: buyOffer.validUntilTimestamp
+    //         expiry: buyOffer.expiry
     //     });
 
     //     vm.startPrank(user1);
@@ -579,7 +580,7 @@ contract DoppiCoreTest is Test {
             strikePrice: buyOffer.strikePrice,
             numDays: 1,
             apr: buyOffer.apr,
-            validityTime: buyOffer.validUntilTimestamp
+            expiry: buyOffer.expiry
         });
 
         vm.startPrank(user1);
@@ -601,7 +602,7 @@ contract DoppiCoreTest is Test {
             strikePrice: sellOffers[0].strikePrice,
             numDays: 1,
             apr: sellOffers[0].apr,
-            validityTime: sellOffers[0].validUntilTimestamp
+            expiry: sellOffers[0].expiry
         });
 
         vm.startPrank(user1);
@@ -649,7 +650,7 @@ contract DoppiCoreTest is Test {
                 strikePrice: buyOffers[0].strikePrice,
                 numDays: 1,
                 apr: buyOffers[0].apr,
-                validityTime: buyOffers[0].validUntilTimestamp
+                expiry: buyOffers[0].expiry
             })
         );
         vm.stopPrank();
@@ -664,7 +665,7 @@ contract DoppiCoreTest is Test {
                 strikePrice: buyOffers[1].strikePrice,
                 numDays: 1,
                 apr: buyOffers[1].apr,
-                validityTime: buyOffers[1].validUntilTimestamp
+                expiry: buyOffers[1].expiry
             })
         );
         vm.stopPrank();
@@ -878,7 +879,7 @@ contract DoppiCoreTest is Test {
             strikePrice: buyOffer.strikePrice,
             numDays: 1,
             apr: buyOffer.apr,
-            validityTime: buyOffer.validUntilTimestamp
+            expiry: buyOffer.expiry
         });
 
         // Expect Deposited event
@@ -919,7 +920,7 @@ contract DoppiCoreTest is Test {
             strikePrice: sellOffer.strikePrice,
             numDays: 1,
             apr: sellOffer.apr,
-            validityTime: sellOffer.validUntilTimestamp
+            expiry: sellOffer.expiry
         });
 
         // Expect Deposited event
@@ -1215,12 +1216,14 @@ contract DoppiCoreTest is Test {
         assertEq(volume, 50000 ether);
         assertEq(points, 50000 ether);
         
+        _updateIV();
+
         // Deposit a sell position
         _depositBTC();
         vm.warp(block.timestamp + 2 days + 1);
         oracle.setPrice(int256(99_000 * 1e8)); // Price stays same, above strike
         readyPositions = doppiCore.getReadySellPositions();
-        console.log(readyPositions.length, "readyPositions.length");
+        // console.log(readyPositions.length, "readyPositions.length");
         vm.startPrank(owner);
         doppiCore.settle_sells(readyPositions);
         (volume, points) = doppiPoints.traders(user1);
@@ -1240,7 +1243,7 @@ contract DoppiCoreTest is Test {
             strikePrice: sellOffer.strikePrice,
             numDays: 1,
             apr: sellOffer.apr,
-            validityTime: sellOffer.validUntilTimestamp
+            expiry: sellOffer.expiry
         });
 
         vm.startPrank(user1);
@@ -1260,7 +1263,7 @@ contract DoppiCoreTest is Test {
             strikePrice: buyOffer.strikePrice,
             numDays: 1,
             apr: buyOffer.apr,
-            validityTime: buyOffer.validUntilTimestamp
+            expiry: buyOffer.expiry
         });
 
         vm.startPrank(user1);
@@ -1270,5 +1273,16 @@ contract DoppiCoreTest is Test {
 
         return buyOffer;
 
+    }
+
+    function _updateIV() internal {
+        int256 a_buy = 0.0000000807142857142833 * 1e27;
+        int256 b_buy = -0.019095857142856592 * 1e27;
+        int256 c_buy = 1159.8454285713972 * 1e27;
+
+        int256 a_sell = 0.000000102857142857143 * 1e27;
+        int256 b_sell = -0.02447200000000008 * 1e27;
+        int256 c_sell = 1485.8762857142906 * 1e27;
+        impliedVol.setRegression(86400, a_buy, b_buy, c_buy, a_sell, b_sell, c_sell);
     }
 }

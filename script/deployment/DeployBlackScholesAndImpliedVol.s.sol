@@ -3,7 +3,7 @@ pragma solidity ^0.8.20;
 
 import "forge-std/Script.sol";
 import "../../src/mainnet/BlackScholes.sol";
-import "../../src/mainnet/ImpliedVol.sol";
+import "../../src/mainnet/DoppiOffer.sol";
 
 contract DeployBlackScholesAndImpliedVol is Script {
     
@@ -18,14 +18,14 @@ contract DeployBlackScholesAndImpliedVol is Script {
         console.log("BlackScholes deployed at:", address(blackScholes));
 
         // Deploy ImpliedVol contract (requires BlackScholes address)
-        ImpliedVol impliedVol = new ImpliedVol(IBlackScholes(blackScholes), CHAINLINK_BTC_USD, 500);
-        console.log("ImpliedVol deployed at:", address(impliedVol));
+        DoppiOffer impliedVol = new DoppiOffer(IBlackScholes(blackScholes), CHAINLINK_BTC_USD, 500);
+        console.log("DoppiOffer deployed at:", address(impliedVol));
 
         vm.stopBroadcast();
 
         // Log deployment addresses for easy access
         console.log("\n=== Deployment Summary ===");
         console.log("BlackScholes:", address(blackScholes));
-        console.log("ImpliedVol:", address(impliedVol));
+        console.log("DoppiOffer:", address(impliedVol));
     }
 }
