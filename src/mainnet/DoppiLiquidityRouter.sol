@@ -4,6 +4,7 @@ pragma solidity ^0.8.26;
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
+import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import {Pausable} from "@openzeppelin/contracts/utils/Pausable.sol";
 import {IDoppiLiquidityRouter} from "../Interface/IDoppiLiquidityRouter.sol";
 import {IDoppiLiquidity} from "../Interface/IDoppiLiquidity.sol";
@@ -11,7 +12,7 @@ import {IShares} from "../Interface/IShares.sol";
 import {IERC7575, ERC7575} from "./ERC7575.sol";
 import "forge-std/console.sol";
 
-contract DoppiLiquidityRouter is Ownable, Pausable, IDoppiLiquidityRouter {
+contract DoppiLiquidityRouter is Ownable, Pausable, ReentrancyGuard, IDoppiLiquidityRouter {
     using SafeERC20 for IERC20;
 
     IDoppiLiquidity public immutable doppiLP;
@@ -25,8 +26,8 @@ contract DoppiLiquidityRouter is Ownable, Pausable, IDoppiLiquidityRouter {
     
     constructor(IERC20 _assetA, IERC20 _assetB, IDoppiLiquidity _doppiLP) Ownable(msg.sender) {
         doppiLP = _doppiLP;
-        entryPointA = new EntryPointAssetA(_assetA, IShares(address(_doppiLP)));
-        entryPointB = new EntryPointAssetB(_assetB, IShares(address(_doppiLP)));
+        entryPointA = new EntryPointAssetA(_assetA, IShares(address(_doppiLP)), address(this));
+        entryPointB = new EntryPointAssetB(_assetB, IShares(address(_doppiLP)), address(this));
         assetA = address(_assetA);
         assetB = address(_assetB);
     }
@@ -46,7 +47,7 @@ contract DoppiLiquidityRouter is Ownable, Pausable, IDoppiLiquidityRouter {
         emit Deposited(msg.sender, _amount, _asset, shares);
     }
 
-    function redeem(uint256 _shares) external returns (uint256 assetsA, uint256 assetsB) {
+    function redeem(uint256 _shares) external nonReentrant returns (uint256 assetsA, uint256 assetsB) {
         IERC20(doppiLP).safeTransferFrom(msg.sender, address(this), _shares);
         (uint256 ratioA, uint256 ratioB) = entryPointB.assetRatio();
         uint256 firstHalf = _shares * ratioA / (ratioA + ratioB);
@@ -66,7 +67,28 @@ contract DoppiLiquidityRouter is Ownable, Pausable, IDoppiLiquidityRouter {
 }
 
 contract EntryPointAssetA is ERC7575 {
-    constructor(IERC20 _asset, IShares _share) ERC7575(_asset, _share) {}
+    
+    address public immutable router;
+    
+    constructor(IERC20 _asset, IShares _share, address _router) ERC7575(_asset, _share) {
+        router = _router;
+    }
+
+    function deposit(uint256 assets, address receiver) public override onlyRouter returns (uint256) {
+        return super.deposit(assets, receiver);
+    }
+    
+    function redeem(uint256 shares, address receiver, address owner) public override onlyRouter returns (uint256) {
+        return super.redeem(shares, receiver, owner);
+    }
+
+    function mint(uint256 shares, address receiver) public override onlyRouter returns (uint256) {
+        revert("Mint not supported");
+    }
+
+    function withdraw(uint256 assets, address receiver, address owner) public override onlyRouter returns (uint256) {
+        revert("Withdraw not supported");
+    }
 
     function totalAssets() public view override returns (uint256) {
         return IDoppiLiquidity(shareToken()).totalAssetsInAssetA();
@@ -75,10 +97,36 @@ contract EntryPointAssetA is ERC7575 {
     function assetRatio() public view returns (uint256, uint256) {
         return IDoppiLiquidity(shareToken()).assetRatio();
     }
+
+    modifier onlyRouter() {
+        require(msg.sender == router, "Only router can call");
+        _;
+    }
 }
 
 contract EntryPointAssetB is ERC7575 {
-    constructor(IERC20 _asset, IShares _share) ERC7575(_asset, _share) {}
+    
+    address public immutable router;
+    
+    constructor(IERC20 _asset, IShares _share, address _router) ERC7575(_asset, _share) {
+        router = _router;
+    }
+
+    function deposit(uint256 assets, address receiver) public override onlyRouter returns (uint256) {
+        return super.deposit(assets, receiver);
+    }
+    
+    function redeem(uint256 shares, address receiver, address owner) public override onlyRouter returns (uint256) {
+        return super.redeem(shares, receiver, owner);
+    }
+
+    function mint(uint256 shares, address receiver) public override onlyRouter returns (uint256) {
+        revert("Mint not supported");
+    }
+
+    function withdraw(uint256 assets, address receiver, address owner) public override onlyRouter returns (uint256) {
+        revert("Withdraw not supported");
+    }
 
     function totalAssets() public view override returns (uint256) {
         return IDoppiLiquidity(shareToken()).totalAssetsInAssetB();
@@ -86,5 +134,10 @@ contract EntryPointAssetB is ERC7575 {
 
     function assetRatio() public view returns (uint256, uint256) {
         return IDoppiLiquidity(shareToken()).assetRatio();
+    }
+
+    modifier onlyRouter() {
+        require(msg.sender == router, "Only router can call");
+        _;
     }
 }

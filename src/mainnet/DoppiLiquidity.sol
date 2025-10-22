@@ -212,9 +212,9 @@ contract DoppiLiquidity is ERC20, Ownable, Pausable, IDoppiLiquidity, Automation
         uint256 currentPrice = DALiquidityLib.getPrice(config.chainLinkFeed);
 
         (uint256[] memory buyindexes, uint256 totalBuyAmount, uint256 totalBuyAmountOut) = 
-            _getAccumulatedBuyPrices(currentPrice);
+            _getAccumulatedPrices(currentPrice, true);
         (uint256[] memory sellindexes, uint256 totalSellAmount, uint256 totalSellAmountOut) = 
-            _getAccumulatedSellPrices(currentPrice);
+            _getAccumulatedPrices(currentPrice, false);
         
         if (buyindexes.length > 0 && sellindexes.length > 0) {
             (bool isNetBuy, uint256 netAmount, uint256 netAmountOut) = 
@@ -243,8 +243,8 @@ contract DoppiLiquidity is ERC20, Ownable, Pausable, IDoppiLiquidity, Automation
             abi.decode(performData, (bool, uint256[], uint256[], uint256, uint256));
         
         uint out = _swapPancake(totalAmount, totalAmountOut, isNetBuy);
-        _clearBuyOrders(buyindexes);
-        _clearSellOrders(sellindexes);
+        _clearOrders(buyindexes, true);
+        _clearOrders(sellindexes, false);
 
         emit UnwindPerformed(isNetBuy, totalAmount, out);
     }
@@ -303,96 +303,70 @@ contract DoppiLiquidity is ERC20, Ownable, Pausable, IDoppiLiquidity, Automation
         }
     }
 
-    function _clearBuyOrders(uint256[] memory indexes) internal {
+    function _clearOrders(uint256[] memory indexes, bool isBuy) internal {
         uint256 length = indexes.length;
-        if(length == 0) return;
+        if (length == 0) return;
+        
+        uint256[] storage priceArray = isBuy ? toBuyPrices : toSellPrices;
+        mapping(uint256 => uint256) storage amountMap = isBuy ? amountToBuy : amountToSell; // ← This MUST be storage
         
         for (uint256 i = length; i > 0; ) {
             uint256 index = i - 1;
-            delete amountToBuy[toBuyPrices[indexes[index]]];
-            DALiquidityLib.sortedRemove(toBuyPrices, indexes[index]);
+            delete amountMap[priceArray[indexes[index]]]; // ← This modifies storage
+            DALiquidityLib.sortedRemove(priceArray, indexes[index]);
             unchecked { --i; }
         }
     }
 
-    function _clearSellOrders(uint256[] memory indexes) internal {
-        uint256 length = indexes.length;
-        if(length == 0) return;
+    function _getAccumulatedPrices(
+        uint256 currentPrice, 
+        bool isBuy
+    ) internal view returns (
+        uint256[] memory _indexes, 
+        uint256 totalAmount, 
+        uint256 totalAmountOut
+    ) {
+        uint256[] storage priceArray = isBuy ? toBuyPrices : toSellPrices;
+        mapping(uint256 => uint256) storage amountMap = isBuy ? amountToBuy : amountToSell;
         
-        for (uint256 i = length; i > 0; ) {
-            uint256 index = i - 1;
-            delete amountToSell[toSellPrices[indexes[index]]];
-            DALiquidityLib.sortedRemove(toSellPrices, indexes[index]);
-            unchecked { --i; }
-        }
-    }
-
-    function _getAccumulatedBuyPrices(uint256 currentPrice) internal view returns (
-        uint256[] memory _indexes, uint256 totalBuyAmount, uint256 totalBuyAmountOut) 
-    {
-        uint256 buyPricesLength = toBuyPrices.length;
-        if(buyPricesLength == 0) return(new uint256[](0), 0, 0);
-        uint256[] memory tempindexes = new uint256[](UPKEEPS_PER_CHECK);
+        uint256 pricesLength = priceArray.length;
+        if (pricesLength == 0) return (new uint256[](0), 0, 0);
+        
+        uint256[] memory tempIndexes = new uint256[](UPKEEPS_PER_CHECK);
         uint256 count = 0;
-        totalBuyAmount = 0;
-        totalBuyAmountOut = 0;
+        totalAmount = 0;
+        totalAmountOut = 0;
         
-        for (uint256 i = buyPricesLength; i > 0 && count < UPKEEPS_PER_CHECK; ) {
+        for (uint256 i = pricesLength; i > 0 && count < UPKEEPS_PER_CHECK; ) {
             uint256 idx = i - 1;
-            uint256 buyPrice = toBuyPrices[idx];
-            if (amountToBuy[buyPrice] > 0 && currentPrice < buyPrice) {
-                uint256 buyAmount = amountToBuy[buyPrice];
-                totalBuyAmount += buyAmount;
-                totalBuyAmountOut += buyAmount * config.decimals / currentPrice;
-                tempindexes[count] = idx;
+            uint256 price = priceArray[idx];
+            uint256 amount = amountMap[price];
+            
+            bool condition = isBuy 
+                ? (amount > 0 && currentPrice < price)
+                : (amount > 0 && currentPrice > price);
+            
+            if (condition) {
+                totalAmount += amount;
+                
+                if (isBuy) {
+                    totalAmountOut += amount * config.decimals / currentPrice;
+                } else {
+                    totalAmountOut += amount * currentPrice / config.decimals;
+                }
+                
+                tempIndexes[count] = idx;
                 count++;
             }
             unchecked { --i; }
         }
 
-        uint256 newcount = 0;
-        uint256 arrcount = count < UPKEEPS_PER_CHECK ? count: UPKEEPS_PER_CHECK;
-        _indexes = new uint256[](arrcount);
+        uint256 arrCount = count < UPKEEPS_PER_CHECK ? count : UPKEEPS_PER_CHECK;
+        _indexes = new uint256[](arrCount);
         
-        for (uint256 j = arrcount; j < 0; ) {
-            _indexes[newcount] = tempindexes[j-1];
-            unchecked { --j; }
-            unchecked { newcount++; }
-        }
-    }
-
-    function _getAccumulatedSellPrices(uint256 currentPrice) internal view returns (
-        uint256[] memory _indexes, uint256 totalSellAmount, uint256 totalSellAmountOut) 
-    {
-        uint256 sellPricesLength = toSellPrices.length;
-        if(sellPricesLength == 0) return(new uint256[](0), 0, 0);
-        
-        uint256 count = 0;
-        uint256[] memory tempindexes = new uint256[](UPKEEPS_PER_CHECK);
-        totalSellAmount = 0;
-        totalSellAmountOut = 0;
-        
-        for (uint256 i = sellPricesLength; i > 0 && count < UPKEEPS_PER_CHECK; ) {
-            uint256 idx = i - 1;
-            uint256 sellPrice = toSellPrices[idx];
-            if (amountToSell[sellPrice] > 0 && currentPrice > sellPrice) {
-                uint256 sellAmount = amountToSell[sellPrice];
-                totalSellAmount += sellAmount;
-                totalSellAmountOut += sellAmount * currentPrice / config.decimals;
-                tempindexes[count] = idx;
-                count++;
-            }
-            unchecked { --i; }
-        }
-
-        uint256 newcount = 0;
-        uint256 arrcount = count < UPKEEPS_PER_CHECK ? count: UPKEEPS_PER_CHECK;
-        _indexes = new uint256[](arrcount);
-        
-        for (uint256 j = arrcount; j < 0; ) {
-            _indexes[newcount] = tempindexes[j-1];
-            unchecked { --j; }
-            unchecked { newcount++; }
+        for (uint256 j = 0; j < arrCount; ) {
+            _indexes[j] = tempIndexes[arrCount - 1 - j];
+            unchecked { ++j; }
         }
     }
 
