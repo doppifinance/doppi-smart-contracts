@@ -30,6 +30,7 @@ contract DoppiOfferTest is Test {
         markIV = new DoppiOffer(blackScholes, address(oracle), 500);
         vm.warp(vm.getBlockTimestamp() + 30 days); 
         markIV.setRegression(86400, a_buy, b_buy, c_buy, a_sell, b_sell, c_sell);
+        markIV.setRegression(86400 * 3, a_buy, b_buy, c_buy, a_sell, b_sell, c_sell);
     }
 
     function test_getRegression() public view {
@@ -116,11 +117,9 @@ contract DoppiOfferTest is Test {
         assertEq(buyOffers[4].apr, 13612);
             
         for (uint256 i = 0; i < buyOffers.length; i++) {
-            // console.log(buyOffers[i].strikePrice, buyOffers[i].apr);
             assertEq(buyOffers[i].price, INITIAL_PRICE);
             assertLt(buyOffers[i].strikePrice, INITIAL_PRICE);
             assertGt(buyOffers[i].apr, 0);
-            // assertGt(buyOffers[i].validUntilTimestamp, block.timestamp);
         }
 
         // Strike prices should be decreasing (further from current price)
@@ -162,6 +161,36 @@ contract DoppiOfferTest is Test {
         for (uint256 i = 0; i < 5; i++) {
             assertEq(buyOffers[i].price, INITIAL_PRICE);
             assertEq(sellOffers[i].price, INITIAL_PRICE);
+            assertLt(buyOffers[i].strikePrice, INITIAL_PRICE);
+            assertGt(sellOffers[i].strikePrice, INITIAL_PRICE);
+        }
+    }
+
+    function test_getAllOffers_3days() public view {
+        (DualAssetOffer[] memory buyOffers, DualAssetOffer[] memory sellOffers) =
+            markIV.getAllOffers(3);
+
+        assertEq(buyOffers.length, 5);
+        assertEq(sellOffers.length, 5);
+
+        for (uint256 i = 0; i < 5; i++) {
+            assertEq(buyOffers[i].price, INITIAL_PRICE);
+            assertEq(sellOffers[i].price, INITIAL_PRICE);
+            assertGt(buyOffers[i].apr, 0);
+            assertGt(sellOffers[i].apr, 0);
+        }
+    }
+
+    function test_getAllOffers_2days_NoAPR() public view {
+        (DualAssetOffer[] memory buyOffers, DualAssetOffer[] memory sellOffers) =
+            markIV.getAllOffers(2);
+
+        assertEq(buyOffers.length, 5);
+        assertEq(sellOffers.length, 5);
+
+        for (uint256 i = 0; i < 5; i++) {
+            assertEq(buyOffers[i].apr, 0);
+            assertEq(sellOffers[i].apr, 0);
             assertLt(buyOffers[i].strikePrice, INITIAL_PRICE);
             assertGt(sellOffers[i].strikePrice, INITIAL_PRICE);
         }

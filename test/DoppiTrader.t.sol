@@ -831,6 +831,47 @@ contract DoppiTraderTest is Test {
         vm.stopPrank();
     }
 
+    function test_doppicore_doppiRouter_emergencyWithdraw() public {
+        
+        uint256 start_usdtbal = usdt.balanceOf(trader);
+        uint256 start_btcbal = btc.balanceOf(trader);
+
+        _start();
+
+        vm.startPrank(trader);
+        doppiTrader.setPause();
+        vm.expectRevert("only for emergency");
+        doppiTrader.emergencyWithdraw();
+        vm.stopPrank();
+        
+        vm.startPrank(trader);
+        vm.expectRevert("only for emergency in LP");
+        doppiTrader.emergencyWithdrawLP();
+        vm.stopPrank();
+        
+        // vm.startPrank(owner);
+        doppiCore.setPause();
+        doppiCore.setEmergencyMode(true);
+        doppiRouter.setPause();
+        doppiRouter.setEmergencyMode(true);
+        // vm.stopPrank();
+        
+        vm.startPrank(trader);
+        doppiTrader.emergencyWithdraw();
+        doppiTrader.emergencyWithdrawLP();
+        vm.stopPrank();
+
+        uint256 end_usdtbal = usdt.balanceOf(trader);
+        uint256 end_btcbal = btc.balanceOf(trader);
+
+        console.log(start_usdtbal, end_usdtbal);
+        console.log(start_btcbal, end_btcbal);
+        
+        // Check BTC balance decreased
+        assertEq(end_usdtbal, 9999983999999999999955264);
+        assertEq(end_btcbal, 100000158400000000000);
+
+    }
 
     // internal
     function _start() internal {

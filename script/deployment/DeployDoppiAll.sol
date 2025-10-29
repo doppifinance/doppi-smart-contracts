@@ -31,6 +31,7 @@ contract DeployDoppiAll is Script {
     address constant LINK_PEGGED_SWAP = address(0x1FCc3B22955e76Ca48bF025f1A6993685975Bb9e);
     address constant PCSWAP_V3_ROUTER = address(0x13f4EA83D0bd40E75C8222255bc855a974568Dd4);
     address constant PCSWAP_V3_QUOTER = address(0xB048Bbc1Ee6b733FFfCFb9e9CeF7375518e25997);
+    address constant PCSWAP_V3Pool = address(0x46Cf1cF8c69595804ba91dFdd8d6b960c9B0a7C4);
     address constant CHAINLINK_RegistryConsumer = address(0xDc21E279934fF6721CaDfDD112DAfb3261f09A2C);
     address constant CHAINLINK_Registrar = address(0xf671F60bCC964B309D22424886FF202807381B32);
     address constant treasury = address(0xaD8234bC07168d9f7E49c3780e4b5fefa6620f8A);
@@ -158,6 +159,8 @@ contract DeployDoppiAll is Script {
         console.log("Deploying DoppiOffer...");
         DoppiOffer impliedVol = new DoppiOffer(IBlackScholes(_blackScholes), CHAINLINK_BTC_USD, 500);
         console.log("DoppiOffer deployed at:", address(impliedVol));
+        impliedVol.setTwapDuration(3600);
+        impliedVol.setPancakeV3Pool(PCSWAP_V3Pool);
         return impliedVol;
     }
 
@@ -176,7 +179,7 @@ contract DeployDoppiAll is Script {
         doppiConfig.setRouter(PCSWAP_V3_ROUTER);
         doppiConfig.setQuoter(PCSWAP_V3_QUOTER);
         doppiConfig.setTreasury(treasury);
-        doppiConfig.setPancakeV3Pool(PCSWAP_V3_ROUTER); 
+        doppiConfig.setPancakeV3Pool(PCSWAP_V3Pool); 
         doppiConfig.setOracle(CHAINLINK_BTC_USD);
         doppiConfig.setSlippage(500);
         // doppiConfig.setDoppiUpKeepManager(address(mockDoppiUpKeepManager));

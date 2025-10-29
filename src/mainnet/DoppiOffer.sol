@@ -22,9 +22,13 @@ contract DoppiOffer is IDoppiOffer, Ownable {
         uint256 lastUpdated;
     }
 
+    
+    uint256 public HEDGE_ADJUST = 10;
     uint256 public TOTAL_OFFER = 5;
     uint256 public PRICE_GAP_PEROFFER;
     AggregatorV3Interface chainLinkFeed; 
+    uint32 public twapDuration;
+    address public pancakeV3Pool;
     uint256 private constant SECONDS_PER_YEAR = 31536000;
     uint256 private constant SECONDS_PER_DAY = 86400;
     int256 public priceDecimal = 1e8;
@@ -40,6 +44,18 @@ contract DoppiOffer is IDoppiOffer, Ownable {
         admins[msg.sender] = true;
     }
 
+    function setTwapDuration(uint32 _twapDuration) external onlyOwner {
+        twapDuration = _twapDuration;
+    }
+
+    function setPancakeV3Pool(address _pancakeV3Pool) external onlyOwner {
+        pancakeV3Pool = _pancakeV3Pool;
+    }
+
+    function setHedgeAdjust(uint32 _adjust) external onlyOwner {
+        HEDGE_ADJUST = _adjust;
+    }
+
     function setTotalOffer(uint32 _total) external onlyOwner {
         TOTAL_OFFER = _total;
     }
@@ -52,7 +68,7 @@ contract DoppiOffer is IDoppiOffer, Ownable {
         chainLinkFeed = AggregatorV3Interface(_newOracle);
     }
 
-    function setPriceDecimal(int256 _decimal) public onlyAdmin {
+    function setPriceDecimal(int256 _decimal) public onlyOwner {
         priceDecimal = _decimal;
     }
 
@@ -130,7 +146,7 @@ contract DoppiOffer is IDoppiOffer, Ownable {
         view
         returns (DualAssetOffer memory offer)
     {
-        uint256 price = DALiquidityLib.getPrice(chainLinkFeed);
+        uint256 price = DALiquidityLib.getPriceWithFallback(chainLinkFeed, pancakeV3Pool, twapDuration);
         return _getOffer(_isBuy, _numDays, _strikeZone, price);
     }
 
@@ -139,7 +155,7 @@ contract DoppiOffer is IDoppiOffer, Ownable {
         view 
         returns (DualAssetOffer[] memory buyoffers) 
     {
-        uint256 price = DALiquidityLib.getPrice(chainLinkFeed);
+        uint256 price = DALiquidityLib.getPriceWithFallback(chainLinkFeed, pancakeV3Pool, twapDuration);
         buyoffers = new DualAssetOffer[](TOTAL_OFFER);
         for (uint8 i = 0; i < TOTAL_OFFER; ) {
             buyoffers[i] = _getOffer(true, _numDays, i, price);
@@ -153,7 +169,7 @@ contract DoppiOffer is IDoppiOffer, Ownable {
         view 
         returns (DualAssetOffer[] memory selloffers) 
     {
-        uint256 price = DALiquidityLib.getPrice(chainLinkFeed);
+        uint256 price = DALiquidityLib.getPriceWithFallback(chainLinkFeed, pancakeV3Pool, twapDuration);
         selloffers = new DualAssetOffer[](TOTAL_OFFER);
         for (uint8 i = 0; i < TOTAL_OFFER; ) {
             selloffers[i] = _getOffer(false, _numDays, i, price);
@@ -180,7 +196,7 @@ contract DoppiOffer is IDoppiOffer, Ownable {
         sell = sellRegression[_daysInTimestamp];
     }
 
-    function setAdmin(address _admin, bool _status) public onlyAdmin {
+    function setAdmin(address _admin, bool _status) public onlyOwner {
         admins[_admin] = _status;
     }
 
@@ -213,7 +229,8 @@ contract DoppiOffer is IDoppiOffer, Ownable {
     {
         uint256 onedaybuffer = _price * _iv * blackScholes.sqrt(_timeToExpiry * 1e7 / SECONDS_PER_YEAR * 1e7) / 1e25; // format to 1e18
         uint256 downsideMove = _strikeprice - onedaybuffer;
-        hedgeCost = (_strikeprice - downsideMove) * _delta / 10000 / 10;
+        if(downsideMove > _strikeprice) return 0;
+        hedgeCost = (_strikeprice - downsideMove) * _delta / 10000 / HEDGE_ADJUST;
     }
 
     function _getStrikePrice(uint256 _price, uint8 _strikeZone, bool _isBuy) internal view returns (uint256) {
