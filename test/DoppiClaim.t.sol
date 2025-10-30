@@ -20,6 +20,7 @@ contract DoppiClaimTest is Test {
 
 
     function setUp() public {
+        vm.warp(1735689600);
         // Deploy token & doppiClaim
         token = new DOPPI("Doppi Token", "DOPPI");
         doppiPoints = new DoppiPoints();
@@ -45,6 +46,8 @@ contract DoppiClaimTest is Test {
 
         // Deal some ETH to alice so she can tx
         vm.deal(alice, 10 ether);
+        vm.warp(vm.getBlockTimestamp() + 31 days);
+        
     }
 
     function testClaimWithOnlyTradePoints() public {

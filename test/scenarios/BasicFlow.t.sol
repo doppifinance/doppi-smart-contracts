@@ -49,7 +49,7 @@ contract BasicFlowTest is Test {
     event Unpaused(address account);
 
     function setUp() public {
-        
+        vm.warp(1735689600);
         usdt = new MockToken("USDT", "USDT");
         btc = new MockToken("Bitcoin", "BTC");
         oracle = new MockOracle(int256(100_000 * 1e8), 8);

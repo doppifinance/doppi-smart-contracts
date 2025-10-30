@@ -40,6 +40,7 @@ contract DoppiReferral is Ownable {
     uint256 public constant BP_DENOMINATOR = 10000;
     uint256 public MIN_VOLUME_FOR_L2 = 500_000 ether;
     uint256 public MIN_VOLUME_FOR_L3 = 1_000_000 ether;
+    uint256 public constant startTimestamp = 1735689600; // Jan 1, 2025
 
     // --- Referral state ---
     mapping(address => ReferralInfo) public referrals; // trader => referrer
@@ -93,7 +94,7 @@ contract DoppiReferral is Ownable {
         require(referrer != msg.sender, "cannot refer self");
 
         referrals[referrer] = ReferralInfo({
-            claimedMonthId: 0,
+            claimedMonthId: _currentMonthId() - 1,
             claimedLevel1: 0,
             claimedLevel2: 0,
             claimedLevel3: 0
@@ -113,20 +114,20 @@ contract DoppiReferral is Ownable {
         return _getTotalReferralRewards(trader);
     }
 
-    function resetClaims(address trader) external onlyDoppiClaim {
-
-        uint256[] memory monthIds = doppiPoints.getMonthIds();
-        if(monthIds.length == 0) return; 
-        uint256 previousMonthId = monthIds.length > 2 ? monthIds[monthIds.length - 2] : monthIds[monthIds.length - 1];
-        // console.log("resetClaims", previousMonthId, _currentMonthId());
-        if(previousMonthId == _currentMonthId()) return;
-        (uint256 level1Reward, uint256 level2Reward, uint256 level3Reward) 
-        = _getTotalReferralRewards(trader);
-        // console.log(level1Reward, level2Reward, level3Reward);
-        referrals[trader].claimedMonthId = previousMonthId;
-        referrals[trader].claimedLevel1 += level1Reward;
-        referrals[trader].claimedLevel2 += level2Reward;
-        referrals[trader].claimedLevel3 += level3Reward;
+    function resetClaims(address referrer) external onlyDoppiClaim {
+        uint256 currentMonthId = _currentMonthId();
+        ReferralInfo storage ref = referrals[referrer];
+        
+        // Only reset if we're in a new month
+        if (currentMonthId > ref.claimedMonthId + 1) {
+            (uint256 level1Reward, uint256 level2Reward, uint256 level3Reward) = 
+                _getTotalReferralRewards(referrer);
+            
+            ref.claimedLevel1 += level1Reward;
+            ref.claimedLevel2 += level2Reward;
+            ref.claimedLevel3 += level3Reward;
+            ref.claimedMonthId = currentMonthId - 1; // Claim up to previous month
+        }
     }
 
     function getReferralInfo(address user) external view returns (ReferralInfo memory) {
@@ -140,58 +141,64 @@ contract DoppiReferral is Ownable {
         returns (uint256 totalL1, uint256 totalL2, uint256 totalL3)
     {
         ReferralInfo memory ref = referrals[referrer];
-        
         uint256 currentMonthId = _currentMonthId();
-        uint256[] memory monthIds = doppiPoints.getMonthIds();
-        uint256 len = monthIds.length;
         
-        // do not process the current active monthId
-        for (uint256 i = 0; i < len; ) {
-            uint256 monthId = monthIds[i];
-            // console.log(monthId, ref.claimedMonthId, currentMonthId);
-            if(monthId > ref.claimedMonthId && monthId < currentMonthId){
-                // --- Level 1 ---
-                address[] memory level1Refs = directReferees[referrer];
-                for (uint256 j = 0; j < level1Refs.length; ) {
-                    uint256 vol1 = doppiPoints.getMonthlyVolume(level1Refs[j], monthId);
-                    if (vol1 > 0) {
-                        totalL1 += (vol1 * LEVEL1_REWARD_BP) / BP_DENOMINATOR;
-                    }
+        uint256 startMonthId = ref.claimedMonthId + 1;
+        // Only calculate for completed months (exclude current month)
+        uint256 endMonthId = currentMonthId - 1;
 
-                    // --- Level 2 ---
-                    address[] memory level2Refs = directReferees[level1Refs[j]];
-                    for (uint256 k = 0; k < level2Refs.length; ) {
-                        uint256 vol2 = doppiPoints.getMonthlyVolume(level2Refs[k], monthId);
-                        if (vol2 >= MIN_VOLUME_FOR_L2) {
-                            totalL2 += (vol2 * LEVEL2_REWARD_BP) / BP_DENOMINATOR;
-                        }
-
-                        // --- Level 3 ---
-                        address[] memory level3Refs = directReferees[level2Refs[k]];
-                        for (uint256 m = 0; m < level3Refs.length; ) {
-                            // console.log(level3Refs[m], "level3Refs[m]");
-                            uint256 vol3 = doppiPoints.getMonthlyVolume(level3Refs[m], monthId);
-                            // console.log(vol3, "vol3");
-                            if (vol3 >= MIN_VOLUME_FOR_L3) {
-                                totalL3 += (vol3 * LEVEL3_REWARD_BP) / BP_DENOMINATOR;
-                                // console.log(totalL3, "totalL3", MIN_VOLUME_FOR_L3);
-                            }
-                            unchecked { ++m; }
-                        }
-                        unchecked { ++k; }
-                    }
-                    unchecked { ++j; }
-                }
-            }
-            unchecked { ++i; }
+        for (uint256 monthId = startMonthId; monthId <= endMonthId; monthId++) {
+            (uint256 l1, uint256 l2, uint256 l3) = _calculateRewardsForMonth(referrer, monthId);
+            totalL1 += l1;
+            totalL2 += l2;
+            totalL3 += l3;
         }
     }
 
-    // 30-day rolling months
-    function _currentMonthId() internal view returns (uint256) {
-        return block.timestamp / 30 days;
+    function _calculateRewardsForMonth(address referrer, uint256 monthId)
+        internal
+        view
+        returns (uint256 l1, uint256 l2, uint256 l3)
+    {
+        address[] memory level1Refs = directReferees[referrer];
+        
+        for (uint256 i = 0; i < level1Refs.length; i++) {
+            address level1Ref = level1Refs[i];
+            uint256 vol1 = doppiPoints.getMonthlyVolume(level1Ref, monthId);
+            
+            if (vol1 > 0) {
+                l1 += (vol1 * LEVEL1_REWARD_BP) / BP_DENOMINATOR;
+            }
+
+            // Level 2 rewards
+            address[] memory level2Refs = directReferees[level1Ref];
+            for (uint256 j = 0; j < level2Refs.length; j++) {
+                address level2Ref = level2Refs[j];
+                uint256 vol2 = doppiPoints.getMonthlyVolume(level2Ref, monthId);
+                
+                if (vol2 >= MIN_VOLUME_FOR_L2) {
+                    l2 += (vol2 * LEVEL2_REWARD_BP) / BP_DENOMINATOR;
+                }
+
+                // Level 3 rewards
+                address[] memory level3Refs = directReferees[level2Ref];
+                for (uint256 k = 0; k < level3Refs.length; k++) {
+                    address level3Ref = level3Refs[k];
+                    uint256 vol3 = doppiPoints.getMonthlyVolume(level3Ref, monthId);
+                    
+                    if (vol3 >= MIN_VOLUME_FOR_L3) {
+                        l3 += (vol3 * LEVEL3_REWARD_BP) / BP_DENOMINATOR;
+                    }
+                }
+            }
+        }
     }
 
+    function _currentMonthId() internal view returns (uint256) {
+        // 30-day rolling months
+        return (block.timestamp - startTimestamp) / 30 days;
+    }
+    
     // -----------------------
     // Admin functions
     // -----------------------

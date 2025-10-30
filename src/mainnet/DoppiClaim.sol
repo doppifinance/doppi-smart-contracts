@@ -3,6 +3,7 @@ pragma solidity ^0.8.26;
 
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {Pausable} from "@openzeppelin/contracts/utils/Pausable.sol";
+import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "forge-std/console.sol";
 
 interface IDoppiToken {
@@ -23,10 +24,10 @@ interface IDoppiReferral {
     function resetClaims(address user) external;
 }
 
-contract DoppiClaim is Ownable, Pausable {
-    IDoppiToken public doppiToken;
-    IDoppiPoints public doppiPoints;
-    IDoppiReferral public doppiReferral;
+contract DoppiClaim is Ownable, Pausable, ReentrancyGuard {
+    IDoppiToken public immutable doppiToken;
+    IDoppiPoints public immutable doppiPoints;
+    IDoppiReferral public immutable doppiReferral;
 
     /// Tokens per point (in DoppiToken decimals, e.g. 1e18 = 1 token per point if token has 18 decimals)
     uint256 public tokensPerPoint;
@@ -56,7 +57,7 @@ contract DoppiClaim is Ownable, Pausable {
         tokensPerPoint = _tokensPerPoint;
     }
 
-    function claim() external whenNotPaused {
+    function claim() external whenNotPaused nonReentrant {
         address user = msg.sender;
 
         (uint256 points, ) = doppiPoints.getPoints(user);
@@ -67,12 +68,9 @@ contract DoppiClaim is Ownable, Pausable {
 
         uint256 mintAmount = totalPoints * tokensPerPoint;
 
-        // 1. Mint directly to the user
-        doppiToken.mint(user, mintAmount);
-
-        // 2. Reset accounting
         doppiPoints.resetPoint(user);
         doppiReferral.resetClaims(user);
+        doppiToken.mint(user, mintAmount);
 
         emit Claimed(user, points, l1, l2, l3, mintAmount);
     }

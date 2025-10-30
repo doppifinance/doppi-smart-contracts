@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.26;
-
+import {Initializable} from "@openzeppelin/contracts/proxy/utils/Initializable.sol"; 
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {IDoppiOffer} from "../Interface/IDoppiOffer.sol";
@@ -12,15 +12,16 @@ import "./DoppiCoreTypes.sol";
 import "./DoppiTraderAdminView.sol";
 // import "forge-std/console.sol";
 
-contract DoppiTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCompatibleInterface {
+contract DoppiTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCompatibleInterface, Initializable {
     using SafeERC20 for IERC20;
     
-    IDoppiUpkeepManager public immutable doppiUpkeepManager;
-    IDoppiLiquidityRouter public immutable doppiRouter;
-    IDoppiOffer public immutable impliedVol;
+    bool private initialized;
+    IDoppiUpkeepManager public doppiUpkeepManager;
+    IDoppiLiquidityRouter public doppiRouter;
+    IDoppiOffer public impliedVol;
     uint256 public minAssetAAmount;
     uint256 public minAssetBAmount;
-    uint32 private nextBulkId = 1; 
+    uint32 private nextBulkId; 
     mapping(uint32 => HedgeBulkTrade) public hedgeBulkTrade; 
 
     OrderConfig[] public orderConfigs;
@@ -35,8 +36,13 @@ contract DoppiTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCompati
     error MaxLimit();
     error MustHundred();
     error ExceedMaxZone();
+    error AlreadyInitialized();
     
-    constructor(
+    constructor() Ownable(msg.sender) {
+    }
+
+    // Remove the constructor and replace with initialize function
+    function initialize(
         address _trader,
         IERC20 _assetA,
         IERC20 _assetB,
@@ -44,7 +50,13 @@ contract DoppiTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCompati
         address _doppiRouter,
         address _da,
         uint24[] memory _weights
-    ) Ownable(msg.sender) {
+    ) external initializer {
+        
+        // // Prevent re-initialization
+        if (initialized) revert AlreadyInitialized();
+        initialized = true;
+
+        // Move constructor logic here
         assetA = _assetA;
         assetB = _assetB;
         doppiLP = IDoppiLiquidity(_doppiLP);
@@ -52,6 +64,7 @@ contract DoppiTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCompati
         doppiCore = IDoppiCore(_da);
         validTrader = _trader;
         doppiConfig = DoppiConfig(doppiLP.getDoppiConfig());
+        _transferOwnership(msg.sender); // Transfer ownership to the trader
         _pause();
 
         // Batch approvals
@@ -69,6 +82,8 @@ contract DoppiTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCompati
         minAssetBAmount = doppiConfig.minimal_assetB();
         doppiUpkeepManager = IDoppiUpkeepManager(doppiConfig.doppiUpKeepManager());
         impliedVol = IDoppiOffer(doppiConfig.impliedVol());
+        traderDefaultDay = 1;
+        nextBulkId = 1;
     }
 
     function start(uint256 _amountA, uint256 _amountB) external onlyTrader nonReentrant whenPaused {

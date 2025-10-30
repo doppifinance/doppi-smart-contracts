@@ -11,15 +11,15 @@ import "./DoppiCoreTypes.sol";
 //       DoppiTrader Admin View Module (Owner / Keeper Ops)
 abstract contract DoppiTraderAdminView is Ownable, Pausable {
     
-    IERC20 public immutable assetA;
-    IERC20 public immutable assetB;
-    IDoppiLiquidity public immutable doppiLP;
-    IDoppiCore public immutable doppiCore;
+    IERC20 public assetA;
+    IERC20 public assetB;
+    IDoppiLiquidity public doppiLP;
+    IDoppiCore public doppiCore;
     Trade[] public buy_undo_list;
     Trade[] public sell_undo_list;
     address public validTrader;
     address public s_forwarderAddress;
-    uint32 public traderDefaultDay = 1;
+    uint32 public traderDefaultDay;
     DoppiConfig public doppiConfig;
     
     function getTotalBalancesInLP() external view returns (uint256 totalAssetA, uint256 totalAssetB) {

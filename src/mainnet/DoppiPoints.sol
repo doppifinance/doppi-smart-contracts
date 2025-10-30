@@ -3,7 +3,7 @@ pragma solidity ^0.8.26;
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {Pausable} from "@openzeppelin/contracts/utils/Pausable.sol";
 import {DALiquidityLib} from "../Library/DALiquidityLib.sol";
-import "forge-std/console.sol";
+// import "forge-std/console.sol";
 
 contract DoppiPoints is Ownable, Pausable {
     address public doppiCore;
@@ -13,10 +13,11 @@ contract DoppiPoints is Ownable, Pausable {
         uint256 totalVolume; // total volume traded
         uint256 points;      // total points earned
     }
-
+    mapping(uint256 => bool) public monthExists;
     uint256[] public monthIds;
     mapping(address => Trader) public traders;
     mapping(uint256 => mapping(address => uint256)) public monthlyVolume;
+    uint256 public constant startTimestamp = 1735689600; // Jan 1, 2025
 
     event TradeRecorded(address indexed trader, uint256 volume, uint256 points);
     event PointsReset(address indexed trader, uint256 points);
@@ -70,10 +71,12 @@ contract DoppiPoints is Ownable, Pausable {
     }
 
     function setDoppiCore(address _doppiCore) external onlyOwner {
+        require(_doppiCore != address(0), "Zero address");
         doppiCore = _doppiCore;
     }
 
     function setDoppiClaim(address _doppiClaim) external onlyOwner {
+        require(_doppiClaim != address(0), "Zero address");
         doppiClaim = _doppiClaim;
     }
 
@@ -87,19 +90,15 @@ contract DoppiPoints is Ownable, Pausable {
 
     // internal function 
     function _ensureMonthId(uint256 monthId) internal {
-        uint256 len = monthIds.length;
-        for (uint256 i = 0; i < len; ) {
-            if (monthIds[i] == monthId) {
-                return; // already exists
-            }
-            unchecked { ++i; }
+        if (!monthExists[monthId]) {
+            monthExists[monthId] = true;
+            monthIds.push(monthId);
         }
-        monthIds.push(monthId);
     }
 
     function _currentMonthId() internal view returns (uint256) {
         // 30-day rolling months
-        return block.timestamp / 30 days;
+        return (block.timestamp - startTimestamp) / 30 days;
     }
 
     modifier onlyDoppiCore() {

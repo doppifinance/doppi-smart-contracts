@@ -10,8 +10,10 @@ contract DoppiPointsTest is Test {
     address trader2 = address(0x2);
     address mockDoppiCore = address(0x3);
     address mockDoppiClaim = address(0x4);
-
+    uint256 startTimestamp = 1735689600;
     function setUp() public {
+
+        vm.warp(startTimestamp);
 
         doppiPoints = new DoppiPoints();
         doppiPoints.setDoppiCore(mockDoppiCore);
@@ -146,7 +148,7 @@ contract DoppiPointsTest is Test {
         vm.stopPrank();
 
         uint256 current = vm.getBlockTimestamp(); //block.timestamp;
-        uint256 bucket1 = current / (30 days);
+        uint256 bucket1 = (vm.getBlockTimestamp() - startTimestamp) / 30 days;
         assertEq(bucket1, 1, "Expected bucket1 = 1");
         assertEq(doppiPoints.getMonthlyVolume(trader1, bucket1), 200, "Bucket1 should equal 200");
 
@@ -168,7 +170,7 @@ contract DoppiPointsTest is Test {
         vm.stopPrank();
 
         current = vm.getBlockTimestamp(); // 7603201;
-        uint256 bucket2 = current / (30 days);
+        uint256 bucket2 = (vm.getBlockTimestamp() - startTimestamp) / 30 days;
         // console.log(bucket2, block.timestamp, "block.timestamp");
         assertEq(bucket2, 2, "Expected bucket2 = 2");
         assertEq(doppiPoints.getMonthlyVolume(trader1, bucket2), 450, "Bucket2 should equal 450");
@@ -181,7 +183,7 @@ contract DoppiPointsTest is Test {
         vm.stopPrank();
 
         current = vm.getBlockTimestamp(); //7862401;
-        uint256 bucket3 = current / (30 days);
+        uint256 bucket3 = (vm.getBlockTimestamp() - startTimestamp) / 30 days;
         console.log(bucket3, vm.getBlockTimestamp(), "block.timestamp");
         assertEq(bucket3, 3, "Expected bucket3 = 3");
         assertEq(doppiPoints.getMonthlyVolume(trader1, bucket3), 150, "Bucket3 should equal 150");

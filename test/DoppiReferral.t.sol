@@ -49,7 +49,7 @@ contract DoppiReferralTest is Test {
     bytes32 charlieCode = keccak256("CHARLES");
 
     function setUp() public {
-
+        
         doppiPoints = new DoppiPoints();
         doppiPoints.setDoppiCore(mockDoppiCore);
         mockdoppiPoints = new MockDoppiPoints();
@@ -60,11 +60,13 @@ contract DoppiReferralTest is Test {
             50   // 0.5%
         );
         // fast-forward to known start timestamp
-        vm.warp(30 days); // monthId = 1
+        vm.warp(1735689600);
     }
 
     function test_Level1RewardsForAlice() public {
         
+        vm.warp(vm.getBlockTimestamp() + 31 days);
+
         _registerCode();
 
         vm.warp(vm.getBlockTimestamp() + 31 days);
@@ -81,6 +83,8 @@ contract DoppiReferralTest is Test {
 
     function test_Level2RewardsRequireMinVolume() public {
         
+        vm.warp(vm.getBlockTimestamp() + 31 days);
+
         _registerCode();
 
         vm.warp(vm.getBlockTimestamp() + 31 days);
@@ -97,6 +101,8 @@ contract DoppiReferralTest is Test {
 
     function test_Level2RewardsRequireMinVolume_UnderMin() public {
         
+        vm.warp(vm.getBlockTimestamp() + 31 days);
+
         _registerCode();
 
         vm.warp(vm.getBlockTimestamp() + 31 days);
@@ -112,6 +118,8 @@ contract DoppiReferralTest is Test {
 
     function testThreeLevelReferralRewards() public {
         
+        vm.warp(vm.getBlockTimestamp() + 31 days);
+
         _registerCode();
 
         vm.warp(vm.getBlockTimestamp() + 31 days);
@@ -148,6 +156,8 @@ contract DoppiReferralTest is Test {
 
     function testThreeLevelReferralRewards_NextMonth() public {
         
+        vm.warp(vm.getBlockTimestamp() + 31 days);
+
         testThreeLevelReferralRewards();
 
         // New month. New Trades
@@ -177,7 +187,7 @@ contract DoppiReferralTest is Test {
         uint256 expectedl3 = ((5_000_000 ether * 50) / 10000) + ((2_500_000 ether * 50) / 10000);
 
         DoppiReferral.ReferralInfo memory info = referral.getReferralInfo(alice);
-        uint256 currentMonthId = vm.getBlockTimestamp() / 30 days;
+        uint256 currentMonthId = _currentMonthId();
         assertEq(info.claimedLevel1, expectedl1);
         assertEq(info.claimedLevel2, expectedl2);
         assertEq(info.claimedLevel3, expectedl3);
@@ -186,6 +196,8 @@ contract DoppiReferralTest is Test {
 
     function test_level2_traded_currentmonth_not_included() public {
         
+        vm.warp(vm.getBlockTimestamp() + 31 days);
+
         _registerCode();
 
         vm.warp(vm.getBlockTimestamp() + 31 days);
@@ -210,6 +222,8 @@ contract DoppiReferralTest is Test {
 
     function test_ResetClaimsExcludesPreviousMonth() public {
         
+        vm.warp(vm.getBlockTimestamp() + 31 days);
+
         _registerCode();
 
         // Month 1: Dave trades
@@ -280,5 +294,11 @@ contract DoppiReferralTest is Test {
         referral.registerReferrer(keccak256("CHARLIE"));
         vm.stopPrank();
     } 
+
+    function _currentMonthId() internal view returns (uint256) {
+        // 30-day rolling months
+        uint256 startTimestamp = 1735689600; // Jan 1, 2025
+        return (block.timestamp - startTimestamp) / 30 days;
+    }
 
 }

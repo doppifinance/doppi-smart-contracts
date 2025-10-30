@@ -45,10 +45,9 @@ contract DoppiCoreTest is Test {
     event Deposited(address indexed trader, uint256 positionId, address asset, uint256 amount, uint256 interest, uint256 strikePrice, uint32 apr, uint32 numDays);
     event Settled(address indexed trader, uint256 positionId, bool striked, bool isProfit, uint256 profitLoss, uint256 payout, uint256 interest, address profitToken, address payoutToken, address interestToken);
     event HedgeSettled(address indexed trader, uint256 positionId, bool isProfit, uint256 profitLoss, address profitToken);
-
-
+    
     function setUp() public {
-        vm.warp(vm.getBlockTimestamp() + 30 days); 
+        vm.warp(1735689600);
         int256 a_buy = 0.0000000807142857142833 * 1e27;
         int256 b_buy = -0.019095857142856592 * 1e27;
         int256 c_buy = 1159.8454285713972 * 1e27;

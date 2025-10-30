@@ -28,7 +28,7 @@ contract DoppiOfferTest is Test {
         blackScholes = new BlackScholes();
         oracle = new MockOracle(int256(INITIAL_PRICE), 8);
         markIV = new DoppiOffer(blackScholes, address(oracle), 500);
-        vm.warp(vm.getBlockTimestamp() + 30 days); 
+        vm.warp(1735689600);
         markIV.setRegression(86400, a_buy, b_buy, c_buy, a_sell, b_sell, c_sell);
         markIV.setRegression(86400 * 3, a_buy, b_buy, c_buy, a_sell, b_sell, c_sell);
     }
