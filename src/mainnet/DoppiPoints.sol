@@ -9,14 +9,16 @@ contract DoppiPoints is Ownable, Pausable {
     address public doppiCore;
     address public doppiClaim;
 
-    struct Trader {
-        uint256 totalVolume; // total volume traded
-        uint256 points;      // total points earned
+    struct ClaimedPoint {
+        uint256 claimedMonthId;
+        uint256 totalPointClaimed; 
     }
+
     mapping(uint256 => bool) public monthExists;
     uint256[] public monthIds;
-    mapping(address => Trader) public traders;
     mapping(uint256 => mapping(address => uint256)) public monthlyVolume;
+    mapping(address => ClaimedPoint) public claimedPoint; 
+    
     uint256 public constant startTimestamp = 1735689600; // Jan 1, 2025
 
     event TradeRecorded(address indexed trader, uint256 volume, uint256 points);
@@ -34,10 +36,6 @@ contract DoppiPoints is Ownable, Pausable {
 
         require(volumeInUSDT > 0, "Volume must be > 0");
 
-        Trader storage t = traders[trader];
-        t.totalVolume += volumeInUSDT;
-        t.points += volumeInUSDT; // 1:1 mapping
-
         uint256 monthId = _currentMonthId();
         monthlyVolume[monthId][trader] += volumeInUSDT;
 
@@ -48,17 +46,42 @@ contract DoppiPoints is Ownable, Pausable {
 
     function resetPoint(address trader) external onlyDoppiClaim {
 
-        Trader storage t = traders[trader];
-        uint256 points = t.points;
-        t.points = 0; 
-        emit PointsReset(trader, points);
+        ClaimedPoint storage ref = claimedPoint[trader];
+        (,uint256 readyPoint, ) = this.getAllPointData(trader); 
+
+        uint256 currentMonthId = _currentMonthId();
+        // Only reset if we're in a new month
+        if (currentMonthId > ref.claimedMonthId + 1) {               
+            ref.totalPointClaimed += readyPoint;
+            ref.claimedMonthId = currentMonthId - 1; // Claim up to previous month
+        }
+        emit PointsReset(trader, readyPoint);
     }
 
-    // Get total points for a trader
-    function getPoints(address trader) external view returns (uint256 totalPoints, uint256 totalVolume) {
+    function getAllPointData(address trader)
+        external
+        view
+        returns (uint256 totalClaimedPoint, uint256 readyPoint, uint256 currentMonthPoint)
+    {
+        ClaimedPoint memory claimed = claimedPoint[trader];
+        totalClaimedPoint = claimed.totalPointClaimed;
+        uint256 currentMonthId = _currentMonthId();
+        currentMonthPoint = monthlyVolume[currentMonthId][trader];
         
-        totalPoints = traders[trader].points;
-        totalVolume = traders[trader].totalVolume; 
+        // Calculate start month ID safely
+        uint256 startMonthId = claimed.claimedMonthId + 1;
+        uint256 endMonthId = currentMonthId;
+        // Only proceed if there are months to process (avoid underflow in loop condition)
+        if (startMonthId < endMonthId) {
+            // Process from startMonthId to endMonthId - 1 (exclude current month)
+            for (uint256 monthId = startMonthId; monthId < endMonthId; monthId++) {
+                readyPoint += monthlyVolume[monthId][trader];
+            }
+        }
+    }
+
+    function getCurrentMonthId() external view returns (uint256) {
+        return _currentMonthId();
     }
 
     /// @notice Get trader's volume for a specific monthId

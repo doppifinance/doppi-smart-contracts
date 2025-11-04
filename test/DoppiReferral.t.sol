@@ -75,7 +75,7 @@ contract DoppiReferralTest is Test {
         doppiPoints.recordTrade(bob, 10000 ether); // trader1 trades 100 USDT
 
         vm.warp(vm.getBlockTimestamp() + 31 days);
-        (uint256 l1, uint256 l2, uint256 l3) = referral.getTotalReferralRewards(alice);
+        (uint256 l1, uint256 l2, uint256 l3,,,) = referral.getTotalReferralRewards(alice);
         assertEq(l1, (10000 ether * 150) / 10000, "Alice L1 reward incorrect");
         assertEq(l2, 0, "No L2 yet");
         assertEq(l3, 0, "No L3 yet");
@@ -92,7 +92,7 @@ contract DoppiReferralTest is Test {
         doppiPoints.recordTrade(charlie, 600_000 ether); 
 
         vm.warp(vm.getBlockTimestamp() + 31 days);
-        (uint256 l1, uint256 l2, uint256 l3) = referral.getTotalReferralRewards(alice);
+        (uint256 l1, uint256 l2, uint256 l3,,,) = referral.getTotalReferralRewards(alice);
         uint256 expectedL2 = (600_000 ether * 100) / 10000;
         assertEq(l1, 0, "No L1");
         assertEq(l2, expectedL2, "Alice L2 wrong");
@@ -110,7 +110,7 @@ contract DoppiReferralTest is Test {
         doppiPoints.recordTrade(charlie, 300_000 ether); 
 
         vm.warp(vm.getBlockTimestamp() + 31 days);
-        (uint256 l1, uint256 l2, uint256 l3) = referral.getTotalReferralRewards(alice);        
+        (uint256 l1, uint256 l2, uint256 l3,,,) = referral.getTotalReferralRewards(alice);        
         assertEq(l1, 0, "No L1");
         assertEq(l2, 0, "No L2");
         assertEq(l3, 0, "No L3 yet");
@@ -134,7 +134,7 @@ contract DoppiReferralTest is Test {
         vm.warp(vm.getBlockTimestamp() + 31 days);
         
         // Step 5: Query Alice’s rewards
-        (uint256 l1, uint256 l2, uint256 l3) = referral.getTotalReferralRewards(alice);
+        (uint256 l1, uint256 l2, uint256 l3,,,) = referral.getTotalReferralRewards(alice);
         // Expectations:
         // Bob’s trades → Alice gets L1 (1.5% of 1M = 15,000 ether)
         // Charlie’s trades → Alice gets L2 (1.0% of 1.5M = 15,000 ether, above min 500k)
@@ -172,7 +172,7 @@ contract DoppiReferralTest is Test {
 
         // New month. New Trades
         vm.warp(vm.getBlockTimestamp() + 31 days);
-        (uint256 l1, uint256 l2, uint256 l3) = referral.getTotalReferralRewards(alice);
+        (uint256 l1, uint256 l2, uint256 l3,,,) = referral.getTotalReferralRewards(alice);
         assertEq(l1, (2_000_000 ether * 150) / 10000);
         assertEq(l2, (3_000_000 ether * 100) / 10000);
         assertEq(l3, (5_000_000 ether * 50) / 10000);
@@ -206,14 +206,14 @@ contract DoppiReferralTest is Test {
         doppiPoints.recordTrade(charlie, 3_000_000 ether); 
         
         // still within active month id, expected 0
-        (uint256 l1, uint256 l2, uint256 l3) = referral.getTotalReferralRewards(alice);
+        (uint256 l1, uint256 l2, uint256 l3,,,) = referral.getTotalReferralRewards(alice);
         assertEq(l1, 0);
         assertEq(l2, 0);
         assertEq(l3, 0);
         
         // New month. New Trades
         vm.warp(vm.getBlockTimestamp() + 31 days);
-        (l1, l2, l3) = referral.getTotalReferralRewards(alice);
+        (l1, l2, l3,,,) = referral.getTotalReferralRewards(alice);
        
         assertEq(l1, 0);
         assertEq(l2, (3_000_000 ether * 100) / 10000);
@@ -234,7 +234,7 @@ contract DoppiReferralTest is Test {
         vm.warp(vm.getBlockTimestamp() + 31 days);
         
         // Before reset: Alice should see only month 1
-        (,,uint256 l3Before) = referral.getTotalReferralRewards(alice);
+        (,,uint256 l3Before,,,) = referral.getTotalReferralRewards(alice);
         assertEq(l3Before, 10000000000000000000000);
 
         referral.setDoppiClaim(address(this));
@@ -253,7 +253,7 @@ contract DoppiReferralTest is Test {
         doppiPoints.recordTrade(dave, 4_000_000 ether);
 
         vm.warp(vm.getBlockTimestamp() + 31 days);
-        (, , uint256 l3After) = referral.getTotalReferralRewards(alice);
+        (, , uint256 l3After,,,) = referral.getTotalReferralRewards(alice);
         uint256 expected = (4_000_000 ether * 50) / 10000;
         assertEq(l3After, expected);
         

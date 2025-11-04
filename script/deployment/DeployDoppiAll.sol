@@ -14,10 +14,13 @@ import {DoppiLiquidityRouter} from "../../src/mainnet/DoppiLiquidityRouter.sol";
 import {BlackScholes} from "../../src/mainnet/BlackScholes.sol";
 import {DoppiOffer} from "../../src/mainnet/DoppiOffer.sol";
 import {DoppiPoints} from "../../src/mainnet/DoppiPoints.sol";
+import {DoppiClaim} from "../../src/mainnet/DoppiClaim.sol";
+import {DOPPI} from "../../src/test/Doppi.sol";
 import {DoppiOpportunity} from "../../src/mainnet/DoppiOpportunity.sol";
 import {DoppiConfig} from "../../src/mainnet/DoppiConfig.sol";
 import {DoppiUpkeepManager} from "../../src/mainnet/DoppiUpkeepManager.sol";
 import {MockRegistryConsumer} from "../../src/test/MockRegistryConsumer.sol";
+import {DoppiReferral} from "../../src/mainnet/DoppiReferral.sol";
 
 
 contract DeployDoppiAll is Script {
@@ -51,8 +54,8 @@ contract DeployDoppiAll is Script {
         DoppiLiquidity doppiLP = _deployDoppiLiquidity(doppiConfig);
         DoppiCore doppiCore = _deployDoppiCore(doppiLP, impliedVol, doppiPoints);
         DoppiOpportunity doppiOpportunity = _deployDoppiOpportunity(address(doppiCore), address(doppiLP), doppiConfig);
-        
-        
+        DoppiReferral doppiReferral = _deployDoppiReferral(address(doppiPoints));
+    
         console.log("Deploying DoppiLiquidityRouter...");
         DoppiLiquidityRouter doppiRouter = new DoppiLiquidityRouter(IERC20(USDT), IERC20(BTC), doppiLP);
         console.log("DoppiLiquidityRouter deployed at:", address(doppiRouter));
@@ -62,6 +65,9 @@ contract DeployDoppiAll is Script {
         console.log("DoppiTraderFactory deployed at:", address(doppiFactory));
         
         DoppiUpkeepManager doppiUpkeepManager = _deployDoppiUpkeepManager(doppiConfig, address(doppiFactory));
+        
+        DOPPI doppiToken = new DOPPI("Doppi Token", "DOPPI");
+        DoppiClaim doppiClaim = _deployDoppiClaim(doppiPoints, doppiReferral, doppiToken);
         
         _setDoppiLiquidityProperties(doppiLP, address(doppiCore), doppiRouter, address(doppiFactory));
 
@@ -84,6 +90,8 @@ contract DeployDoppiAll is Script {
         console.log("DoppiLiquidityRouter:", address(doppiRouter));
         console.log("DoppiTraderFactory:", address(doppiFactory));
         console.log("DoppiUpkeepManager:", address(doppiUpkeepManager));
+        console.log("DoppiReferral:", address(doppiReferral));
+        console.log("DoppiClaim:", address(doppiClaim));
     }
 
     function _setDoppiCoreProperties(
@@ -152,6 +160,29 @@ contract DeployDoppiAll is Script {
         BlackScholes blackScholes = new BlackScholes();
         console.log("BlackScholes deployed at:", address(blackScholes));
         return blackScholes;
+    }
+
+    function _deployDoppiClaim(DoppiPoints _doppiPoints, DoppiReferral _doppiReferral, DOPPI _doppiToken) internal returns (DoppiClaim) {
+        console.log("Deploying DoppiClaim...");
+        DoppiClaim doppiClaim = new DoppiClaim(
+            address(_doppiToken),
+            address(_doppiPoints),
+            address(_doppiReferral),
+            1 // 1 token per point
+        );
+        _doppiPoints.setDoppiClaim(address(doppiClaim));
+        _doppiReferral.setDoppiClaim(address(doppiClaim));
+        _doppiToken.addMinter(address(doppiClaim));
+        console.log("DoppiClaim deployed at:", address(doppiClaim));
+        return doppiClaim;
+    }
+
+    function _deployDoppiReferral(address _doppiPoints) internal returns (DoppiReferral) {
+        console.log("Deploying DoppiReferral...");
+        DoppiReferral doppiReferral = new DoppiReferral(_doppiPoints, 150, 100, 50);
+        console.log("DoppiReferral deployed at:", address(doppiReferral));
+        doppiReferral.setMinVolumeForL2(1_000 ether, 2_000 ether);
+        return doppiReferral;
     }
 
     function _deployDoppiOffer(address _blackScholes) internal returns (DoppiOffer) {

@@ -13,11 +13,11 @@ contract DoppiPointsTest is Test {
     uint256 startTimestamp = 1735689600;
     function setUp() public {
 
-        vm.warp(startTimestamp);
-
         doppiPoints = new DoppiPoints();
         doppiPoints.setDoppiCore(mockDoppiCore);
         doppiPoints.setDoppiClaim(mockDoppiClaim);
+        vm.warp(startTimestamp);
+
     }
 
     function testRecordTradeIncreasesPointsAndVolume() public {
@@ -25,11 +25,11 @@ contract DoppiPointsTest is Test {
         vm.prank(mockDoppiCore);
         doppiPoints.recordTrade(trader1, 100); // trader1 trades 100 USDT
 
-        (uint256 volume, uint256 points) = doppiPoints.traders(trader1);
-
+        uint256 currentMonthId = doppiPoints.getCurrentMonthId();
+        uint256 volume = doppiPoints.getMonthlyVolume(trader1, currentMonthId);
+        
         assertEq(volume, 100, "Volume should equal 100");
-        assertEq(points, 100, "Points should equal 100");
-
+        
         vm.stopPrank();
     }
 
@@ -42,7 +42,8 @@ contract DoppiPointsTest is Test {
         vm.prank(mockDoppiCore);
         doppiPoints.recordTrade(trader1, btcamount * rate / 1e8);
 
-        (uint256 volume, uint256 points) = doppiPoints.traders(trader1);
+        uint256 currentMonthId = doppiPoints.getCurrentMonthId();
+        uint256 volume = doppiPoints.getMonthlyVolume(trader1, currentMonthId);
 
         assertEq(volume, inUSDT, "Volume should in USDT");
 
@@ -64,12 +65,10 @@ contract DoppiPointsTest is Test {
         doppiPoints.recordTrade(trader2, 150);
         vm.stopPrank();
         
-        (uint256 volume, uint256 points) = doppiPoints.traders(trader1);
+        uint256 currentMonthId = doppiPoints.getCurrentMonthId();
+        uint256 volume = doppiPoints.getMonthlyVolume(trader1, currentMonthId);
 
         assertEq(volume, 200, "Total volume should equal 200");
-        assertEq(points, 200, "Total points should equal 200");
-
-        
 
     }
 
@@ -83,24 +82,25 @@ contract DoppiPointsTest is Test {
         doppiPoints.recordTrade(trader2, 30);
         vm.stopPrank();
         
-        (uint256 v1, uint256 p1) = doppiPoints.traders(trader1);
-        (uint256 v2, uint256 p2) = doppiPoints.traders(trader2);
+        uint256 currentMonthId = doppiPoints.getCurrentMonthId();
+        
+        uint256 v1 = doppiPoints.getMonthlyVolume(trader1, currentMonthId);
+        uint256 v2 = doppiPoints.getMonthlyVolume(trader2, currentMonthId);
 
         assertEq(v1, 70, "Trader1 volume");
-        assertEq(p1, 70, "Trader1 points");
-
         assertEq(v2, 30, "Trader2 volume");
-        assertEq(p2, 30, "Trader2 points");
         vm.stopPrank();
     }
 
     function testGetPointsReturnsCorrectValue() public {
         
+        vm.warp(vm.getBlockTimestamp() + 31 days);
         vm.prank(mockDoppiCore);
         doppiPoints.recordTrade(trader1, 123);
 
-        (uint256 pts, ) = doppiPoints.getPoints(trader1);
-        assertEq(pts, 123, "Points should equal 123");
+        (,, uint256 currentMonthPoint) = doppiPoints.getAllPointData(trader1);
+        
+        assertEq(currentMonthPoint, 123, "Points should equal 123");
         vm.stopPrank();
     }
 
@@ -123,17 +123,20 @@ contract DoppiPointsTest is Test {
     function testResetPoint() public {
         // Record a trade -> trader1 gets 100 points
         
+        vm.warp(vm.getBlockTimestamp() + 31 days);
+        
         vm.prank(mockDoppiCore);
         doppiPoints.recordTrade(trader1, 100);
         vm.stopPrank();
-        (uint256 points, ) = doppiPoints.getPoints(trader1);
-        assertEq(points, 100, "Points should be 100");
+        (,, uint256 currentpoints) = doppiPoints.getAllPointData(trader1);
+        assertEq(currentpoints, 100, "Points should be 100");
 
         // Pretend we are trader1 and claim
+        vm.warp(vm.getBlockTimestamp() + 31 days);
         vm.prank(mockDoppiClaim);
         doppiPoints.resetPoint(trader1);
-        (points, ) = doppiPoints.getPoints(trader1);
-        assertEq(points, 0, "Points should be reset after claim");
+        (,, currentpoints) = doppiPoints.getAllPointData(trader1);
+        assertEq(currentpoints, 0, "Points should be reset after claim");
     }
 
     function testMonthId() public {

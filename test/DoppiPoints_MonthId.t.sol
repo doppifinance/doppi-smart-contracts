@@ -17,42 +17,43 @@ contract DoppiPointsMonthIdTest is Test {
 
     function setUp() public {
 
-        vm.warp(START_TIMESTAMP);
-
         doppiPoints = new DoppiPoints();
         doppiPoints.setDoppiCore(mockDoppiCore);
         doppiPoints.setDoppiClaim(mockDoppiClaim);
+        vm.warp(START_TIMESTAMP + 100 days);
+
     }
 
     function test_MonthlyVolumeTracking() public {
-        // Test that volumes are correctly tracked per month
         
-        // Trade in month 0
-        vm.warp(START_TIMESTAMP + 15 days); // Mid-January 2022
         vm.prank(mockDoppiCore);
         doppiPoints.recordTrade(trader, 1000e18);
         
-        (uint256 pointsBal, uint256 totalVol) = doppiPoints.getPoints(trader);
-        assertEq(pointsBal, 1000e18, "Should have 1000 points");
-        assertEq(totalVol, 1000e18, "Should have 1000 volume");
+        uint256 currentMonthId1 = doppiPoints.getCurrentMonthId();
+        (,, uint256 currentVol) = doppiPoints.getAllPointData(trader);
         
-        uint256 month0Volume = doppiPoints.getMonthlyVolume(trader, 0);
+        assertEq(currentVol, 1000e18, "Should have 1000 volume");
+        
+        uint256 month0Volume = doppiPoints.getMonthlyVolume(trader, currentMonthId1);
         assertEq(month0Volume, 1000e18, "Month 0 volume should be 1000");
 
         // Trade in month 1
-        vm.warp(START_TIMESTAMP + 45 days); // Mid-February 2022
+        vm.warp(vm.getBlockTimestamp() + 31 days);
+        
         vm.prank(mockDoppiCore);
         doppiPoints.recordTrade(trader, 2000e18);
         
-        (pointsBal, totalVol) = doppiPoints.getPoints(trader);
-        assertEq(pointsBal, 3000e18, "Should have 3000 total points");
-        assertEq(totalVol, 3000e18, "Should have 3000 total volume");
+        uint256 currentMonthId2 = doppiPoints.getCurrentMonthId();
+        (uint256 claimedPoint, uint256 readyPoint, uint256 currentPoint) = doppiPoints.getAllPointData(trader);
+
+        assertEq(currentPoint, 2000e18, "Should have 2000 current point");
+        assertEq(readyPoint, 1000e18, "Should have 1000 ready to claim point");
         
-        uint256 month1Volume = doppiPoints.getMonthlyVolume(trader, 1);
+        uint256 month1Volume = doppiPoints.getMonthlyVolume(trader, currentMonthId2);
         assertEq(month1Volume, 2000e18, "Month 1 volume should be 2000");
         
         // Month 0 volume unchanged
-        month0Volume = doppiPoints.getMonthlyVolume(trader, 0);
+        month0Volume = doppiPoints.getMonthlyVolume(trader, currentMonthId1);
         assertEq(month0Volume, 1000e18, "Month 0 volume should remain 1000");
     }
 

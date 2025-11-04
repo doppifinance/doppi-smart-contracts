@@ -14,13 +14,32 @@ interface IDoppiToken {
 interface IDoppiPoints {
     function getPoints(address user) external view returns (uint256, uint256);
     function resetPoint(address user) external;
+    function getAllPointData(
+        address trader
+    )
+        external
+        view
+        returns (
+            uint256 totalClaimedPoint,
+            uint256 readyPoint,
+            uint256 currentMonthPoint
+        );
 }
 
 interface IDoppiReferral {
-    function getTotalReferralRewards(address user)
+    function getTotalReferralRewards(
+        address user
+    )
         external
         view
-        returns (uint256 totalL1, uint256 totalL2, uint256 totalL3);
+        returns (
+            uint256 totalL1,
+            uint256 totalL2,
+            uint256 totalL3,
+            uint256 currentL1,
+            uint256 currentL2,
+            uint256 currentL3
+        );
     function resetClaims(address user) external;
 }
 
@@ -57,22 +76,30 @@ contract DoppiClaim is Ownable, Pausable, ReentrancyGuard {
         tokensPerPoint = _tokensPerPoint;
     }
 
-    function claim() external whenNotPaused nonReentrant {
+    function claimTradingPoint() external whenNotPaused nonReentrant {
+        address user = msg.sender;
+        (, uint256 readyPoint, ) = doppiPoints.getAllPointData(user);
+        require(readyPoint > 0, "no points to claim");
+        uint256 mintAmount = readyPoint * tokensPerPoint;
+        doppiPoints.resetPoint(user);
+        doppiToken.mint(user, mintAmount);
+        emit Claimed(user, readyPoint, 0, 0, 0, mintAmount);
+    }
+
+    function claimReferralPoint() external whenNotPaused nonReentrant {
         address user = msg.sender;
 
-        (uint256 points, ) = doppiPoints.getPoints(user);
-        (uint256 l1, uint256 l2, uint256 l3) = doppiReferral.getTotalReferralRewards(user);
+        (uint256 l1, uint256 l2, uint256 l3, , , ) = doppiReferral.getTotalReferralRewards(user);
 
-        uint256 totalPoints = points + l1 + l2 + l3;
+        uint256 totalPoints = l1 + l2 + l3;
         require(totalPoints > 0, "no points to claim");
 
         uint256 mintAmount = totalPoints * tokensPerPoint;
 
-        doppiPoints.resetPoint(user);
         doppiReferral.resetClaims(user);
         doppiToken.mint(user, mintAmount);
 
-        emit Claimed(user, points, l1, l2, l3, mintAmount);
+        emit Claimed(user, 0, l1, l2, l3, mintAmount);
     }
 
     // --- Admin functions ---

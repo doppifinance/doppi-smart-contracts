@@ -1210,9 +1210,8 @@ contract DoppiCoreTest is Test {
         vm.startPrank(owner);
         doppiCore.settle_buys(readyPositions);
 
-        (uint256 volume, uint256 points) = doppiPoints.traders(user1);
-        assertEq(volume, 50000 ether);
-        assertEq(points, 50000 ether);
+        (,, uint256 currentMonthPoint) = doppiPoints.getAllPointData(user1);
+        assertEq(currentMonthPoint, 50000 ether);
         
         _updateIV();
 
@@ -1221,14 +1220,12 @@ contract DoppiCoreTest is Test {
         vm.warp(block.timestamp + 2 days + 1);
         oracle.setPrice(int256(99_000 * 1e8)); // Price stays same, above strike
         readyPositions = doppiCore.getReadySellPositions();
-        // console.log(readyPositions.length, "readyPositions.length");
         vm.startPrank(owner);
         doppiCore.settle_sells(readyPositions);
-        (volume, points) = doppiPoints.traders(user1);
-        console.log(volume, points);
+
+        (,, currentMonthPoint) = doppiPoints.getAllPointData(user1);
         uint256 sellOrderPoints = 0.5 ether * (99_000 * 1e8) / 1e8;
-        assertEq(volume, 50000 ether + sellOrderPoints);
-        assertEq(points, 50000 ether + sellOrderPoints);
+        assertEq(currentMonthPoint, 50000 ether + sellOrderPoints);
 
     }
 
