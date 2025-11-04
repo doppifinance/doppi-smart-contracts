@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.26;
+
+import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {AutomationCompatibleInterface} from "../Interface/AutomationCompatibleInterface.sol";
@@ -15,7 +17,7 @@ import "./DoppiCoreView.sol";
 
 import "forge-std/console.sol";
 
-contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, AutomationCompatibleInterface {
+contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, AutomationCompatibleInterface {
     using SafeERC20 for IERC20;
 
     IERC20 public immutable assetA; // Made immutable
@@ -38,9 +40,11 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, AutomationCompatibleInterfa
     event Deposited(address indexed trader, uint256 positionId, address asset, uint256 amount, uint256 interest, uint256 strikePrice, uint32 apr, uint32 numDays);
     event Settled(address indexed trader, uint256 positionId, bool striked, bool isProfit, uint256 profitLoss, uint256 payout, uint256 interest, address profitToken, address payoutToken, address interestToken);
     event HedgeSettled(address indexed trader, uint256 positionId, bool isProfit, uint256 profitLoss, address profitToken);
+    event EmergencyWithdraw(bool isBuy, address indexed trader, uint256 positionId, uint256 amount);
 
     error InvalidStrikePrice();
     error InvalidAPR();
+    error PriceNotAvaiable();        
     error APRNotAvaiable();        
     error InvalidAmount();
     error InvalidOfferLength();
@@ -64,24 +68,26 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, AutomationCompatibleInterfa
     }
 
     // Single deposit functionality
-    function deposit_buy(DepositParams calldata params) external whenNotPaused {
+    function deposit_buy(DepositParams calldata params) external nonReentrant whenNotPaused whenOpen {
         DualAssetOffer memory buyOffer = impliedVol.getOffer(true, params.numDays, params.strikeZone);
         if(buyOffer.strikePrice != params.strikePrice) revert InvalidStrikePrice();
         if(buyOffer.apr != params.apr) revert InvalidAPR();
         if(buyOffer.apr == 0) revert APRNotAvaiable();
+        if(buyOffer.price == 0) revert PriceNotAvaiable();
         _depositBuy(params, buyOffer, true);
     }
 
-    function deposit_sell(DepositParams calldata params) external whenNotPaused {
+    function deposit_sell(DepositParams calldata params) external nonReentrant whenNotPaused whenOpen {
         
         DualAssetOffer memory sellOffer = impliedVol.getOffer(false, params.numDays, params.strikeZone);
         if(sellOffer.strikePrice != params.strikePrice) revert InvalidStrikePrice();
         if(sellOffer.apr != params.apr) revert InvalidAPR();
         if(sellOffer.apr == 0) revert APRNotAvaiable();
+        if(sellOffer.price == 0) revert PriceNotAvaiable();
         _depositSell(params, sellOffer, true);
     }
 
-    function bulkHedge(uint256 _amountInHedgeAsset, uint256 _price, bool isBuy) external returns (uint256 swappedHedgeAmount, uint256 hedgePrice) {
+    function bulkHedge(uint256 _amountInHedgeAsset, uint256 _price, bool isBuy) external onlyTraderBot returns (uint256 swappedHedgeAmount, uint256 hedgePrice) {
         (swappedHedgeAmount, hedgePrice) = doppiLP.hedgeSwap(_amountInHedgeAsset, _price, isBuy);
     }
 
@@ -99,13 +105,13 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, AutomationCompatibleInterfa
         }
     }
 
-    function settle_buys(uint256[] memory _indexes) external onlyOwner {
+    function settle_buys(uint256[] memory _indexes) external nonReentrant onlyOwner {
         
         uint256 settlePrice = doppiLP.getPrice();
         _settle_positions(_indexes, true, settlePrice);
     }
 
-    function settle_sells(uint256[] memory _indexes) external onlyOwner {
+    function settle_sells(uint256[] memory _indexes) external nonReentrant onlyOwner {
         uint256 settlePrice = doppiLP.getPrice();
         _settle_positions(_indexes, false, settlePrice);
     }
@@ -113,6 +119,7 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, AutomationCompatibleInterfa
     // Admin functions
     function opportunitySwap(address _owner, uint256 _amountPay, uint256 _price, uint256 _keyIndex, bool _isBuy)
         external
+        nonReentrant
         onlyOpportunityBot
         returns (uint256 amountOut, uint256 profit)
     {
@@ -123,6 +130,7 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, AutomationCompatibleInterfa
 
     function opportunityUnwind(address _owner, uint256 _amountPay, uint256 _price, uint256 _keyIndex, bool _isBuy)
         external
+        nonReentrant
         onlyOpportunityBot
         returns (uint256 amountOut, uint256 profit)
     {
@@ -154,7 +162,7 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, AutomationCompatibleInterfa
         return (false, bytes(""));
     }
 
-    function performUpkeep(bytes calldata performData) external onlyForwarder {
+    function performUpkeep(bytes calldata performData) external nonReentrant onlyForwarder {
         
         if(paused()) return;
         
@@ -171,7 +179,54 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, AutomationCompatibleInterfa
         }
     }
 
+    function emergencyWithdraw() external whenEmergency whenPaused nonReentrant {
+        _emergencyWithdrawSells();
+        _emergencyWithdrawBuys();
+    }
+
+    function isEmergency() external view returns (bool){
+        return emergencyMode;
+    } 
+
     // Internal functions
+    function _emergencyWithdrawSells() internal {
+        for (uint256 i = sellPositionKeys.length; i > 0; ) {
+            uint256 index = i - 1;
+            KeyPosition memory keyPos = sellPositionKeys[index];
+            
+            if (keyPos.owner == msg.sender) {
+                DualAssetPosition storage pos = positions_sell[keyPos.owner][keyPos.positionId];
+                
+                if (pos.amount > 0) {
+                    uint256 amountToReturn = pos.amount;
+                    _removeSellPosition(index, keyPos);
+                    assetB.safeTransfer(keyPos.owner, amountToReturn);
+                    emit EmergencyWithdraw(false, keyPos.owner, keyPos.positionId, amountToReturn);
+                }
+            }
+            unchecked { --i; }
+        }
+    }
+
+    function _emergencyWithdrawBuys() internal {
+        for (uint256 i = buyPositionKeys.length; i > 0; ) {
+            uint256 index = i - 1;
+            KeyPosition memory keyPos = buyPositionKeys[index];
+            
+            if (keyPos.owner == msg.sender) {
+                DualAssetPosition storage pos = positions_buy[keyPos.owner][keyPos.positionId];
+                
+                if (pos.amount > 0) {
+                    uint256 amountToReturn = pos.amount;
+                    _removeBuyPosition(index, keyPos);
+                    assetA.safeTransfer(keyPos.owner, amountToReturn);
+                    emit EmergencyWithdraw(true, keyPos.owner, keyPos.positionId, amountToReturn);
+                }
+            }
+            unchecked { --i; }
+        }
+    }
+
     function _getAndRemoveNextBatch(bool isBuy) internal returns (uint256[] memory batch, uint256 settlePrice) {
         PendingSettlement storage pending = isBuy ? pendingSettlementBuy : pendingSettlementSell;
         
@@ -279,7 +334,6 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, AutomationCompatibleInterfa
         uint32 numDays = params.numDays;
         address sender = msg.sender;
 
-        uint256 price = doppiLP.getPrice();
         assetA.safeTransferFrom(sender, address(this), amount);
         uint32 positionId = nextPositionId;
         unchecked { nextPositionId = positionId + 1; }
@@ -290,7 +344,7 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, AutomationCompatibleInterfa
         uint256 hedgePrice;
 
         if(_hedge){
-            (hedgeAmountInAssetB, swappedHedgeAmount, hedgePrice) = _hedgeSwap(amount, _buyOffer.delta, price, true);
+            (hedgeAmountInAssetB, swappedHedgeAmount, hedgePrice) = _hedgeSwap(amount, _buyOffer.delta, _buyOffer.price, true);
         }
         // Calculate interest using precomputed values
         uint256 duration = SECONDS_PER_DAY * numDays;
@@ -321,7 +375,6 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, AutomationCompatibleInterfa
         uint32 numDays = params.numDays;
         address sender = msg.sender;
 
-        uint256 price = doppiLP.getPrice();
         assetB.safeTransferFrom(sender, address(this), params.amount);
         uint32 positionId = nextPositionId;
         unchecked { nextPositionId = positionId + 1; }
@@ -332,7 +385,7 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, AutomationCompatibleInterfa
         uint256 hedgePrice;
 
         if(_hedge){
-            (hedgeAmountInAssetA, swappedHedgeAmount, hedgePrice) = _hedgeSwap(amount, _sellOffer.delta, price, false);
+            (hedgeAmountInAssetA, swappedHedgeAmount, hedgePrice) = _hedgeSwap(amount, _sellOffer.delta, _sellOffer.price, false);
         }
         // Calculate interest using precomputed values
         uint256 duration = SECONDS_PER_DAY * numDays;
@@ -611,6 +664,8 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, AutomationCompatibleInterfa
     }
 
     function _hedgeSwap(uint256 _amount, uint256 _delta, uint256 _price, bool isBuy) internal returns (uint256 amountInHedgeAsset, uint256 swappedHedgeAmount, uint256 hedgePrice) {
+        
+        if(_delta >= BASIS_POINTS) return (0,0,0);
         uint256 hedgeAmount = _amount * _delta / BASIS_POINTS;
         amountInHedgeAsset = isBuy ? hedgeAmount * priceDecimal / _price : hedgeAmount * _price / priceDecimal;
         (swappedHedgeAmount, hedgePrice) = doppiLP.hedgeSwap(amountInHedgeAsset, _price, !isBuy);
@@ -712,6 +767,16 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, AutomationCompatibleInterfa
 
     modifier onlyTraderBot() {
         require(doppiTraderFactory.isTraderBot(msg.sender), "only trader bot");
+        _;
+    }
+
+    modifier whenOpen() {
+        require(publicOpen == true, "not open");
+        _;
+    }
+
+    modifier whenEmergency() {
+        require(emergencyMode, "Not in emergency mode");
         _;
     }
 }

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.26;
-
+import {Initializable} from "@openzeppelin/contracts/proxy/utils/Initializable.sol"; 
+import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {IDoppiOffer} from "../Interface/IDoppiOffer.sol";
 import {IDoppiUpkeepManager} from "../Interface/IDoppiUpkeepManager.sol";
@@ -11,15 +12,16 @@ import "./DoppiCoreTypes.sol";
 import "./DoppiTraderAdminView.sol";
 // import "forge-std/console.sol";
 
-contract DoppiTrader is DoppiTraderAdminView, AutomationCompatibleInterface {
+contract DoppiTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCompatibleInterface, Initializable {
     using SafeERC20 for IERC20;
     
-    IDoppiUpkeepManager public immutable doppiUpkeepManager;
-    IDoppiLiquidityRouter public immutable doppiRouter;
-    IDoppiOffer public immutable impliedVol;
+    bool private initialized;
+    IDoppiUpkeepManager public doppiUpkeepManager;
+    IDoppiLiquidityRouter public doppiRouter;
+    IDoppiOffer public impliedVol;
     uint256 public minAssetAAmount;
     uint256 public minAssetBAmount;
-    uint32 private nextBulkId = 1; 
+    uint32 private nextBulkId; 
     mapping(uint32 => HedgeBulkTrade) public hedgeBulkTrade; 
 
     OrderConfig[] public orderConfigs;
@@ -34,8 +36,13 @@ contract DoppiTrader is DoppiTraderAdminView, AutomationCompatibleInterface {
     error MaxLimit();
     error MustHundred();
     error ExceedMaxZone();
+    error AlreadyInitialized();
     
-    constructor(
+    constructor() Ownable(msg.sender) {
+    }
+
+    // Remove the constructor and replace with initialize function
+    function initialize(
         address _trader,
         IERC20 _assetA,
         IERC20 _assetB,
@@ -43,7 +50,13 @@ contract DoppiTrader is DoppiTraderAdminView, AutomationCompatibleInterface {
         address _doppiRouter,
         address _da,
         uint24[] memory _weights
-    ) Ownable(msg.sender) {
+    ) external initializer {
+        
+        // // Prevent re-initialization
+        if (initialized) revert AlreadyInitialized();
+        initialized = true;
+
+        // Move constructor logic here
         assetA = _assetA;
         assetB = _assetB;
         doppiLP = IDoppiLiquidity(_doppiLP);
@@ -51,6 +64,7 @@ contract DoppiTrader is DoppiTraderAdminView, AutomationCompatibleInterface {
         doppiCore = IDoppiCore(_da);
         validTrader = _trader;
         doppiConfig = DoppiConfig(doppiLP.getDoppiConfig());
+        _transferOwnership(msg.sender); // Transfer ownership to the trader
         _pause();
 
         // Batch approvals
@@ -68,17 +82,19 @@ contract DoppiTrader is DoppiTraderAdminView, AutomationCompatibleInterface {
         minAssetBAmount = doppiConfig.minimal_assetB();
         doppiUpkeepManager = IDoppiUpkeepManager(doppiConfig.doppiUpKeepManager());
         impliedVol = IDoppiOffer(doppiConfig.impliedVol());
+        traderDefaultDay = 1;
+        nextBulkId = 1;
     }
 
-    function start(uint256 _amountA, uint256 _amountB) external onlyTrader whenPaused {
-        
+    function start(uint256 _amountA, uint256 _amountB) external onlyTrader nonReentrant whenPaused {
+        require(_amountA > 0 || _amountB > 0, "amount not specified");
         _updateForwarder();
         _unpause();
         _processDeposit(_amountA, _amountB);
         _placeBulk(doppiLP.getPrice());
     }
 
-    function stop() external onlyTrader whenPaused {
+    function stop() external onlyTrader nonReentrant whenPaused {
         uint256 buyPosCount = doppiCore.getBuyPositionCount(address(this));
         uint256 sellPosCount = doppiCore.getSellPositionCount(address(this));
         require(buyPosCount == 0 && sellPosCount == 0, "active orders");
@@ -91,6 +107,27 @@ contract DoppiTrader is DoppiTraderAdminView, AutomationCompatibleInterface {
 
         delete buy_undo_list;
         delete sell_undo_list;
+    }
+
+    function emergencyWithdraw() external onlyTrader nonReentrant whenPaused {
+        require(doppiCore.isEmergency() && doppiCore.paused(), "only for emergency");
+
+        doppiCore.emergencyWithdraw();
+        assetA.safeTransfer(msg.sender, assetA.balanceOf(address(this)));
+        assetB.safeTransfer(msg.sender, assetB.balanceOf(address(this)));
+
+        delete buy_undo_list;
+        delete sell_undo_list;
+    }
+
+    function emergencyWithdrawLP() external onlyTrader nonReentrant whenPaused {
+        require(doppiRouter.isEmergency() && doppiRouter.paused(), "only for emergency in LP");
+
+        IERC20(doppiLP).safeIncreaseAllowance(address(doppiRouter), doppiLP.balanceOf(address(this)));
+        doppiRouter.emergencyWithdraw();
+
+        assetA.safeTransfer(msg.sender, assetA.balanceOf(address(this)));
+        assetB.safeTransfer(msg.sender, assetB.balanceOf(address(this)));
     }
 
     function setMultipleOrderConfigs(
@@ -167,7 +204,7 @@ contract DoppiTrader is DoppiTraderAdminView, AutomationCompatibleInterface {
         return _checkUndoTrade(false, price);
     }
 
-    function performUpkeep(bytes calldata performData) external override onlyForwarder {
+    function performUpkeep(bytes calldata performData) external override nonReentrant onlyForwarder {
         
         if(s_forwarderAddress == address(0) || paused()) return;
 
@@ -208,6 +245,7 @@ contract DoppiTrader is DoppiTraderAdminView, AutomationCompatibleInterface {
     }
 
     function _shouldPlaceOrders() internal view returns (bool toBuy, bool toSell) {
+        if(doppiCore.paused()) return (false, false); 
         uint256 buyPosCount = doppiCore.getBuyPositionCount(address(this));
         uint256 sellPosCount = doppiCore.getSellPositionCount(address(this));
         toBuy = buyPosCount == 0 && _availableBalance(true) > 0;

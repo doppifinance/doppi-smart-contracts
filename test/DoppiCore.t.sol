@@ -45,10 +45,9 @@ contract DoppiCoreTest is Test {
     event Deposited(address indexed trader, uint256 positionId, address asset, uint256 amount, uint256 interest, uint256 strikePrice, uint32 apr, uint32 numDays);
     event Settled(address indexed trader, uint256 positionId, bool striked, bool isProfit, uint256 profitLoss, uint256 payout, uint256 interest, address profitToken, address payoutToken, address interestToken);
     event HedgeSettled(address indexed trader, uint256 positionId, bool isProfit, uint256 profitLoss, address profitToken);
-
-
+    
     function setUp() public {
-        vm.warp(vm.getBlockTimestamp() + 30 days); 
+        vm.warp(1735689600);
         int256 a_buy = 0.0000000807142857142833 * 1e27;
         int256 b_buy = -0.019095857142856592 * 1e27;
         int256 c_buy = 1159.8454285713972 * 1e27;
@@ -154,7 +153,27 @@ contract DoppiCoreTest is Test {
         assertEq(address(doppiCore.doppiTraderFactory()), address(newFactory));
     }
 
-    
+    function test_deposit_buy_notOpen() public {
+        
+        doppiCore.setPublicOpen(false);
+
+        DualAssetOffer memory buyOffer = impliedVol.getOffer(true, 1, 0);
+        DepositParams memory params = DepositParams({
+            amount: 50_000 ether,
+            strikeZone: 0,
+            strikePrice: buyOffer.strikePrice + 1, // Invalid strike price
+            numDays: 1,
+            apr: buyOffer.apr,
+            expiry: buyOffer.expiry
+        });
+
+        vm.startPrank(user1);
+        usdt.approve(address(doppiCore), params.amount);
+        vm.expectRevert("not open");
+        doppiCore.deposit_buy(params);
+        vm.stopPrank();
+    }
+
 
     function test_deposit_buy() public {
         _depositUSDT();
@@ -205,27 +224,6 @@ contract DoppiCoreTest is Test {
         doppiCore.deposit_buy(params);
         vm.stopPrank();
     }
-
-    // function test_deposit_buy_expiredOffer() public {
-    //     DualAssetOffer memory buyOffer = impliedVol.getOffer(true, 1, 0);
-    //     // Fast forward time
-    //     vm.warp(block.timestamp + 2 minutes);
-
-    //     DepositParams memory params = DepositParams({
-    //         amount: 50_000 ether,
-    //         strikeZone: 0,
-    //         strikePrice: buyOffer.strikePrice,
-    //         numDays: 1,
-    //         apr: buyOffer.apr,
-    //         expiry: buyOffer.expiry
-    //     });
-
-    //     vm.startPrank(user1);
-    //     usdt.approve(address(doppiCore), params.amount);
-    //     vm.expectRevert("offer expired");
-    //     doppiCore.deposit_buy(params);
-    //     vm.stopPrank();
-    // }
 
     function test_getReadyBuyPositions() public {
         // Deposit a position
@@ -1212,9 +1210,8 @@ contract DoppiCoreTest is Test {
         vm.startPrank(owner);
         doppiCore.settle_buys(readyPositions);
 
-        (uint256 volume, uint256 points) = doppiPoints.traders(user1);
-        assertEq(volume, 50000 ether);
-        assertEq(points, 50000 ether);
+        (,, uint256 currentMonthPoint) = doppiPoints.getAllPointData(user1);
+        assertEq(currentMonthPoint, 50000 ether);
         
         _updateIV();
 
@@ -1223,15 +1220,48 @@ contract DoppiCoreTest is Test {
         vm.warp(block.timestamp + 2 days + 1);
         oracle.setPrice(int256(99_000 * 1e8)); // Price stays same, above strike
         readyPositions = doppiCore.getReadySellPositions();
-        // console.log(readyPositions.length, "readyPositions.length");
         vm.startPrank(owner);
         doppiCore.settle_sells(readyPositions);
-        (volume, points) = doppiPoints.traders(user1);
-        console.log(volume, points);
-        uint256 sellOrderPoints = 0.5 ether * (99_000 * 1e8) / 1e8;
-        assertEq(volume, 50000 ether + sellOrderPoints);
-        assertEq(points, 50000 ether + sellOrderPoints);
 
+        (,, currentMonthPoint) = doppiPoints.getAllPointData(user1);
+        uint256 sellOrderPoints = 0.5 ether * (99_000 * 1e8) / 1e8;
+        assertEq(currentMonthPoint, 50000 ether + sellOrderPoints);
+
+    }
+
+    function test_emergencyWithdraw() public {
+
+        // Deposit a buy position
+        _depositUSDT();
+        vm.warp(block.timestamp + 1 days + 1);
+        oracle.setPrice(int256(INITIAL_PRICE)); // Price stays same, above strike
+
+        _updateIV();
+
+        // Deposit a sell position
+        _depositBTC();
+        
+        vm.startPrank(owner);
+        doppiCore.setPause();
+        doppiCore.setEmergencyMode(true);
+        vm.stopPrank();
+
+        uint256 start_usdtbal = usdt.balanceOf(user1);
+        uint256 start_btcbal = btc.balanceOf(user1);
+        // emergency withdraw buy and sell
+        vm.startPrank(user1);
+        doppiCore.emergencyWithdraw();
+        vm.stopPrank();
+
+        assertEq(doppiCore.getBuyPositionCount(), 0);
+        assertEq(doppiCore.getSellPositionCount(), 0);
+
+        uint256 end_usdtbal = usdt.balanceOf(user1);
+        uint256 end_btcbal = btc.balanceOf(user1);
+        
+        assertEq(end_usdtbal, start_usdtbal + 50_000 ether);
+        assertEq(end_btcbal, start_btcbal + 0.5 ether);
+        
     }
 
     function _depositBTC() internal returns (DualAssetOffer memory) {

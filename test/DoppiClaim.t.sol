@@ -20,6 +20,7 @@ contract DoppiClaimTest is Test {
 
 
     function setUp() public {
+        vm.warp(1735689600);
         // Deploy token & doppiClaim
         token = new DOPPI("Doppi Token", "DOPPI");
         doppiPoints = new DoppiPoints();
@@ -45,6 +46,8 @@ contract DoppiClaimTest is Test {
 
         // Deal some ETH to alice so she can tx
         vm.deal(alice, 10 ether);
+        vm.warp(vm.getBlockTimestamp() + 31 days);
+        
     }
 
     function testClaimWithOnlyTradePoints() public {
@@ -52,12 +55,14 @@ contract DoppiClaimTest is Test {
         vm.prank(mockDoppiCore);
         doppiPoints.recordTrade(alice, 100 ether); // trader1 trades 100 USDT
         
+        vm.warp(vm.getBlockTimestamp() + 31 days);
+        
         vm.prank(alice);
-        doppiClaim.claim();
+        doppiClaim.claimTradingPoint();
 
-        (uint256 totalPoints, ) = doppiPoints.getPoints(alice);
+        (,, uint256 currentPoints) = doppiPoints.getAllPointData(alice);
         assertEq(token.balanceOf(alice), 100 ether, "Alice should get 100 tokens");
-        assertEq(totalPoints, 0, "Points should reset");
+        assertEq(currentPoints, 0, "Points should reset");
     }
 
     function testClaimWithOnlyReferralRewards() public {
@@ -70,11 +75,11 @@ contract DoppiClaimTest is Test {
         doppiPoints.recordTrade(bob, 10000 ether); // trader1 trades 100 USDT
 
         vm.warp(vm.getBlockTimestamp() + 31 days);
-        (uint256 l1, uint256 l2, uint256 l3) = referral.getTotalReferralRewards(alice);
+        (uint256 l1, uint256 l2, uint256 l3,,,) = referral.getTotalReferralRewards(alice);
         assertEq(l1, 150 ether, "Alice expected to get 150 tokens");
 
         vm.prank(alice);
-        doppiClaim.claim();
+        doppiClaim.claimReferralPoint();
 
         DoppiReferral.ReferralInfo memory info = referral.getReferralInfo(alice);
         assertEq(info.claimedLevel1, l1);
@@ -82,7 +87,7 @@ contract DoppiClaimTest is Test {
         assertEq(info.claimedLevel3, 0);
         assertEq(token.balanceOf(alice), l1, "Alice claimed 150 tokens successfully");
 
-        (l1, , ) = referral.getTotalReferralRewards(alice);
+        (l1, , ,,,) = referral.getTotalReferralRewards(alice);
         assertEq(l1, 0);
     }
 
@@ -97,23 +102,33 @@ contract DoppiClaimTest is Test {
         // referral rewards
         vm.warp(vm.getBlockTimestamp() + 31 days);
         vm.prank(mockDoppiCore);
-        doppiPoints.recordTrade(bob, 10000 ether); // trader1 trades 100 USDT
+        doppiPoints.recordTrade(bob, 10000 ether); // trader1 trades 10000 USDT
 
         vm.warp(vm.getBlockTimestamp() + 31 days);
-        vm.prank(alice);
-        doppiClaim.claim();
 
-        (uint256 totalPoints, ) = doppiPoints.getPoints(alice);
+        (,, uint256 currentPoints) = doppiPoints.getAllPointData(alice);
+        (,, uint256 currentPointsBob) = doppiPoints.getAllPointData(bob);
+        
+        vm.prank(alice);
+        doppiClaim.claimTradingPoint();
+        vm.stopPrank();
+
+        vm.prank(alice);
+        doppiClaim.claimReferralPoint();
+        vm.stopPrank();
+
         assertEq(token.balanceOf(alice), 250 ether, "Alice should get 250 tokens total");
-        assertEq(totalPoints, 0, "Points reset");
-        (uint256 l1,uint256 l2,uint256 l3) = referral.getTotalReferralRewards(alice);
+
+        (,, uint256 currentPointsAfter) = doppiPoints.getAllPointData(alice);
+        assertEq(currentPointsAfter, 0, "Points reset");
+        (uint256 l1,uint256 l2,uint256 l3,,,) = referral.getTotalReferralRewards(alice);
         assertEq(l1+l2+l3, 0, "Referral rewards reset");
     }
 
     function testRevertWhenNoPoints() public {
         vm.prank(alice);
         vm.expectRevert("no points to claim");
-        doppiClaim.claim();
+        doppiClaim.claimTradingPoint();
     }
 
     function testPauseUnpause() public {
@@ -121,15 +136,17 @@ contract DoppiClaimTest is Test {
 
         vm.prank(alice);
         vm.expectRevert("EnforcedPause()");
-        doppiClaim.claim();
+        doppiClaim.claimTradingPoint();
 
         doppiClaim.unpause();
 
         vm.prank(mockDoppiCore);
         doppiPoints.recordTrade(alice, 100 ether); // trader1 trades 100 USDT
 
+        vm.warp(vm.getBlockTimestamp() + 31 days);
+        
         vm.prank(alice);
-        doppiClaim.claim();
+        doppiClaim.claimTradingPoint();
 
         assertEq(token.balanceOf(alice), 100 ether);
     }
@@ -145,16 +162,50 @@ contract DoppiClaimTest is Test {
         // referral rewards
         vm.warp(vm.getBlockTimestamp() + 31 days);
         vm.prank(mockDoppiCore);
-        doppiPoints.recordTrade(bob, 10000 ether); // trader1 trades 100 USDT
+        doppiPoints.recordTrade(bob, 10000 ether); 
 
         vm.warp(vm.getBlockTimestamp() + 31 days);
         
         vm.expectEmit(true, false, false, true);
-        emit Claimed(alice, 100 ether, 150 ether, 0, 0, 250 ether);
+        emit Claimed(alice, 0 ether, 150 ether, 0, 0, 150 ether);
 
         vm.prank(alice);
-        doppiClaim.claim();
+        doppiClaim.claimReferralPoint();
+
+        vm.expectEmit(true, false, false, true);
+        emit Claimed(alice, 100 ether, 0 ether, 0, 0, 100 ether);
+
+        vm.prank(alice);
+        doppiClaim.claimTradingPoint();
+
     }
+
+    function testClaimCurrentPoint() public {
+        
+        vm.prank(mockDoppiCore);
+        doppiPoints.recordTrade(alice, 100 ether); // trader1 trades 100 USDT
+
+        (uint256 claimedPoint, uint256 readyForClaim, uint256 currentpoints) = doppiPoints.getAllPointData(alice);
+        assertEq(currentpoints, 100 ether);
+        assertEq(readyForClaim, 0);
+        assertEq(claimedPoint, 0);
+
+        vm.prank(alice);
+        vm.expectRevert("no points to claim");
+        doppiClaim.claimTradingPoint();
+        
+        vm.warp(vm.getBlockTimestamp() + 31 days);
+        
+        vm.prank(alice);
+        doppiClaim.claimTradingPoint();
+        assertEq(token.balanceOf(alice), 100 ether);
+
+        (claimedPoint, readyForClaim, currentpoints) = doppiPoints.getAllPointData(alice);
+        assertEq(currentpoints, 0);
+        assertEq(readyForClaim, 0);
+        assertEq(claimedPoint, 100 ether);
+    }
+
 
     event Claimed(
         address indexed user,

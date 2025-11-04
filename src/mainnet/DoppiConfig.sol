@@ -28,6 +28,7 @@ contract DoppiConfig is Ownable {
     uint24 public treasury_fee; 
     uint256 public minimal_assetA;
     uint256 public minimal_assetB;
+    uint32 public twapDuration;
     
     constructor() Ownable(msg.sender) {
 
@@ -35,6 +36,7 @@ contract DoppiConfig is Ownable {
         router = 0x13f4EA83D0bd40E75C8222255bc855a974568Dd4;
         quoter = 0xB048Bbc1Ee6b733FFfCFb9e9CeF7375518e25997;
         pancakeV3Pool = 0x46Cf1cF8c69595804ba91dFdd8d6b960c9B0a7C4;
+        twapDuration = 3600;
         poolFee = 500; // 5bps for the USDT/BTC pool 
         slippage = 100; // slippage for pancakeswap DEX
         tolerance = 100; // opportunity or traderbot unwind price move tolerance performUpkeep 
@@ -103,6 +105,10 @@ contract DoppiConfig is Ownable {
 
     function setPancakeV3Pool(address _pool) external onlyOwner {
         pancakeV3Pool = _pool;
+    }
+
+    function setTwapDuration(uint24 _twapDuration) external onlyOwner {
+        twapDuration = _twapDuration;
     }
 
     function setQuoter(address _quoter) external onlyOwner {

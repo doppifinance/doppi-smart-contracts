@@ -7,23 +7,31 @@ import {SafeCast} from "@openzeppelin/contracts/utils/math/SafeCast.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {IUniswapV3Pool} from "@uniswap/v3-core/contracts/interfaces/IUniswapV3Pool.sol";
 import {TickMath} from "../Library/TickMath.sol";
+// import "forge-std/console.sol";
 
 library DALiquidityLib {
     using SafeCast for int256;
 
     error OUTOFBOUNDS();
 
+    function getPriceWithFallback(AggregatorV3Interface chainLinkFeed, address _v3Pool, uint32 twapDuration) public view returns (uint256 rate) {
+        (
+            , int256 price, , uint256 updatedAt, 
+        ) = chainLinkFeed.latestRoundData();
+        
+        if(block.timestamp - updatedAt <= 5 minutes){
+            return price.toUint256();
+        }
+        IUniswapV3Pool v3Pool = IUniswapV3Pool(_v3Pool);
+        uint256 twapPrice = getPancakePrice(v3Pool, twapDuration);
+        return 1e26 / twapPrice;
+    }
+
     function getPrice(AggregatorV3Interface chainLinkFeed) public view returns (uint256 rate) {
         (
-            ,
-            /*uint80 roundID*/
-            int256 price, /*uint startedAt*/ /*uint256 updatedAt*/ /*uint80 answeredInRound*/
-            ,
-            ,
+            , int256 price, , , 
         ) = chainLinkFeed.latestRoundData();
-        rate = price.toUint256();
-
-        return rate;
+        return price.toUint256();
     }
 
     function getPriceDecimals(AggregatorV3Interface chainLinkFeed) public view returns (uint8 decimals) {

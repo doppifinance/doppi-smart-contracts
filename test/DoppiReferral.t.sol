@@ -49,7 +49,7 @@ contract DoppiReferralTest is Test {
     bytes32 charlieCode = keccak256("CHARLES");
 
     function setUp() public {
-
+        
         doppiPoints = new DoppiPoints();
         doppiPoints.setDoppiCore(mockDoppiCore);
         mockdoppiPoints = new MockDoppiPoints();
@@ -60,11 +60,13 @@ contract DoppiReferralTest is Test {
             50   // 0.5%
         );
         // fast-forward to known start timestamp
-        vm.warp(30 days); // monthId = 1
+        vm.warp(1735689600);
     }
 
     function test_Level1RewardsForAlice() public {
         
+        vm.warp(vm.getBlockTimestamp() + 31 days);
+
         _registerCode();
 
         vm.warp(vm.getBlockTimestamp() + 31 days);
@@ -73,7 +75,7 @@ contract DoppiReferralTest is Test {
         doppiPoints.recordTrade(bob, 10000 ether); // trader1 trades 100 USDT
 
         vm.warp(vm.getBlockTimestamp() + 31 days);
-        (uint256 l1, uint256 l2, uint256 l3) = referral.getTotalReferralRewards(alice);
+        (uint256 l1, uint256 l2, uint256 l3,,,) = referral.getTotalReferralRewards(alice);
         assertEq(l1, (10000 ether * 150) / 10000, "Alice L1 reward incorrect");
         assertEq(l2, 0, "No L2 yet");
         assertEq(l3, 0, "No L3 yet");
@@ -81,6 +83,8 @@ contract DoppiReferralTest is Test {
 
     function test_Level2RewardsRequireMinVolume() public {
         
+        vm.warp(vm.getBlockTimestamp() + 31 days);
+
         _registerCode();
 
         vm.warp(vm.getBlockTimestamp() + 31 days);
@@ -88,7 +92,7 @@ contract DoppiReferralTest is Test {
         doppiPoints.recordTrade(charlie, 600_000 ether); 
 
         vm.warp(vm.getBlockTimestamp() + 31 days);
-        (uint256 l1, uint256 l2, uint256 l3) = referral.getTotalReferralRewards(alice);
+        (uint256 l1, uint256 l2, uint256 l3,,,) = referral.getTotalReferralRewards(alice);
         uint256 expectedL2 = (600_000 ether * 100) / 10000;
         assertEq(l1, 0, "No L1");
         assertEq(l2, expectedL2, "Alice L2 wrong");
@@ -97,6 +101,8 @@ contract DoppiReferralTest is Test {
 
     function test_Level2RewardsRequireMinVolume_UnderMin() public {
         
+        vm.warp(vm.getBlockTimestamp() + 31 days);
+
         _registerCode();
 
         vm.warp(vm.getBlockTimestamp() + 31 days);
@@ -104,7 +110,7 @@ contract DoppiReferralTest is Test {
         doppiPoints.recordTrade(charlie, 300_000 ether); 
 
         vm.warp(vm.getBlockTimestamp() + 31 days);
-        (uint256 l1, uint256 l2, uint256 l3) = referral.getTotalReferralRewards(alice);        
+        (uint256 l1, uint256 l2, uint256 l3,,,) = referral.getTotalReferralRewards(alice);        
         assertEq(l1, 0, "No L1");
         assertEq(l2, 0, "No L2");
         assertEq(l3, 0, "No L3 yet");
@@ -112,6 +118,8 @@ contract DoppiReferralTest is Test {
 
     function testThreeLevelReferralRewards() public {
         
+        vm.warp(vm.getBlockTimestamp() + 31 days);
+
         _registerCode();
 
         vm.warp(vm.getBlockTimestamp() + 31 days);
@@ -126,7 +134,7 @@ contract DoppiReferralTest is Test {
         vm.warp(vm.getBlockTimestamp() + 31 days);
         
         // Step 5: Query Alice’s rewards
-        (uint256 l1, uint256 l2, uint256 l3) = referral.getTotalReferralRewards(alice);
+        (uint256 l1, uint256 l2, uint256 l3,,,) = referral.getTotalReferralRewards(alice);
         // Expectations:
         // Bob’s trades → Alice gets L1 (1.5% of 1M = 15,000 ether)
         // Charlie’s trades → Alice gets L2 (1.0% of 1.5M = 15,000 ether, above min 500k)
@@ -148,6 +156,8 @@ contract DoppiReferralTest is Test {
 
     function testThreeLevelReferralRewards_NextMonth() public {
         
+        vm.warp(vm.getBlockTimestamp() + 31 days);
+
         testThreeLevelReferralRewards();
 
         // New month. New Trades
@@ -162,7 +172,7 @@ contract DoppiReferralTest is Test {
 
         // New month. New Trades
         vm.warp(vm.getBlockTimestamp() + 31 days);
-        (uint256 l1, uint256 l2, uint256 l3) = referral.getTotalReferralRewards(alice);
+        (uint256 l1, uint256 l2, uint256 l3,,,) = referral.getTotalReferralRewards(alice);
         assertEq(l1, (2_000_000 ether * 150) / 10000);
         assertEq(l2, (3_000_000 ether * 100) / 10000);
         assertEq(l3, (5_000_000 ether * 50) / 10000);
@@ -177,7 +187,7 @@ contract DoppiReferralTest is Test {
         uint256 expectedl3 = ((5_000_000 ether * 50) / 10000) + ((2_500_000 ether * 50) / 10000);
 
         DoppiReferral.ReferralInfo memory info = referral.getReferralInfo(alice);
-        uint256 currentMonthId = vm.getBlockTimestamp() / 30 days;
+        uint256 currentMonthId = _currentMonthId();
         assertEq(info.claimedLevel1, expectedl1);
         assertEq(info.claimedLevel2, expectedl2);
         assertEq(info.claimedLevel3, expectedl3);
@@ -186,6 +196,8 @@ contract DoppiReferralTest is Test {
 
     function test_level2_traded_currentmonth_not_included() public {
         
+        vm.warp(vm.getBlockTimestamp() + 31 days);
+
         _registerCode();
 
         vm.warp(vm.getBlockTimestamp() + 31 days);
@@ -194,14 +206,14 @@ contract DoppiReferralTest is Test {
         doppiPoints.recordTrade(charlie, 3_000_000 ether); 
         
         // still within active month id, expected 0
-        (uint256 l1, uint256 l2, uint256 l3) = referral.getTotalReferralRewards(alice);
+        (uint256 l1, uint256 l2, uint256 l3,,,) = referral.getTotalReferralRewards(alice);
         assertEq(l1, 0);
         assertEq(l2, 0);
         assertEq(l3, 0);
         
         // New month. New Trades
         vm.warp(vm.getBlockTimestamp() + 31 days);
-        (l1, l2, l3) = referral.getTotalReferralRewards(alice);
+        (l1, l2, l3,,,) = referral.getTotalReferralRewards(alice);
        
         assertEq(l1, 0);
         assertEq(l2, (3_000_000 ether * 100) / 10000);
@@ -210,6 +222,8 @@ contract DoppiReferralTest is Test {
 
     function test_ResetClaimsExcludesPreviousMonth() public {
         
+        vm.warp(vm.getBlockTimestamp() + 31 days);
+
         _registerCode();
 
         // Month 1: Dave trades
@@ -220,7 +234,7 @@ contract DoppiReferralTest is Test {
         vm.warp(vm.getBlockTimestamp() + 31 days);
         
         // Before reset: Alice should see only month 1
-        (,,uint256 l3Before) = referral.getTotalReferralRewards(alice);
+        (,,uint256 l3Before,,,) = referral.getTotalReferralRewards(alice);
         assertEq(l3Before, 10000000000000000000000);
 
         referral.setDoppiClaim(address(this));
@@ -239,7 +253,7 @@ contract DoppiReferralTest is Test {
         doppiPoints.recordTrade(dave, 4_000_000 ether);
 
         vm.warp(vm.getBlockTimestamp() + 31 days);
-        (, , uint256 l3After) = referral.getTotalReferralRewards(alice);
+        (, , uint256 l3After,,,) = referral.getTotalReferralRewards(alice);
         uint256 expected = (4_000_000 ether * 50) / 10000;
         assertEq(l3After, expected);
         
@@ -280,5 +294,11 @@ contract DoppiReferralTest is Test {
         referral.registerReferrer(keccak256("CHARLIE"));
         vm.stopPrank();
     } 
+
+    function _currentMonthId() internal view returns (uint256) {
+        // 30-day rolling months
+        uint256 startTimestamp = 1735689600; // Jan 1, 2025
+        return (block.timestamp - startTimestamp) / 30 days;
+    }
 
 }

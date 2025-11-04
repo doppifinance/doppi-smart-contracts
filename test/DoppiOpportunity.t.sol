@@ -40,7 +40,7 @@ contract DoppiOpportunityTest is Test {
     
     function setUp() public {
         
-        vm.warp(vm.getBlockTimestamp() + 30 days); 
+        vm.warp(1735689600); 
         int256 a_buy = 0.0000000807142857142833 * 1e27;
         int256 b_buy = -0.019095857142856592 * 1e27;
         int256 c_buy = 1159.8454285713972 * 1e27;

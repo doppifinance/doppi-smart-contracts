@@ -32,8 +32,8 @@ contract MockOracle {
         return (
             0, // roundId
             _price, // answer
-            _updatedAt, // startedAt
-            _updatedAt, // updatedAt
+            block.timestamp, // startedAt
+            block.timestamp, // updatedAt
             0 // answeredInRound
         );
     }

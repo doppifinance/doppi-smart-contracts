@@ -19,6 +19,9 @@ import {DoppiOpportunity} from "../../src/mainnet/DoppiOpportunity.sol";
 import {Swapper} from "../../src/test/Swapper.sol";
 import {DoppiConfig} from "../../src/mainnet/DoppiConfig.sol";
 import "../../src/mainnet/DoppiCoreTypes.sol";
+import {DALiquidityLib} from "../../src/Library/DALiquidityLib.sol";
+import {IUniswapV3Pool} from "@uniswap/v3-core/contracts/interfaces/IUniswapV3Pool.sol";
+
 
 contract BasicFlowTest is Test {
     DoppiTraderFactory doppiFactory;
@@ -44,7 +47,8 @@ contract BasicFlowTest is Test {
     address constant CHAINLINK_BTC_USD = address(0x264990fbd0A4796A3E3d8E37C4d5F87a3aCa5Ebf);
     address constant PCSWAP_V3_ROUTER = address(0x13f4EA83D0bd40E75C8222255bc855a974568Dd4);
     address constant PCSWAP_V3_QUOTER = address(0xB048Bbc1Ee6b733FFfCFb9e9CeF7375518e25997);
-
+    address constant PCSWAP_V3Pool = address(0x46Cf1cF8c69595804ba91dFdd8d6b960c9B0a7C4);
+    
     address owner = makeAddr("owner");
     address treasury = makeAddr("treasury");
     address admin = makeAddr("admin");
@@ -73,7 +77,7 @@ contract BasicFlowTest is Test {
         doppiConfig.setRouter(PCSWAP_V3_ROUTER);
         doppiConfig.setQuoter(PCSWAP_V3_QUOTER);
         doppiConfig.setTreasury(treasury);
-        doppiConfig.setPancakeV3Pool(PCSWAP_V3_ROUTER); 
+        doppiConfig.setPancakeV3Pool(PCSWAP_V3Pool); 
         doppiConfig.setOracle(CHAINLINK_BTC_USD);
         doppiConfig.setSlippage(500);
         doppiConfig.setDoppiUpKeepManager(address(mockDoppiUpKeepManager));
@@ -171,6 +175,10 @@ contract BasicFlowTest is Test {
         vm.startPrank(trader2);
         deal(USDT, address(trader2), 100_000 ether);        
         usdt.approve(address(doppiCore), 5000 ether);
+        
+        // // reverse back the time to avoid the checking
+        // vm.warp(vm.getBlockTimestamp() - 30 days); 
+        
         DualAssetOffer memory buyOffer = impliedVol.getOffer(true, 1, 0);
         doppiCore.deposit_buy(DepositParams({
             amount: 5000 ether,
@@ -259,7 +267,7 @@ contract BasicFlowTest is Test {
 
         // Verify stopped and funds returned
         uint256 finalBalanceA = usdt.balanceOf(trader);
-        console.log(finalBalanceA);
+        // console.log(finalBalanceA);
         assertTrue(finalBalanceA > 0);
         assertEq(doppiCore.getBuyPositionCount(address(traderBot)), 0);
         
@@ -327,8 +335,6 @@ contract BasicFlowTest is Test {
   
     }
 
-    
-
     function _setupLP(address _assetA, address _assetB) internal returns (DoppiLiquidity _doppiLP) {
         _doppiLP =
             new DoppiLiquidity("Doppi BTC-USDT LP", "BTCB-USDT", IERC20(_assetA), IERC20(_assetB));
@@ -350,6 +356,8 @@ contract BasicFlowTest is Test {
         BlackScholes blackScholes = new BlackScholes();
         _impliedVol = new DoppiOffer(blackScholes, address(doppiConfig.chainLinkFeed()), 500);
         _impliedVol.setRegression(86400, a_buy, b_buy, c_buy, a_sell, b_sell, c_sell);
+        _impliedVol.setTwapDuration(3600);
+        _impliedVol.setPancakeV3Pool(PCSWAP_V3Pool);
         doppiConfig.setImpliedVol(address(_impliedVol)); 
     }
 

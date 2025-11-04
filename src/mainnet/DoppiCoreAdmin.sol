@@ -7,6 +7,8 @@ import {DoppiTraderFactory} from "./DoppiTraderFactory.sol";
 //       DualAsset Admin Module (Owner / Keeper Ops)
 abstract contract DoppiCoreAdmin is Ownable, Pausable {
     
+    bool public emergencyMode;
+    bool public publicOpen = true;
     address public s_forwarderAddress;
     uint256 public UPKEEPS_PER_CHECK = 20; // Process 20 upkeeps per check
     mapping(address => bool) public admins;
@@ -26,8 +28,16 @@ abstract contract DoppiCoreAdmin is Ownable, Pausable {
         admins[_admin] = _status;
     }
 
+    function setEmergencyMode(bool _emergency) external onlyOwner whenPaused {
+        emergencyMode = _emergency;
+    }
+
     function setForwarderAddress(address forwarderAddress) external onlyOwner {
         s_forwarderAddress = forwarderAddress;
+    }
+
+    function setPublicOpen(bool _open) external onlyOwner {
+        publicOpen = _open;
     }
 
     function setPause() external onlyOwner {
