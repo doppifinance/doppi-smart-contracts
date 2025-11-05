@@ -353,7 +353,7 @@ contract DoppiTraderTest is Test {
         _start();
         
         // ***** START perform opportunityBot.checkUpkeep
-        oracle.setPrice(int256(101_600 * 1e8));
+        oracle.setPrice(int256(104_000 * 1e8));
         (bool upkeepNeeded, bytes memory performData) = opportunityBot.checkUpkeep("");
         assertTrue(upkeepNeeded);
         assertGt(performData.length, 0);
@@ -391,7 +391,7 @@ contract DoppiTraderTest is Test {
         _start();
         
         // ***** START perform opportunityBot.checkUpkeep
-        oracle.setPrice(int256(101_600 * 1e8));
+        oracle.setPrice(int256(104_000 * 1e8));
         (bool upkeepNeeded, bytes memory performData) = opportunityBot.checkUpkeep("");
         assertTrue(upkeepNeeded);
         assertGt(performData.length, 0);

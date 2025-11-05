@@ -6,6 +6,7 @@ import "../Interface/AutomationCompatibleInterface.sol";
 import {IDoppiLiquidity} from "../Interface/IDoppiLiquidity.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {Pausable} from "@openzeppelin/contracts/utils/Pausable.sol";
+// import "forge-std/console.sol";
 
 contract DoppiOpportunity is Ownable, Pausable, AutomationCompatibleInterface {
     DoppiCore public immutable doppiCore;
@@ -61,11 +62,9 @@ contract DoppiOpportunity is Ownable, Pausable, AutomationCompatibleInterface {
 
         uint256 currentPrice = doppiLP.getPrice();
         uint256 priceChance = price * 10000 / currentPrice;
-        
         if (priceChance > 10000 + doppiConfig.tolerance() || priceChance < 10000 - doppiConfig.tolerance()) {
             return;
-        }
-        
+        }        
         _opportunity_bot(price, buyIndexes, sellIndexes);
     }
 
@@ -103,8 +102,9 @@ contract DoppiOpportunity is Ownable, Pausable, AutomationCompatibleInterface {
         indexes = new uint256[](UPKEEPS_PER_CHECK);
         count = 0;
 
+        uint256 oneDayMove = doppiCore.impliedVol().getOneDayBuffer(price, _isBuy);
         for (uint256 i = 0; i < _orders.length && count < UPKEEPS_PER_CHECK; ) {
-            uint256 buffer = _orders[i].strikePrice * doppiConfig.tolerance() / 10000;
+            uint256 buffer = _orders[i].strikePrice * oneDayMove / 10000;
             
             if (_isBuy) {
                 uint256 triggerPrice = _orders[i].strikePrice - buffer;
@@ -140,15 +140,17 @@ contract DoppiOpportunity is Ownable, Pausable, AutomationCompatibleInterface {
         bool _isBuy
     ) internal {
         
+        uint256 oneDayMove = doppiCore.impliedVol().getOneDayBuffer(price, _isBuy);
+                
         for (uint256 j = 0; j < _indexes.length; ) {
             uint256 i = _indexes[j];
             if (i < _orders.length) {
-                uint256 buffer = _orders[i].strikePrice * doppiConfig.tolerance() / 10000;
-                
+                uint256 bufferUnwind = _orders[i].strikePrice * doppiConfig.tolerance() / 10000;
+                uint256 buffer = _orders[i].strikePrice * oneDayMove / 10000;
                 if (_isNotTradedTriggered(_isBuy, _orders[i], price, buffer)) {
                     (uint256 amountOut, ) = doppiCore.opportunitySwap(_orders[i].owner, _orders[i].amount, price, i, _isBuy);
                     emit OppPerformed(_isBuy, _orders[i].owner, price, _orders[i].amount, amountOut);
-                } else if (_isTradedTriggered(_isBuy, _orders[i], price, buffer)) {
+                } else if (_isTradedTriggered(_isBuy, _orders[i], price, bufferUnwind)) {
                     (uint256 amountOut, uint256 profit) = doppiCore.opportunityUnwind(_orders[i].owner, _orders[i].swappedAmount, price, i, !_isBuy);
                     emit OppUnwindPerformed(_isBuy, _orders[i].owner, price, _orders[i].swappedAmount, amountOut, profit, _isBuy ? address(doppiCore.assetA()): address(doppiCore.assetB()));
                 }

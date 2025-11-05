@@ -195,4 +195,11 @@ contract DoppiOfferTest is Test {
             assertGt(sellOffers[i].strikePrice, INITIAL_PRICE);
         }
     }
+
+    function test_getOneDayBuffer() public view {
+        uint256 onedayVol = markIV.getOneDayBuffer(121000 * priceDecimal, true);
+        assertEq((onedayVol), 162); // in bps
+    }
+    
+
 }

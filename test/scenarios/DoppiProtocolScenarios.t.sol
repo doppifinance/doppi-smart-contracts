@@ -314,7 +314,7 @@ contract DoppiProtocolScenariosTest is Test {
         // Simulate price drop (should create opportunities)
         // Note: In real scenario, this would be done via oracle manipulation
         // For test, we just verify the contract state changes
-        _doppiOpportunityCheckUpkeep_performUpkeep(97_500 * 1e8); 
+        _doppiOpportunityCheckUpkeep_performUpkeep(94_500 * 1e8); 
         KeyPosition[] memory keyPositions = doppiCore.get_buy_positions_id(address(traderBot));
         DualAssetPosition memory pos = doppiCore.get_buy(address(traderBot), keyPositions[0].positionId);
         assertEq(pos.isTraded, true);
@@ -463,6 +463,7 @@ contract DoppiProtocolScenariosTest is Test {
         
         oracle.setPrice(int256(_price));
         (bool upkeepNeeded, bytes memory performData) = opportunityBot.checkUpkeep("");
+        // console.log(upkeepNeeded);
         assertTrue(upkeepNeeded);
         assertGt(performData.length, 0);
         vm.prank(mockForwarder);

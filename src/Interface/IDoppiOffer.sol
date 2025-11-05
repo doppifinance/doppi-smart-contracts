@@ -3,7 +3,10 @@ pragma solidity ^0.8.20;
 import "../mainnet/DoppiCoreTypes.sol";
 
 interface IDoppiOffer {
-    
+    function getOneDayBuffer(
+        uint256 _price,
+        bool isBuy
+    ) external view returns (uint256 onedayVol);
     function getOffer(
         bool _isBuy,
         uint32 _numDays,
@@ -53,6 +56,10 @@ interface IDoppiOffer {
         uint256 _strikeSell
     ) external view returns (uint32 sellapr, uint256 delta);
 
-    function getSingleOffer(bool _isBuy, uint32 _numDays, uint8 _strikeZone, uint256 _price)
-        external view returns (DualAssetOffer memory offer);
+    function getSingleOffer(
+        bool _isBuy,
+        uint32 _numDays,
+        uint8 _strikeZone,
+        uint256 _price
+    ) external view returns (DualAssetOffer memory offer);
 }

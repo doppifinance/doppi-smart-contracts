@@ -12,7 +12,7 @@ interface IDoppiToken {
 }
 
 interface IDoppiPoints {
-    function getPoints(address user) external view returns (uint256, uint256);
+    function getCurrentMonthId() external view returns (uint256);
     function resetPoint(address user) external;
     function getAllPointData(
         address trader
@@ -48,9 +48,9 @@ contract DoppiClaim is Ownable, Pausable, ReentrancyGuard {
     IDoppiPoints public immutable doppiPoints;
     IDoppiReferral public immutable doppiReferral;
 
-    /// Tokens per point (in DoppiToken decimals, e.g. 1e18 = 1 token per point if token has 18 decimals)
-    uint256 public tokensPerPoint;
-
+    uint256 public tokensPerPoint; // in bps. 10000 if 1:1
+    uint256 private constant BASIS_POINTS = 10000;
+    
     event Claimed(
         address indexed user,
         uint256 tradePoints,
@@ -80,7 +80,7 @@ contract DoppiClaim is Ownable, Pausable, ReentrancyGuard {
         address user = msg.sender;
         (, uint256 readyPoint, ) = doppiPoints.getAllPointData(user);
         require(readyPoint > 0, "no points to claim");
-        uint256 mintAmount = readyPoint * tokensPerPoint;
+        uint256 mintAmount = readyPoint * tokensPerPoint / BASIS_POINTS;
         doppiPoints.resetPoint(user);
         doppiToken.mint(user, mintAmount);
         emit Claimed(user, readyPoint, 0, 0, 0, mintAmount);
@@ -94,12 +94,23 @@ contract DoppiClaim is Ownable, Pausable, ReentrancyGuard {
         uint256 totalPoints = l1 + l2 + l3;
         require(totalPoints > 0, "no points to claim");
 
-        uint256 mintAmount = totalPoints * tokensPerPoint;
+        uint256 mintAmount = totalPoints * tokensPerPoint / BASIS_POINTS;
 
         doppiReferral.resetClaims(user);
         doppiToken.mint(user, mintAmount);
 
         emit Claimed(user, 0, l1, l2, l3, mintAmount);
+    }
+
+    function getMyReferralPointToToken(address _user) external view returns (uint256) {
+        (uint256 l1, uint256 l2, uint256 l3, , , ) = doppiReferral.getTotalReferralRewards(_user);
+        uint256 totalPoints = l1 + l2 + l3;
+        return totalPoints * tokensPerPoint / BASIS_POINTS;
+    }
+
+    function getMyTradingPointToToken(address _user) external view returns (uint256) {
+        (, uint256 readyPoint, ) = doppiPoints.getAllPointData(_user);
+        return readyPoint * tokensPerPoint / BASIS_POINTS;
     }
 
     // --- Admin functions ---

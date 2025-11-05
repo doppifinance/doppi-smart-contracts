@@ -196,6 +196,18 @@ contract DoppiOffer is IDoppiOffer, Ownable {
         sell = sellRegression[_daysInTimestamp];
     }
 
+    function getOneDayBuffer(uint256 _price, bool isBuy)
+        external
+        view
+        returns (uint256 onedayVol)
+    {
+        (uint256 _iv, uint256 lastUpdated) = _getImpliedVol(SECONDS_PER_DAY, _price, isBuy);
+        if(_iv == 0) return 0;
+        if(lastUpdated < block.timestamp - SECONDS_PER_DAY) return 0;
+        uint256 onedaybuffer = _price * _iv * blackScholes.sqrt(SECONDS_PER_DAY * 1e7 / SECONDS_PER_YEAR * 1e7) / 1e25; // format to 1e18
+        onedayVol = onedaybuffer * uint256(priceDecimal) / _price / 10000; //return in bps
+    }
+
     function setAdmin(address _admin, bool _status) public onlyOwner {
         admins[_admin] = _status;
     }
