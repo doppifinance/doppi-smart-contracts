@@ -22,7 +22,7 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
 
     IERC20 public immutable assetA; // Made immutable
     IERC20 public immutable assetB; // Made immutable
-    IDoppiOffer public immutable impliedVol; // Made immutable
+    IDoppiOffer public immutable doppiOffer; // Made immutable
     IDoppiLiquidity public immutable doppiLP; // Made immutable
     DoppiConfig public immutable doppiConfig;
     DoppiPoints public immutable doppiPoints;
@@ -52,24 +52,24 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
     error NotExpired();
     error NoPosition();
 
-    constructor(address _assetA, address _assetB, IDoppiLiquidity _doppiLP, IDoppiOffer _impliedVol)
+    constructor(address _assetA, address _assetB, IDoppiLiquidity _doppiLP, IDoppiOffer _doppiOffer)
         Ownable(msg.sender)
     {
         assetA = IERC20(_assetA);
         assetB = IERC20(_assetB);
         doppiLP = _doppiLP;
         doppiConfig = DoppiConfig(doppiLP.getDoppiConfig());
-        impliedVol = _impliedVol;
+        doppiOffer = _doppiOffer;
         priceDecimal = 10 ** _doppiLP.getPriceDecimals();
         doppiPoints = DoppiPoints(doppiConfig.doppiPoints());
-        admins[msg.sender] = true;
+        opportunityBots[msg.sender] = true;
         assetA.safeIncreaseAllowance(address(doppiLP), type(uint256).max);
         assetB.safeIncreaseAllowance(address(doppiLP), type(uint256).max);
     }
 
     // Single deposit functionality
     function deposit_buy(DepositParams calldata params) external nonReentrant whenNotPaused whenOpen {
-        DualAssetOffer memory buyOffer = impliedVol.getOffer(true, params.numDays, params.strikeZone);
+        DualAssetOffer memory buyOffer = doppiOffer.getOffer(true, params.numDays, params.strikeZone);
         if(buyOffer.strikePrice != params.strikePrice) revert InvalidStrikePrice();
         if(buyOffer.apr != params.apr) revert InvalidAPR();
         if(buyOffer.apr == 0) revert APRNotAvaiable();
@@ -79,7 +79,7 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
 
     function deposit_sell(DepositParams calldata params) external nonReentrant whenNotPaused whenOpen {
         
-        DualAssetOffer memory sellOffer = impliedVol.getOffer(false, params.numDays, params.strikeZone);
+        DualAssetOffer memory sellOffer = doppiOffer.getOffer(false, params.numDays, params.strikeZone);
         if(sellOffer.strikePrice != params.strikePrice) revert InvalidStrikePrice();
         if(sellOffer.apr != params.apr) revert InvalidAPR();
         if(sellOffer.apr == 0) revert APRNotAvaiable();
@@ -756,7 +756,7 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
     }
 
     modifier onlyOpportunityBot() {
-        require(admins[msg.sender], "only admin");
+        require(opportunityBots[msg.sender], "only opportunityBot");
         _;
     }
 

@@ -67,7 +67,7 @@ contract DoppiOpportunityTest is Test {
         doppiConfig.setQuoter(address(swapper));
         doppiConfig.setTreasury(treasury);
         doppiConfig.setOracle(address(oracle));
-        doppiConfig.setImpliedVol(address(impliedVol)); 
+        doppiConfig.setDoppiOffer(address(impliedVol)); 
 
         doppiLP =
             new DoppiLiquidity("Dual Asset Liquidity Pool", "DALP", IERC20(usdt), IERC20(btc));
@@ -86,7 +86,7 @@ contract DoppiOpportunityTest is Test {
         doppiLP.setDoppiCore(address(doppiCore));
 
         doppiOpportunity = new DoppiOpportunity(address(doppiCore), address(doppiLP));
-        doppiCore.setAdmin(address(doppiOpportunity), true);
+        doppiCore.setOpportunityBot(address(doppiOpportunity), true);
         doppiOpportunity.setForwarderAddress(mockForwarder);
         doppiOpportunity.setDoppiConfig(doppiConfig);
 

@@ -32,7 +32,7 @@ contract DoppiOfferTest is Test {
         markIV.setRegression(86400, a_buy, b_buy, c_buy, a_sell, b_sell, c_sell);
         markIV.setRegression(86400 * 3, a_buy, b_buy, c_buy, a_sell, b_sell, c_sell);
     }
-
+    
     function test_getRegression() public view {
         (DoppiOffer.RegressionVar memory buy, DoppiOffer.RegressionVar memory sell) = markIV.getRegression(86400);
         assertEq((buy.a), 0.0000000807142857142833 * 1e27);
@@ -199,6 +199,15 @@ contract DoppiOfferTest is Test {
     function test_getOneDayBuffer() public view {
         uint256 onedayVol = markIV.getOneDayBuffer(121000 * priceDecimal, true);
         assertEq((onedayVol), 162); // in bps
+    }
+
+    function test_getOneDayBuffer_outOfBuffer() public {
+        
+        markIV.setBuffer(200, 300);
+        uint256 onedayVol = markIV.getOneDayBuffer(121000 * priceDecimal, true);
+        assertEq((onedayVol), 200); // in bps
+        onedayVol = markIV.getOneDayBuffer(101000 * priceDecimal, false);
+        assertEq((onedayVol), 300); // in bps
     }
     
 

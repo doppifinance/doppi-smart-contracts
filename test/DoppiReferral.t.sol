@@ -44,14 +44,16 @@ contract DoppiReferralTest is Test {
     address bob = makeAddr("Bob");
     address charlie = makeAddr("Charlie");
     address dave = makeAddr("Dave");
+    address jeff = makeAddr("Jeff");
     bytes32 aliceCode = keccak256("ALICE");
     bytes32 bobCode = keccak256("BOB");
     bytes32 charlieCode = keccak256("CHARLES");
+    bytes32 jeffCode = keccak256("JEFF");
 
     function setUp() public {
         
         doppiPoints = new DoppiPoints();
-        doppiPoints.setDoppiCore(mockDoppiCore);
+        doppiPoints.setDoppiCore(mockDoppiCore, true);
         mockdoppiPoints = new MockDoppiPoints();
         referral = new DoppiReferral(
             address(doppiPoints),
@@ -269,7 +271,189 @@ contract DoppiReferralTest is Test {
 
     }
 
+    function test_Referral_Referee_L1Check() public {
+        
+        // alice use bob as referror
+        // bob cannot register alice as referror
+        
+        vm.warp(vm.getBlockTimestamp() + 31 days);
+
+        // Step 1: Bob create code but no trade
+        vm.startPrank(bob);
+        referral.registerReferralCode(keccak256("BOB"));
+        vm.stopPrank();
+
+        vm.warp(vm.getBlockTimestamp() + 1 days);
+
+        // Alice trades
+        vm.prank(mockDoppiCore);
+        doppiPoints.recordTrade(alice, 2_000_000 ether);
+        vm.stopPrank();
+        
+        vm.startPrank(alice);
+        referral.registerReferrer(keccak256("BOB"));
+        vm.stopPrank();
+        
+        // Bob should see current month
+        (uint256 totalL1, uint256 totalL2, uint256 totalL3,
+            uint256 currentL1, uint256 currentL2, uint256 currentL3) = referral.getTotalReferralRewards(bob);
+
+        assertEq(currentL1, 30000000000000000000000);
+
+        vm.startPrank(alice);
+        referral.registerReferralCode(keccak256("ALICE"));
+        vm.stopPrank();
+
+        // bob as referror cannot register alice because alice is referee
+        vm.startPrank(bob);
+        vm.expectRevert("cannot register under your downline");
+        referral.registerReferrer(keccak256("ALICE"));
+        vm.stopPrank();
+
+
+        (address upline,
+            address[] memory level1Referees, 
+            address[] memory level2Referees, 
+            address[] memory level3Referees) = referral.getReferees(bob);
+
+        assertEq(level1Referees.length, 1);
+        assertEq(level2Referees.length, 0);
+        assertEq(level3Referees.length, 0);
+        
+
+    }
+
+    function test_Referral_Referee_L2Check() public {
+        
+        // bob -> alice -> charles -> dave -> jeff
+        // L0 -> L1 -> L2 -> L3 -> (L4 : no support)
+
+        vm.warp(vm.getBlockTimestamp() + 31 days);
+
+        // Step 1: Bob create code but no trade
+        vm.startPrank(bob);
+        referral.registerReferralCode(keccak256("BOB"));
+        vm.stopPrank();
+
+        vm.warp(vm.getBlockTimestamp() + 1 days);
+
+        // Alice trades
+        vm.prank(mockDoppiCore);
+        doppiPoints.recordTrade(alice, 2_000_000 ether);
+        vm.stopPrank();
+        
+        // Step 1. Alice register BOB
+        vm.startPrank(alice);
+        referral.registerReferrer(keccak256("BOB"));
+        vm.stopPrank();
+        
+        // Alice register code
+        vm.startPrank(alice);
+        referral.registerReferralCode(keccak256("ALICE"));
+        vm.stopPrank();
+
+        // Step 2. Charles register Alice
+        // charlie register alice , he is indirect level 1 to bob
+        vm.startPrank(charlie);
+        referral.registerReferrer(keccak256("ALICE"));
+        vm.stopPrank();
+
+        // charlie register twice with different code
+        vm.startPrank(charlie);
+        vm.expectRevert("already register");
+        referral.registerReferrer(keccak256("BOB"));
+        vm.stopPrank();
+
+        // charlie register code
+        vm.startPrank(charlie);
+        referral.registerReferralCode(keccak256("CHARLES"));
+        vm.stopPrank();
+
+        // alice as referror cannot register charlie because charlie is referee
+        vm.startPrank(alice);
+        vm.expectRevert("already register");
+        referral.registerReferrer(keccak256("CHARLES"));
+        vm.stopPrank();
+
+        // bob as indirect referror cannot register charlie because charlie is indirect level 2 referee
+        vm.startPrank(bob);
+        vm.expectRevert("cannot register under your downline");
+        referral.registerReferrer(keccak256("CHARLES"));
+        vm.stopPrank();
+
+        // Step 3. Dave register Charles
+        // charlie register twice with different code
+        vm.startPrank(dave);
+        referral.registerReferrer(keccak256("CHARLES"));
+        vm.stopPrank();
+
+        vm.startPrank(dave);
+        referral.registerReferralCode(keccak256("DAVE"));
+        vm.stopPrank();
+
+        // bob as indirect referror cannot register dave because dave is indirect level 3 referee
+        vm.startPrank(bob);
+        vm.expectRevert("cannot register under your downline");
+        referral.registerReferrer(keccak256("DAVE"));
+        vm.stopPrank();
+
+
+        // charlie register twice with different code
+        vm.startPrank(jeff);
+        referral.registerReferrer(keccak256("DAVE"));
+        vm.stopPrank();
+
+        vm.startPrank(jeff);
+        referral.registerReferralCode(keccak256("JEFF"));
+        vm.stopPrank();
+
+        // bob can register dave as referror because dave is indirect level 4 referee, which is OK
+        vm.startPrank(bob);
+        vm.expectRevert("cannot register under your downline");
+        referral.registerReferrer(keccak256("JEFF"));
+        vm.stopPrank();
+
+        // console.log("bob", bob);
+        // console.log("alice", alice);
+        // console.log("charlie", charlie);
+        // console.log("dave", dave);
+        // console.log("jeff", jeff);
+        
+        _getReferee(bob, address(0), 1, 1, 1);
+        _getReferee(alice, bob, 1, 1, 1);
+        _getReferee(charlie, alice, 1, 1, 0);
+        _getReferee(dave, charlie, 1, 0, 0);
+        _getReferee(jeff, dave, 0, 0, 0);
+        
+        
+
+    }
+
     // internal
+    function _getReferee(address trader, address referror, uint256 l1, uint256 l2, uint256 l3) internal {
+        
+        (address upline,
+            address[] memory level1Referees, 
+            address[] memory level2Referees, 
+            address[] memory level3Referees) = referral.getReferees(trader);
+
+        // console.log(upline, level1Referees.length, level2Referees.length, level3Referees.length);
+        
+        // for(uint256 i=0; i< level1Referees.length; i++){
+        //     console.log("l1", i+1, level1Referees[i]);
+        // }
+        // for(uint256 i=0; i< level2Referees.length; i++){
+        //     console.log("l2", i+1, level2Referees[i]);
+        // }
+        // for(uint256 i=0; i< level3Referees.length; i++){
+        //     console.log("l3", i+1, level3Referees[i]);
+        // }
+        assertEq(upline, referror);
+        assertEq(level1Referees.length, l1);
+        assertEq(level2Referees.length, l2);
+        assertEq(level3Referees.length, l3);
+    }
+
     function _registerCode() internal {
 
         // Step 1: Alice registers her code

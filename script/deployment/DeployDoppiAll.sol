@@ -50,7 +50,7 @@ contract DeployDoppiAll is Script {
         DoppiOffer impliedVol = _deployDoppiOffer(address(blackScholes));
         DoppiPoints doppiPoints = _deployDoppiPoints();
         DoppiConfig doppiConfig = _deployDoppiConfig(address(doppiPoints));
-        doppiConfig.setImpliedVol(address(impliedVol)); 
+        doppiConfig.setDoppiOffer(address(impliedVol)); 
         DoppiLiquidity doppiLP = _deployDoppiLiquidity(doppiConfig);
         DoppiCore doppiCore = _deployDoppiCore(doppiLP, impliedVol, doppiPoints);
         DoppiOpportunity doppiOpportunity = _deployDoppiOpportunity(address(doppiCore), address(doppiLP), doppiConfig);
@@ -102,7 +102,7 @@ contract DeployDoppiAll is Script {
         
         console.log("Setting DoppiCore Properties...");
         _doppiCore.setForwarderAddress(forwarder);
-        _doppiCore.setAdmin(_doppiOpportunity, true);
+        _doppiCore.setOpportunityBot(_doppiOpportunity, true);
         _doppiCore.setDoppiTraderFactory(_doppiFactory);
     }
 
@@ -129,7 +129,7 @@ contract DeployDoppiAll is Script {
         console.log("Deploying DoppiCore...");
         DoppiCore doppiCore = new DoppiCore(USDT, BTC, _doppiLP, _impliedVol);
         console.log("DoppiCore deployed at:", address(doppiCore));
-        _doppiPoints.setDoppiCore(address(doppiCore));
+        _doppiPoints.setDoppiCore(address(doppiCore), true);
         return doppiCore;
     }
         

@@ -91,7 +91,7 @@ contract DoppiUpkeepManagerTest is Test {
         doppiOpportunity.setForwarderAddress(forwarder);
         doppiOpportunity.setDoppiConfig(doppiConfig);
         doppiCore.setForwarderAddress(forwarder);
-        doppiCore.setAdmin(address(doppiOpportunity), true);
+        doppiCore.setOpportunityBot(address(doppiOpportunity), true);
         doppiLP.setForwarderAddress(forwarder);
         doppiLP.setDoppiCore(address(doppiCore));
         doppiLP.setEntryPoint(address(doppiRouter.entryPointA()), true);
@@ -450,7 +450,7 @@ contract DoppiUpkeepManagerTest is Test {
         BlackScholes blackScholes = new BlackScholes();
         _impliedVol = new DoppiOffer(blackScholes, address(doppiConfig.chainLinkFeed()), 500);
         _impliedVol.setRegression(86400, a_buy, b_buy, c_buy, a_sell, b_sell, c_sell);
-        doppiConfig.setImpliedVol(address(_impliedVol)); 
+        doppiConfig.setDoppiOffer(address(_impliedVol)); 
     }
 
     

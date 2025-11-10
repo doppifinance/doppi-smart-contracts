@@ -81,7 +81,7 @@ contract DoppiTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCompati
         minAssetAAmount = doppiConfig.minimal_assetA();
         minAssetBAmount = doppiConfig.minimal_assetB();
         doppiUpkeepManager = IDoppiUpkeepManager(doppiConfig.doppiUpKeepManager());
-        impliedVol = IDoppiOffer(doppiConfig.impliedVol());
+        impliedVol = IDoppiOffer(doppiConfig.doppiOffer());
         traderDefaultDay = 1;
         nextBulkId = 1;
     }

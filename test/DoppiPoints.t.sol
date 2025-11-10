@@ -14,7 +14,7 @@ contract DoppiPointsTest is Test {
     function setUp() public {
 
         doppiPoints = new DoppiPoints();
-        doppiPoints.setDoppiCore(mockDoppiCore);
+        doppiPoints.setDoppiCore(mockDoppiCore, true);
         doppiPoints.setDoppiClaim(mockDoppiClaim);
         vm.warp(startTimestamp);
 

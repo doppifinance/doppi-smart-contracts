@@ -93,7 +93,12 @@ contract DoppiReferral is Ownable {
         address referrer = referralCodeToAddress[refCode];
         require(referrer != address(0), "invalid referral code");
         require(referrer != msg.sender, "cannot refer self");
-
+        require(refereeToReferror[msg.sender] == address(0), "already register");
+        // 1. Prevent downline registration
+        require(!_isInDownlineRecursive(msg.sender, referrer), "cannot register under your downline");
+        // 2. Prevent upline registration  
+        require(!_isInDownlineRecursive(referrer, msg.sender), "cannot register under your upline");
+        
         referrals[referrer] = ReferralInfo({
             claimedMonthId: _currentMonthId() - 1,
             claimedLevel1: 0,
@@ -124,12 +129,17 @@ contract DoppiReferral is Ownable {
             address level1Ref = level1Refs[i];
             level1Referees[i] = level1Ref;
 
+            // console.log(level1Ref, "level1Ref");
+
             // Level 2 rewards
             address[] memory level2Refs = directReferees[level1Ref];
             level2Referees = new address[](level2Refs.length);
             for (uint256 j = 0; j < level2Refs.length; j++) {
                 address level2Ref = level2Refs[j];
+                // _isInDownline(level2Ref)
                 level2Referees[j] = level2Ref;
+                // console.log(level2Ref, "level2Ref");
+
 
                 // Level 3 rewards
                 address[] memory level3Refs = directReferees[level2Ref];
@@ -137,6 +147,7 @@ contract DoppiReferral is Ownable {
                 for (uint256 k = 0; k < level3Refs.length; k++) {
                     address level3Ref = level3Refs[k];
                     level3Referees[k] = level3Ref;
+                    // console.log(level3Ref, "level3Ref");
                 }
             }
         }
@@ -175,6 +186,18 @@ contract DoppiReferral is Ownable {
     }
 
     // internal function 
+    function _isInDownlineRecursive(address user, address target) internal view returns (bool) {
+        if (user == target) return true;
+        
+        address[] memory referees = directReferees[user];
+        for (uint256 i = 0; i < referees.length; i++) {
+            if (_isInDownlineRecursive(referees[i], target)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     function _getTotalReferralRewards(address referrer)
         internal
         view

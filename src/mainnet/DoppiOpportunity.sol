@@ -102,7 +102,7 @@ contract DoppiOpportunity is Ownable, Pausable, AutomationCompatibleInterface {
         indexes = new uint256[](UPKEEPS_PER_CHECK);
         count = 0;
 
-        uint256 oneDayMove = doppiCore.impliedVol().getOneDayBuffer(price, _isBuy);
+        uint256 oneDayMove = doppiCore.doppiOffer().getOneDayBuffer(price, _isBuy);
         for (uint256 i = 0; i < _orders.length && count < UPKEEPS_PER_CHECK; ) {
             uint256 buffer = _orders[i].strikePrice * oneDayMove / 10000;
             
@@ -140,7 +140,7 @@ contract DoppiOpportunity is Ownable, Pausable, AutomationCompatibleInterface {
         bool _isBuy
     ) internal {
         
-        uint256 oneDayMove = doppiCore.impliedVol().getOneDayBuffer(price, _isBuy);
+        uint256 oneDayMove = doppiCore.doppiOffer().getOneDayBuffer(price, _isBuy);
                 
         for (uint256 j = 0; j < _indexes.length; ) {
             uint256 i = _indexes[j];

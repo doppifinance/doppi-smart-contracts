@@ -23,6 +23,8 @@ contract DoppiOffer is IDoppiOffer, Ownable {
     }
 
     
+    uint256 public MIN_BUFFER = 100;
+    uint256 public MAX_BUFFER = 500;
     uint256 public HEDGE_ADJUST = 10;
     uint256 public TOTAL_OFFER = 5;
     uint256 public PRICE_GAP_PEROFFER;
@@ -68,8 +70,13 @@ contract DoppiOffer is IDoppiOffer, Ownable {
         chainLinkFeed = AggregatorV3Interface(_newOracle);
     }
 
-    function setPriceDecimal(int256 _decimal) public onlyOwner {
+    function setPriceDecimal(int256 _decimal) external onlyOwner {
         priceDecimal = _decimal;
+    }
+
+    function setBuffer(uint256 _min, uint256 _max) external onlyOwner {
+        MIN_BUFFER = _min;
+        MAX_BUFFER = _max;
     }
 
     // a,b,c must be * 1e27
@@ -205,7 +212,8 @@ contract DoppiOffer is IDoppiOffer, Ownable {
         if(_iv == 0) return 0;
         if(lastUpdated < block.timestamp - SECONDS_PER_DAY) return 0;
         uint256 onedaybuffer = _price * _iv * blackScholes.sqrt(SECONDS_PER_DAY * 1e7 / SECONDS_PER_YEAR * 1e7) / 1e25; // format to 1e18
-        onedayVol = onedaybuffer * uint256(priceDecimal) / _price / 10000; //return in bps
+        onedaybuffer = onedaybuffer * uint256(priceDecimal) / _price / 10000; //return in bps
+        onedayVol = onedaybuffer > MAX_BUFFER ? MAX_BUFFER : (onedaybuffer < MIN_BUFFER ? MIN_BUFFER: onedaybuffer);
     }
 
     function setAdmin(address _admin, bool _status) public onlyOwner {

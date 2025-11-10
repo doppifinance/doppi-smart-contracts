@@ -78,7 +78,7 @@ contract DoppiCoreTest is Test {
         doppiConfig.setTreasury(treasury);
         doppiConfig.setOracle(address(oracle));
         doppiConfig.setDoppiPoints(address(doppiPoints)); 
-        doppiConfig.setImpliedVol(address(impliedVol)); 
+        doppiConfig.setDoppiOffer(address(impliedVol)); 
         
         doppiLP =
             new DoppiLiquidity("Dual Asset Liquidity Pool", "DALP", IERC20(usdt), IERC20(btc));
@@ -86,7 +86,7 @@ contract DoppiCoreTest is Test {
         doppiLP.approveRouter();
                 
         doppiCore = new DoppiCore(address(usdt), address(btc), doppiLP, impliedVol);
-        doppiPoints.setDoppiCore(address(doppiCore));
+        doppiPoints.setDoppiCore(address(doppiCore), true);
 
         doppiLP.setDoppiCore(address(doppiCore));
 
@@ -102,7 +102,7 @@ contract DoppiCoreTest is Test {
             new DoppiTraderFactory(IERC20(usdt), IERC20(btc), address(doppiCore), address(doppiLP), address(doppiRouter));
 
         doppiCore.setDoppiTraderFactory(traderFactory);
-        doppiCore.setAdmin(admin, true);
+        doppiCore.setOpportunityBot(admin, true);
         doppiCore.setForwarderAddress(mockForwarder);
         
 
@@ -126,23 +126,23 @@ contract DoppiCoreTest is Test {
         assertEq(address(doppiCore.assetA()), address(usdt));
         assertEq(address(doppiCore.assetB()), address(btc));
         assertEq(address(doppiCore.doppiLP()), address(doppiLP));
-        assertEq(address(doppiCore.impliedVol()), address(impliedVol));
+        assertEq(address(doppiCore.doppiOffer()), address(impliedVol));
         assertEq(doppiCore.owner(), owner);
-        assertTrue(doppiCore.admins(owner));
+        assertTrue(doppiCore.opportunityBots(owner));
     }
 
-    function test_setAdmin() public {
-        assertFalse(doppiCore.admins(user1));
-        doppiCore.setAdmin(user1, true);
-        assertTrue(doppiCore.admins(user1));
+    function test_setOpportunityBot() public {
+        assertFalse(doppiCore.opportunityBots(user1));
+        doppiCore.setOpportunityBot(user1, true);
+        assertTrue(doppiCore.opportunityBots(user1));
 
-        doppiCore.setAdmin(user1, false);
-        assertFalse(doppiCore.admins(user1));
+        doppiCore.setOpportunityBot(user1, false);
+        assertFalse(doppiCore.opportunityBots(user1));
     }
 
-    function test_setAdmin_onlyOwner() public {
+    function test_setOpportunityBot_onlyOwner() public {
         vm.startPrank(owner);
-        doppiCore.setAdmin(user2, true);
+        doppiCore.setOpportunityBot(user2, true);
         vm.stopPrank();
     }
 

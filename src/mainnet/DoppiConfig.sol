@@ -22,7 +22,7 @@ contract DoppiConfig is Ownable {
     uint32 public DEFAULT_DAYS;
     address public treasury;
     address public doppiUpKeepManager;
-    address public impliedVol;
+    address public doppiOffer;
     address public doppiPoints;
     uint24 public MAX_ORDER;
     uint24 public treasury_fee; 
@@ -66,8 +66,8 @@ contract DoppiConfig is Ownable {
         doppiUpKeepManager = _doppiUpKeepManager;
     }
 
-    function setImpliedVol(address _impliedVol) external onlyOwner {
-        impliedVol = _impliedVol;
+    function setDoppiOffer(address _doppiOffer) external onlyOwner {
+        doppiOffer = _doppiOffer;
     }
 
     function setMinimal(uint256 _assetA, uint256 _assetB) external onlyOwner {

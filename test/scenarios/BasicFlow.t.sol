@@ -75,11 +75,11 @@ contract BasicFlowTest is Test {
         doppiRouter = new DoppiLiquidityRouter(IERC20(usdt), IERC20(btc), doppiLP);
         doppiFactory = new DoppiTraderFactory(IERC20(usdt), IERC20(btc), address(doppiCore), address(doppiLP), address(doppiRouter));
 
-        doppiPoints.setDoppiCore(address(doppiCore));
+        doppiPoints.setDoppiCore(address(doppiCore), true);
         opportunityBot.setForwarderAddress(mockForwarder);
         opportunityBot.setDoppiConfig(doppiConfig);
         doppiCore.setForwarderAddress(mockForwarder);
-        doppiCore.setAdmin(address(opportunityBot), true);
+        doppiCore.setOpportunityBot(address(opportunityBot), true);
         doppiLP.setForwarderAddress(mockForwarder);
         doppiLP.setDoppiCore(address(doppiCore));
         doppiLP.setEntryPoint(address(doppiRouter.entryPointA()), true);
@@ -205,7 +205,7 @@ contract BasicFlowTest is Test {
         BlackScholes blackScholes = new BlackScholes();
         _impliedVol = new DoppiOffer(blackScholes, address(doppiConfig.chainLinkFeed()), 500);
         _impliedVol.setRegression(86400, a_buy, b_buy, c_buy, a_sell, b_sell, c_sell);
-        doppiConfig.setImpliedVol(address(_impliedVol)); 
+        doppiConfig.setDoppiOffer(address(_impliedVol)); 
     }
 
     function _setupMockSwapper(address _usdt, address _btc, address _oracle) internal returns (Swapper _swapper) {

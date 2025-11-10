@@ -11,7 +11,7 @@ abstract contract DoppiCoreAdmin is Ownable, Pausable {
     bool public publicOpen = true;
     address public s_forwarderAddress;
     uint256 public UPKEEPS_PER_CHECK = 20; // Process 20 upkeeps per check
-    mapping(address => bool) public admins;
+    mapping(address => bool) public opportunityBots;
     
     DoppiTraderFactory public doppiTraderFactory;
     
@@ -24,8 +24,8 @@ abstract contract DoppiCoreAdmin is Ownable, Pausable {
         doppiTraderFactory = _traderFactory;
     }
 
-    function setAdmin(address _admin, bool _status) external onlyOwner {
-        admins[_admin] = _status;
+    function setOpportunityBot(address _opportunityBot, bool _status) external onlyOwner {
+        opportunityBots[_opportunityBot] = _status;
     }
 
     function setEmergencyMode(bool _emergency) external onlyOwner whenPaused {

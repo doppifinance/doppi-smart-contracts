@@ -6,9 +6,10 @@ import {DALiquidityLib} from "../Library/DALiquidityLib.sol";
 // import "forge-std/console.sol";
 
 contract DoppiPoints is Ownable, Pausable {
-    address public doppiCore;
+    // address public doppiCore;
     address public doppiClaim;
-
+    mapping(address => bool) public doppiCore;
+    
     struct ClaimedPoint {
         uint256 claimedMonthId;
         uint256 totalPointClaimed; 
@@ -93,9 +94,9 @@ contract DoppiPoints is Ownable, Pausable {
         return monthIds;
     }
 
-    function setDoppiCore(address _doppiCore) external onlyOwner {
+    function setDoppiCore(address _doppiCore, bool _status) external onlyOwner {
         require(_doppiCore != address(0), "Zero address");
-        doppiCore = _doppiCore;
+        doppiCore[_doppiCore] = _status;
     }
 
     function setDoppiClaim(address _doppiClaim) external onlyOwner {
@@ -125,7 +126,7 @@ contract DoppiPoints is Ownable, Pausable {
     }
 
     modifier onlyDoppiCore() {
-        require(msg.sender == doppiCore, "only doppicore");
+        require(doppiCore[msg.sender], "only doppicore");
         _;
     }
 
