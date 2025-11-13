@@ -14,4 +14,5 @@ interface IDoppiCore {
     function paused() external view returns (bool);
     function isEmergency() external view returns (bool);
     function emergencyWithdraw() external;
+    function getCurrentDeposits(bool isBuy) external view returns (uint256);
 }

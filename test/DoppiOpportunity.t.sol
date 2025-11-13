@@ -111,7 +111,7 @@ contract DoppiOpportunityTest is Test {
 
     function test_checkUpkeep_opportunityBuy() public {
         depositUSDT();
-        assertEq(doppiCore.getBuyPositionCount(), 1);
+        assertEq(doppiCore.getBuyPositionCount(address(0)), 1);
         oracle.setPrice(int256(95_500  * 1e8));
         (bool upkeepNeeded, bytes memory performData) = doppiOpportunity.checkUpkeep("");
         assertTrue(upkeepNeeded);
@@ -124,7 +124,7 @@ contract DoppiOpportunityTest is Test {
 
     function test_checkUpkeep_opportunitySell() public {
         depositBTC();
-        assertEq(doppiCore.getSellPositionCount(), 1);
+        assertEq(doppiCore.getSellPositionCount(address(0)), 1);
         oracle.setPrice(int256(104_000 * 1e8));
         (bool upkeepNeeded, bytes memory performData) = doppiOpportunity.checkUpkeep("");
         assertTrue(upkeepNeeded);
@@ -244,7 +244,7 @@ contract DoppiOpportunityTest is Test {
         depositUSDT();
         depositUSDT();
         
-        assertEq(doppiCore.getBuyPositionCount(), 3);
+        assertEq(doppiCore.getBuyPositionCount(address(0)), 3);
         oracle.setPrice(int256(95_500  * 1e8));
         doppiOpportunity.setUpkeeps_per_check(2);
 

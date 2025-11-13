@@ -8,7 +8,7 @@ import {DALiquidityLib} from "../Library/DALiquidityLib.sol";
 import {AggregatorV3Interface} from "../Interface/AggregatorV3Interface.sol";
 import {IBlackScholes} from "../Interface/IBlackScholes.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
-import "forge-std/console.sol";
+// import "forge-std/console.sol";
 
 // Simple MarkIV Contract
 contract DoppiOffer is IDoppiOffer, Ownable {

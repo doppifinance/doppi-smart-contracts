@@ -7,6 +7,7 @@ import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {ISwapRouter} from "../Interface/ISwapRouter.sol";
 import {IQuoterV2} from "@uniswap/v3-periphery/contracts/interfaces/IQuoterV2.sol";
 import {IDoppiLiquidity} from "../Interface/IDoppiLiquidity.sol";
+import {IDoppiCore} from "../Interface/IDoppiCore.sol";
 import {IDoppiTraderFactory} from "../Interface/IDoppiTraderFactory.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {DALiquidityLib} from "../Library/DALiquidityLib.sol";
@@ -14,7 +15,7 @@ import {AutomationCompatibleInterface} from "../Interface/AutomationCompatibleIn
 import {DoppiConfig} from "./DoppiConfig.sol";
 import {Pausable} from "@openzeppelin/contracts/utils/Pausable.sol";
 import {AggregatorV3Interface} from "../Interface/AggregatorV3Interface.sol";
-import "forge-std/console.sol";
+// import "forge-std/console.sol";
 
 contract DoppiLiquidity is ERC20, Ownable, Pausable, IDoppiLiquidity, AutomationCompatibleInterface {
     using SafeERC20 for IERC20;
@@ -32,10 +33,12 @@ contract DoppiLiquidity is ERC20, Ownable, Pausable, IDoppiLiquidity, Automation
         uint256 decimals;
         address v3Pool; 
         uint32 twapDuration;
+        uint24 maxDepositPercentage;
     }
 
     Config public config;
-    uint256 public UPKEEPS_PER_CHECK = 5; // Process 5 upkeeps per check
+    uint16 public constant BASIS_POINTS = 10000;
+    uint16 public UPKEEPS_PER_CHECK = 5; // Process 5 upkeeps per check
     IERC20 public immutable assetA;
     IERC20 public immutable assetB;
     address public doppiCore;
@@ -139,6 +142,26 @@ contract DoppiLiquidity is ERC20, Ownable, Pausable, IDoppiLiquidity, Automation
         return toSellPrices.length;
     }
 
+    function getMaxDepositAmount(bool isBuy) public view returns (uint256) {
+        uint256 poolSize = isBuy ? totalAssetsInAssetA() : totalAssetsInAssetB();
+        return (poolSize * config.maxDepositPercentage) / BASIS_POINTS;
+    }
+
+    function getPoolCapacityInfo(bool isBuy) external view returns (
+        uint256 currentDeposits,
+        uint256 maxDepositAmount,
+        uint256 availableCapacity
+    ) {
+        currentDeposits = IDoppiCore(doppiCore).getCurrentDeposits(isBuy);
+        maxDepositAmount = getMaxDepositAmount(isBuy);
+        availableCapacity = maxDepositAmount > currentDeposits ? maxDepositAmount - currentDeposits : 0;
+    }
+
+    function getMaxDepositForUser(bool isBuy, uint256 desiredAmount) external view returns (uint256) {
+        uint256 availableCapacity = getMaxDepositAmount(isBuy) - IDoppiCore(doppiCore).getCurrentDeposits(isBuy);
+        return desiredAmount > availableCapacity ? availableCapacity : desiredAmount;
+    }
+
     function setForwarderAddress(address forwarderAddress) external onlyOwner {
         s_forwarderAddress = forwarderAddress;
     }
@@ -147,7 +170,7 @@ contract DoppiLiquidity is ERC20, Ownable, Pausable, IDoppiLiquidity, Automation
         doppiCore = _doppiCore;
     }
 
-    function setUpkeeps_per_check(uint24 _percheck) external onlyOwner {
+    function setUpkeeps_per_check(uint16 _percheck) external onlyOwner {
         UPKEEPS_PER_CHECK = _percheck;
     }
 
@@ -165,6 +188,7 @@ contract DoppiLiquidity is ERC20, Ownable, Pausable, IDoppiLiquidity, Automation
         config.swapMargin = _doppiConfig.swapMargin();
         config.v3Pool = _doppiConfig.pancakeV3Pool();
         config.twapDuration = _doppiConfig.twapDuration();
+        config.maxDepositPercentage = _doppiConfig.maxDepositPercentage();
     }
 
     function setDoppiTraderFactory(address _traderFactory) external onlyOwner {

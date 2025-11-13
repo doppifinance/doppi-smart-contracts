@@ -73,6 +73,7 @@ contract DeployDoppiAll is Script {
 
         _setDoppiCoreProperties(doppiCore, doppiFactory, address(doppiOpportunity));
 
+        doppiPoints.setDoppiTraderFactory(address(doppiFactory));
         // set setForwarderAddress for all necessary contracts
         // doppiOpportunity.setForwarderAddress(forwarder);
         
@@ -104,6 +105,7 @@ contract DeployDoppiAll is Script {
         _doppiCore.setForwarderAddress(forwarder);
         _doppiCore.setOpportunityBot(_doppiOpportunity, true);
         _doppiCore.setDoppiTraderFactory(_doppiFactory);
+        _doppiCore.setAPRTolerance(300);
     }
 
     function _setDoppiLiquidityProperties(
@@ -213,6 +215,7 @@ contract DeployDoppiAll is Script {
         doppiConfig.setPancakeV3Pool(PCSWAP_V3Pool); 
         doppiConfig.setOracle(CHAINLINK_BTC_USD);
         doppiConfig.setSlippage(500);
+        doppiConfig.setMaxDepositPercentage(20000); // if pool is 10000, allow up to 2x deposit
         // doppiConfig.setDoppiUpKeepManager(address(mockDoppiUpKeepManager));
         doppiConfig.setDoppiPoints(_doppiPoints); 
 

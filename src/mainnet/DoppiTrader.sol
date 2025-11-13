@@ -72,7 +72,7 @@ contract DoppiTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCompati
         tokens[0] = _da;
         tokens[1] = _doppiRouter;
         tokens[2] = _doppiLP;
-        for (uint i = 0; i < tokens.length; i++) {
+        for (uint256 i = 0; i < tokens.length; i++) {
             assetA.safeIncreaseAllowance(tokens[i], type(uint256).max);
             assetB.safeIncreaseAllowance(tokens[i], type(uint256).max);
         }

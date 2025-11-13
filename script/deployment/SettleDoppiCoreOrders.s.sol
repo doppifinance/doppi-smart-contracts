@@ -33,7 +33,7 @@ contract SettleDoppiCoreOrders is Script {
         DoppiPoints doppiPoints = DoppiPoints(DOPPI_POINTS);
         DoppiReferral doppiReferral = DoppiReferral(DOPPI_REF);
         
-        uint256[] memory ids = doppiPoints.getMonthIds();
+        uint24[] memory ids = doppiPoints.getMonthIds();
         for(uint256 i; i <ids.length; i++){
             uint256 vol = doppiPoints.getMonthlyVolume(address(trader), ids[i]);
             console.log("month id", ids[i], vol);
@@ -60,7 +60,7 @@ contract SettleDoppiCoreOrders is Script {
         }
 
 
-        uint256 buyCount = doppiCore.getBuyPositionCount();
+        uint256 buyCount = doppiCore.getBuyPositionCount(address(0));
         DualAssetPosition[] memory positions = doppiCore.get_positions_buy();
         for(uint256 i; i <positions.length; i++){
             console.log("expiryTimestamp", positions[i].expiryTimestamp, block.timestamp);

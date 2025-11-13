@@ -17,14 +17,14 @@ import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {DoppiPoints} from "./DoppiPoints.sol";
-import "forge-std/console.sol";
+// import "forge-std/console.sol";
 
 contract DoppiReferral is Ownable {
     using SafeERC20 for IERC20;
 
     struct ReferralInfo {
         // address referrer;
-        uint256 claimedMonthId;
+        uint24 claimedMonthId;
         uint256 claimedLevel1;
         uint256 claimedLevel2;
         uint256 claimedLevel3;
@@ -34,18 +34,18 @@ contract DoppiReferral is Ownable {
     DoppiPoints public immutable doppiPoints;
     address public doppiClaim;
     address public oracle;                // who can call recordTrade
-    uint256 public LEVEL1_REWARD_BP = 150; // 1.5%
-    uint256 public LEVEL2_REWARD_BP = 100; // 1.0%
-    uint256 public LEVEL3_REWARD_BP = 50; // 0.5%
-    uint256 public constant BP_DENOMINATOR = 10000;
+    uint16 public LEVEL1_REWARD_BP = 150; // 1.5%
+    uint16 public LEVEL2_REWARD_BP = 100; // 1.0%
+    uint16 public LEVEL3_REWARD_BP = 50; // 0.5%
+    uint16 public constant BP_DENOMINATOR = 10000;
     uint256 public MIN_VOLUME_FOR_L2 = 500_000 ether;
     uint256 public MIN_VOLUME_FOR_L3 = 1_000_000 ether;
-    uint256 public constant startTimestamp = 1735689600; // Jan 1, 2025
+    uint32 public constant startTimestamp = 1735689600; // Jan 1, 2025
 
     // --- Referral state ---
     mapping(address => ReferralInfo) public referrals; // trader => referrer
     mapping(address => uint256) public pendingRewards; // claimable rewards
-    mapping(address => uint256) public referredCount;
+    mapping(address => uint16) public referredCount;
     // referral code system
     mapping(address => address) public refereeToReferror; // who is my upline
     mapping(bytes32 => address) public referralCodeToAddress; // code => referrer
@@ -94,10 +94,8 @@ contract DoppiReferral is Ownable {
         require(referrer != address(0), "invalid referral code");
         require(referrer != msg.sender, "cannot refer self");
         require(refereeToReferror[msg.sender] == address(0), "already register");
-        // 1. Prevent downline registration
         require(!_isInDownlineRecursive(msg.sender, referrer), "cannot register under your downline");
-        // 2. Prevent upline registration  
-        require(!_isInDownlineRecursive(referrer, msg.sender), "cannot register under your upline");
+        require(directReferees[msg.sender].length == 0, "cannot register upline");
         
         referrals[referrer] = ReferralInfo({
             claimedMonthId: _currentMonthId() - 1,
@@ -129,17 +127,12 @@ contract DoppiReferral is Ownable {
             address level1Ref = level1Refs[i];
             level1Referees[i] = level1Ref;
 
-            // console.log(level1Ref, "level1Ref");
-
             // Level 2 rewards
             address[] memory level2Refs = directReferees[level1Ref];
             level2Referees = new address[](level2Refs.length);
             for (uint256 j = 0; j < level2Refs.length; j++) {
                 address level2Ref = level2Refs[j];
-                // _isInDownline(level2Ref)
                 level2Referees[j] = level2Ref;
-                // console.log(level2Ref, "level2Ref");
-
 
                 // Level 3 rewards
                 address[] memory level3Refs = directReferees[level2Ref];
@@ -147,7 +140,6 @@ contract DoppiReferral is Ownable {
                 for (uint256 k = 0; k < level3Refs.length; k++) {
                     address level3Ref = level3Refs[k];
                     level3Referees[k] = level3Ref;
-                    // console.log(level3Ref, "level3Ref");
                 }
             }
         }
@@ -166,7 +158,7 @@ contract DoppiReferral is Ownable {
     }
 
     function resetClaims(address referrer) external onlyDoppiClaim {
-        uint256 currentMonthId = _currentMonthId();
+        uint24 currentMonthId = _currentMonthId();
         ReferralInfo storage ref = referrals[referrer];
         
         // Only reset if we're in a new month
@@ -207,15 +199,15 @@ contract DoppiReferral is Ownable {
             )
     {
         ReferralInfo memory ref = referrals[referrer];
-        uint256 currentMonthId = _currentMonthId();
+        uint24 currentMonthId = _currentMonthId();
         
         (currentL1, currentL2, currentL3) = _calculateRewardsForMonth(referrer, currentMonthId);
             
-        uint256 startMonthId = ref.claimedMonthId + 1;
+        uint24 startMonthId = ref.claimedMonthId + 1;
         // Only calculate for completed months (exclude current month)
-        uint256 endMonthId = currentMonthId - 1;
+        uint24 endMonthId = currentMonthId - 1;
 
-        for (uint256 monthId = startMonthId; monthId <= endMonthId; monthId++) {
+        for (uint24 monthId = startMonthId; monthId <= endMonthId; monthId++) {
             (uint256 l1, uint256 l2, uint256 l3) = _calculateRewardsForMonth(referrer, monthId);
             totalL1 += l1;
             totalL2 += l2;
@@ -223,7 +215,7 @@ contract DoppiReferral is Ownable {
         }
     }
 
-    function _calculateRewardsForMonth(address referrer, uint256 monthId)
+    function _calculateRewardsForMonth(address referrer, uint24 monthId)
         internal
         view
         returns (uint256 l1, uint256 l2, uint256 l3)
@@ -262,9 +254,9 @@ contract DoppiReferral is Ownable {
         }
     }
 
-    function _currentMonthId() internal view returns (uint256) {
+    function _currentMonthId() internal view returns (uint24) {
         // 30-day rolling months
-        return (block.timestamp - startTimestamp) / 30 days;
+        return uint24((block.timestamp - startTimestamp) / 30 days);
     }
     
     // -----------------------
@@ -273,7 +265,7 @@ contract DoppiReferral is Ownable {
 
     /// @notice Set level1 and level2 rates in basis points. Sum should not exceed 10000.
     function setRates(uint16 _level1Bps, uint16 _level2Bps, uint16 _level3Bps) external onlyOwner {
-        require(uint256(_level1Bps) + uint256(_level2Bps) + uint256(_level3Bps) <= BP_DENOMINATOR, "bps sum too large");
+        require(_level1Bps + _level2Bps + _level3Bps <= BP_DENOMINATOR, "bps sum too large");
         LEVEL1_REWARD_BP = _level1Bps;
         LEVEL2_REWARD_BP = _level2Bps;
         LEVEL3_REWARD_BP = _level3Bps;

@@ -156,7 +156,7 @@ contract BasicFlowTest is Test {
 
         // Phase 2: Trader Bot Creation
         vm.startPrank(trader);
-        uint256 traderId = doppiFactory.deployTraderBot(defaultWeights);
+        uint32 traderId = doppiFactory.deployTraderBot(defaultWeights);
         DoppiTrader traderBot = DoppiTrader(doppiFactory.traderBots(traderId));
         traderBot.setForwarderAddress(forwarder);
         assertTrue(doppiFactory.isTraderBot(address(traderBot)));
@@ -202,7 +202,7 @@ contract BasicFlowTest is Test {
         deal(USDT, address(trader), 100_000 ether);
 
         // Deploy bot
-        uint256 traderId = doppiFactory.deployTraderBot(defaultWeights);
+        uint32 traderId = doppiFactory.deployTraderBot(defaultWeights);
         DoppiTrader traderBot = DoppiTrader(doppiFactory.traderBots(traderId));
         traderBot.setForwarderAddress(forwarder);
         // Fund and start
@@ -241,7 +241,7 @@ contract BasicFlowTest is Test {
         vm.startPrank(trader);
         deal(USDT, address(trader), 100_000 ether);
         // Deploy bot
-        uint256 traderId = doppiFactory.deployTraderBot(defaultWeights);
+        uint32 traderId = doppiFactory.deployTraderBot(defaultWeights);
         DoppiTrader traderBot = DoppiTrader(doppiFactory.traderBots(traderId));
         traderBot.setForwarderAddress(forwarder);
         // Fund and start
@@ -284,7 +284,7 @@ contract BasicFlowTest is Test {
         deal(USDT, address(trader), 100_000 ether);
 
         // Deploy bot
-        uint256 traderId = doppiFactory.deployTraderBot(defaultWeights);
+        uint32 traderId = doppiFactory.deployTraderBot(defaultWeights);
         DoppiTrader traderBot = DoppiTrader(doppiFactory.traderBots(traderId));
         traderBot.setForwarderAddress(forwarder);
         // Fund and start

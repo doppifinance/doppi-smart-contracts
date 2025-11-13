@@ -3,7 +3,7 @@ pragma solidity ^0.8.26;
 
 import {AggregatorV3Interface} from "../Interface/AggregatorV3Interface.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
-import "forge-std/console.sol";
+// import "forge-std/console.sol";
 
 /// One DoppiConfig for one pair ie. USDT/BTC
 contract DoppiConfig is Ownable {
@@ -29,6 +29,7 @@ contract DoppiConfig is Ownable {
     uint256 public minimal_assetA;
     uint256 public minimal_assetB;
     uint32 public twapDuration;
+    uint24 public maxDepositPercentage;
     
     constructor() Ownable(msg.sender) {
 
@@ -49,7 +50,7 @@ contract DoppiConfig is Ownable {
         treasury_fee = 1000;
         minimal_assetA = 100 ether;
         minimal_assetB = 0.001 ether;
-        
+        maxDepositPercentage = 10000;
     }
 
     function getAmountFee(uint256 _amount) external view returns (uint256 amountAfterFee, uint256 amountFee) {
@@ -58,6 +59,10 @@ contract DoppiConfig is Ownable {
     }
 
     // Configuration functions
+    function setMaxDepositPercentage(uint24 _maxDepositPercentage) external onlyOwner {
+        maxDepositPercentage = _maxDepositPercentage;
+    }
+
     function setDoppiPoints(address _doppiPoints) external onlyOwner {
         doppiPoints = _doppiPoints;
     }

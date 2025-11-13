@@ -1,18 +1,19 @@
-// BotRegistryLib.sol
+// SPDX-License-Identifier: UNLICENSED
+pragma solidity ^0.8.26;
 library BotRegistryLib {
     struct BotRegistry {
         mapping(address => address[]) traderToBot;
-        mapping(address => uint256) traderBotId;
-        mapping(uint256 => address) traderBots;
-        uint256 nextBotId;
+        mapping(address => uint32) traderBotId;
+        mapping(uint32 => address) traderBots;
+        uint32 nextBotId;
     }
 
     function deployBot(
         BotRegistry storage registry,
         address trader,
         address newTrader
-    ) internal returns (uint256) {
-        uint256 id = registry.nextBotId++;
+    ) internal returns (uint32) {
+        uint32 id = registry.nextBotId++;
         registry.traderToBot[trader].push(newTrader);
         registry.traderBots[id] = newTrader;
         registry.traderBotId[newTrader] = id;
@@ -20,11 +21,11 @@ library BotRegistryLib {
     }
 
 	function getIdByBot(BotRegistry storage registry, address botAddr) 
-        internal view returns (uint256) {
+        internal view returns (uint32) {
         return registry.traderBotId[botAddr];
     }
 
-	function getBotsById(BotRegistry storage registry, uint256 Id) 
+	function getBotsById(BotRegistry storage registry, uint32 Id) 
         internal view returns (address) {
         return registry.traderBots[Id];
     }

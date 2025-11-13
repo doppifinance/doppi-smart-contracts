@@ -4,7 +4,7 @@ pragma solidity ^0.8.26;
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {Pausable} from "@openzeppelin/contracts/utils/Pausable.sol";
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
-import "forge-std/console.sol";
+// import "forge-std/console.sol";
 
 interface IDoppiToken {
     function mint(address to, uint256 amount) external;
@@ -48,8 +48,8 @@ contract DoppiClaim is Ownable, Pausable, ReentrancyGuard {
     IDoppiPoints public immutable doppiPoints;
     IDoppiReferral public immutable doppiReferral;
 
-    uint256 public tokensPerPoint; // in bps. 10000 if 1:1
-    uint256 private constant BASIS_POINTS = 10000;
+    uint16 public tokensPerPoint; // in bps. 10000 if 1:1
+    uint16 private constant BASIS_POINTS = 10000;
     
     event Claimed(
         address indexed user,
@@ -64,7 +64,7 @@ contract DoppiClaim is Ownable, Pausable, ReentrancyGuard {
         address _doppiToken,
         address _doppiPoints,
         address _doppiReferral,
-        uint256 _tokensPerPoint
+        uint16 _tokensPerPoint
     ) Ownable(msg.sender) {
         require(_doppiToken != address(0), "token=0");
         require(_doppiPoints != address(0), "points=0");
@@ -114,7 +114,7 @@ contract DoppiClaim is Ownable, Pausable, ReentrancyGuard {
     }
 
     // --- Admin functions ---
-    function setTokensPerPoint(uint256 _tokensPerPoint) external onlyOwner {
+    function setTokensPerPoint(uint16 _tokensPerPoint) external onlyOwner {
         tokensPerPoint = _tokensPerPoint;
     }
 

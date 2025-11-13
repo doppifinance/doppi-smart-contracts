@@ -2,25 +2,29 @@
 pragma solidity ^0.8.26;
 import {Pausable} from "@openzeppelin/contracts/utils/Pausable.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
-import {DoppiTraderFactory} from "./DoppiTraderFactory.sol";
+import {IDoppiTraderFactory} from "../Interface/IDoppiTraderFactory.sol";
 
-//       DualAsset Admin Module (Owner / Keeper Ops)
 abstract contract DoppiCoreAdmin is Ownable, Pausable {
     
     bool public emergencyMode;
     bool public publicOpen = true;
     address public s_forwarderAddress;
-    uint256 public UPKEEPS_PER_CHECK = 20; // Process 20 upkeeps per check
+    uint16 public UPKEEPS_PER_CHECK = 20; 
     mapping(address => bool) public opportunityBots;
+    uint16 public aprToleranceBP = 0; // 1% default, configurable by owner
     
-    DoppiTraderFactory public doppiTraderFactory;
+    IDoppiTraderFactory public doppiTraderFactory;
     
     // Configuration functions
-    function setUpkeeps_per_check(uint24 _percheck) external onlyOwner {
+    function setAPRTolerance(uint16 _toleranceBP) external onlyOwner {
+        aprToleranceBP = _toleranceBP;
+    }
+
+    function setUpkeeps_per_check(uint16 _percheck) external onlyOwner {
         UPKEEPS_PER_CHECK = _percheck;
     }
 
-    function setDoppiTraderFactory(DoppiTraderFactory _traderFactory) external onlyOwner {
+    function setDoppiTraderFactory(IDoppiTraderFactory _traderFactory) external onlyOwner {
         doppiTraderFactory = _traderFactory;
     }
 
@@ -47,5 +51,4 @@ abstract contract DoppiCoreAdmin is Ownable, Pausable {
     function setUnPause() external onlyOwner {
         _unpause();
     }
-
 }

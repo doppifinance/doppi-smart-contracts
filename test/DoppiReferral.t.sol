@@ -45,6 +45,7 @@ contract DoppiReferralTest is Test {
     address charlie = makeAddr("Charlie");
     address dave = makeAddr("Dave");
     address jeff = makeAddr("Jeff");
+    address cz = makeAddr("CZ");
     bytes32 aliceCode = keccak256("ALICE");
     bytes32 bobCode = keccak256("BOB");
     bytes32 charlieCode = keccak256("CHARLES");
@@ -413,20 +414,30 @@ contract DoppiReferralTest is Test {
         referral.registerReferrer(keccak256("JEFF"));
         vm.stopPrank();
 
+
+        vm.startPrank(cz);
+        referral.registerReferralCode(keccak256("CZ"));
+        vm.stopPrank();
+
+        vm.startPrank(bob);
+        vm.expectRevert("cannot register upline");
+        referral.registerReferrer(keccak256("CZ"));
+        vm.stopPrank();
+
         // console.log("bob", bob);
         // console.log("alice", alice);
         // console.log("charlie", charlie);
         // console.log("dave", dave);
         // console.log("jeff", jeff);
+        // console.log("cz", cz);
         
         _getReferee(bob, address(0), 1, 1, 1);
         _getReferee(alice, bob, 1, 1, 1);
         _getReferee(charlie, alice, 1, 1, 0);
         _getReferee(dave, charlie, 1, 0, 0);
         _getReferee(jeff, dave, 0, 0, 0);
+        _getReferee(cz, address(0), 0, 0, 0);
         
-        
-
     }
 
     // internal
@@ -479,10 +490,10 @@ contract DoppiReferralTest is Test {
         vm.stopPrank();
     } 
 
-    function _currentMonthId() internal view returns (uint256) {
+    function _currentMonthId() internal view returns (uint24) {
         // 30-day rolling months
         uint256 startTimestamp = 1735689600; // Jan 1, 2025
-        return (block.timestamp - startTimestamp) / 30 days;
+        return uint24((block.timestamp - startTimestamp) / 30 days);
     }
 
 }

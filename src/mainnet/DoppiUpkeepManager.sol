@@ -14,7 +14,7 @@ import {DALiquidityLib} from "../Library/DALiquidityLib.sol";
 import {AggregatorV3Interface} from "../Interface/AggregatorV3Interface.sol";
 import {AutomationCompatibleInterface} from "../Interface/AutomationCompatibleInterface.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
-import "forge-std/console.sol";
+// import "forge-std/console.sol";
 
 contract DoppiUpkeepManager is Ownable, AutomationCompatibleInterface {
     using SafeERC20 for IERC20;
@@ -65,7 +65,7 @@ contract DoppiUpkeepManager is Ownable, AutomationCompatibleInterface {
 
     address public adminAddress;
     uint256 public currentUpkeepIndex;
-    uint256 public UPKEEPS_PER_CHECK = 20; // Process 20 upkeeps per check
+    uint16 public UPKEEPS_PER_CHECK = 20; // Process 20 upkeeps per check
     uint32 public DEFAULT_GASLIMIT = 5_000_000;
     uint96 public DEFAULT_AMOUNT = 300 ether;
     uint24 public slippage = 200; //0.2%
@@ -145,7 +145,7 @@ contract DoppiUpkeepManager is Ownable, AutomationCompatibleInterface {
         s_forwarderAddress = forwarderAddress;
     }
 
-    function setUpkeeps_per_check(uint24 _percheck) external onlyOwner {
+    function setUpkeeps_per_check(uint16 _percheck) external onlyOwner {
         UPKEEPS_PER_CHECK = _percheck;
     }
 

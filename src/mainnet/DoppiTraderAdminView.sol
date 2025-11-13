@@ -19,7 +19,7 @@ abstract contract DoppiTraderAdminView is Ownable, Pausable {
     Trade[] public sell_undo_list;
     address public validTrader;
     address public s_forwarderAddress;
-    uint32 public traderDefaultDay;
+    uint16 public traderDefaultDay;
     DoppiConfig public doppiConfig;
     
     function getTotalBalancesInLP() external view returns (uint256 totalAssetA, uint256 totalAssetB) {
@@ -101,7 +101,7 @@ abstract contract DoppiTraderAdminView is Ownable, Pausable {
         _unpause();
     }
 
-    function setDefaultDay(uint32 _day) external onlyTrader {
+    function setDefaultDay(uint16 _day) external onlyTrader {
         traderDefaultDay = _day;
     }
 

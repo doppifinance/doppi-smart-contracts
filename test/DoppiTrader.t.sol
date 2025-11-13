@@ -121,7 +121,7 @@ contract DoppiTraderTest is Test {
         doppiCore.setDoppiTraderFactory(doppiFactory);
 
         vm.prank(trader);
-        uint256 id = doppiFactory.deployTraderBot(defaultweights);
+        uint32 id = doppiFactory.deployTraderBot(defaultweights);
         vm.stopPrank();
         doppiTrader = DoppiTrader(doppiFactory.traderBots(id));
         vm.prank(trader);

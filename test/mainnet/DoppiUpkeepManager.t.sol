@@ -131,7 +131,7 @@ contract DoppiUpkeepManagerTest is Test {
         deal(LINK, address(trader), 1000 ether);
 
         // Deploy bot
-        uint256 traderId = doppiFactory.deployTraderBot(defaultWeights);
+        uint32 traderId = doppiFactory.deployTraderBot(defaultWeights);
         DoppiTrader traderBot = DoppiTrader(doppiFactory.traderBots(traderId));
         usdt.approve(address(doppiUpkeepManager), 10000 ether);
         doppiUpkeepManager.setupAutomation(address(traderBot));
@@ -341,7 +341,7 @@ contract DoppiUpkeepManagerTest is Test {
         deal(LINK, address(trader), 1000 ether);
 
         // Deploy bot
-        uint256 traderId = doppiFactory.deployTraderBot(defaultWeights);
+        uint32 traderId = doppiFactory.deployTraderBot(defaultWeights);
         DoppiTrader traderBot = DoppiTrader(doppiFactory.traderBots(traderId));
         usdt.approve(address(doppiUpkeepManager), 300 ether);
         uint256 upKeepId = doppiUpkeepManager.setupAutomation(address(traderBot));
@@ -400,7 +400,7 @@ contract DoppiUpkeepManagerTest is Test {
         // Deploy bot
         vm.startPrank(trader);
         deal(USDT, address(trader), 1000 ether);
-        uint256 traderId = doppiFactory.deployTraderBot(defaultWeights);
+        uint32 traderId = doppiFactory.deployTraderBot(defaultWeights);
         DoppiTrader traderBot = DoppiTrader(doppiFactory.traderBots(traderId));
         usdt.approve(address(doppiUpkeepManager), 300 ether);
         doppiUpkeepManager.setupAutomation(address(traderBot));

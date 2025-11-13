@@ -13,7 +13,7 @@ contract DoppiOpportunity is Ownable, Pausable, AutomationCompatibleInterface {
     IDoppiLiquidity public immutable doppiLP;
     DoppiConfig public doppiConfig;
     address public s_forwarderAddress;
-    uint256 public UPKEEPS_PER_CHECK = 5; // Process 5 upkeeps per check
+    uint16 public UPKEEPS_PER_CHECK = 5; // Process 5 upkeeps per check
 
     event OppPerformed(bool isBuy, address indexed trader, uint256 price, uint256 amount, uint256 amountOut);
     event OppUnwindPerformed(bool isBuy, address indexed trader, uint256 price, uint256 swappedAmount, uint256 amountOut, uint256 profit, address profitToken);
@@ -76,7 +76,7 @@ contract DoppiOpportunity is Ownable, Pausable, AutomationCompatibleInterface {
         _unpause();
     }
 
-    function setUpkeeps_per_check(uint24 _percheck) external onlyOwner {
+    function setUpkeeps_per_check(uint16 _percheck) external onlyOwner {
         UPKEEPS_PER_CHECK = _percheck;
     }
 

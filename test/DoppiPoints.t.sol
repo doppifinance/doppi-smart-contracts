@@ -25,7 +25,7 @@ contract DoppiPointsTest is Test {
         vm.prank(mockDoppiCore);
         doppiPoints.recordTrade(trader1, 100); // trader1 trades 100 USDT
 
-        uint256 currentMonthId = doppiPoints.getCurrentMonthId();
+        uint24 currentMonthId = doppiPoints.getCurrentMonthId();
         uint256 volume = doppiPoints.getMonthlyVolume(trader1, currentMonthId);
         
         assertEq(volume, 100, "Volume should equal 100");
@@ -42,7 +42,7 @@ contract DoppiPointsTest is Test {
         vm.prank(mockDoppiCore);
         doppiPoints.recordTrade(trader1, btcamount * rate / 1e8);
 
-        uint256 currentMonthId = doppiPoints.getCurrentMonthId();
+        uint24 currentMonthId = doppiPoints.getCurrentMonthId();
         uint256 volume = doppiPoints.getMonthlyVolume(trader1, currentMonthId);
 
         assertEq(volume, inUSDT, "Volume should in USDT");
@@ -65,7 +65,7 @@ contract DoppiPointsTest is Test {
         doppiPoints.recordTrade(trader2, 150);
         vm.stopPrank();
         
-        uint256 currentMonthId = doppiPoints.getCurrentMonthId();
+        uint24 currentMonthId = doppiPoints.getCurrentMonthId();
         uint256 volume = doppiPoints.getMonthlyVolume(trader1, currentMonthId);
 
         assertEq(volume, 200, "Total volume should equal 200");
@@ -82,7 +82,7 @@ contract DoppiPointsTest is Test {
         doppiPoints.recordTrade(trader2, 30);
         vm.stopPrank();
         
-        uint256 currentMonthId = doppiPoints.getCurrentMonthId();
+        uint24 currentMonthId = doppiPoints.getCurrentMonthId();
         
         uint256 v1 = doppiPoints.getMonthlyVolume(trader1, currentMonthId);
         uint256 v2 = doppiPoints.getMonthlyVolume(trader2, currentMonthId);
@@ -153,7 +153,7 @@ contract DoppiPointsTest is Test {
         uint256 current = vm.getBlockTimestamp(); //block.timestamp;
         uint256 bucket1 = (vm.getBlockTimestamp() - startTimestamp) / 30 days;
         assertEq(bucket1, 1, "Expected bucket1 = 1");
-        assertEq(doppiPoints.getMonthlyVolume(trader1, bucket1), 200, "Bucket1 should equal 200");
+        assertEq(doppiPoints.getMonthlyVolume(trader1, uint24(bucket1)), 200, "Bucket1 should equal 200");
 
 
         // --- Bucket 2 ---
@@ -176,7 +176,7 @@ contract DoppiPointsTest is Test {
         uint256 bucket2 = (vm.getBlockTimestamp() - startTimestamp) / 30 days;
         // console.log(bucket2, block.timestamp, "block.timestamp");
         assertEq(bucket2, 2, "Expected bucket2 = 2");
-        assertEq(doppiPoints.getMonthlyVolume(trader1, bucket2), 450, "Bucket2 should equal 450");
+        assertEq(doppiPoints.getMonthlyVolume(trader1, uint24(bucket2)), 450, "Bucket2 should equal 450");
 
 
         // --- Bucket 3 ---
@@ -189,9 +189,9 @@ contract DoppiPointsTest is Test {
         uint256 bucket3 = (vm.getBlockTimestamp() - startTimestamp) / 30 days;
         console.log(bucket3, vm.getBlockTimestamp(), "block.timestamp");
         assertEq(bucket3, 3, "Expected bucket3 = 3");
-        assertEq(doppiPoints.getMonthlyVolume(trader1, bucket3), 150, "Bucket3 should equal 150");
+        assertEq(doppiPoints.getMonthlyVolume(trader1, uint24(bucket3)), 150, "Bucket3 should equal 150");
 
-        uint256[] memory monthsId = doppiPoints.getMonthIds();
+        uint24[] memory monthsId = doppiPoints.getMonthIds();
         for(uint256 i=0; i < monthsId.length; i++){
             assertEq(monthsId[i], i+1);
         }
