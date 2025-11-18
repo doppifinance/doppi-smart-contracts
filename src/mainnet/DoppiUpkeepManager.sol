@@ -62,6 +62,7 @@ contract DoppiUpkeepManager is Ownable, AutomationCompatibleInterface {
     address public immutable router;
     IPegSwap public immutable pegSwap;
     uint8 public constant TRIGGER_CONDITION = 0; // Time-based trigger
+    uint32 public maxDelay = 10 minutes; 
 
     address public adminAddress;
     uint256 public currentUpkeepIndex;
@@ -141,6 +142,10 @@ contract DoppiUpkeepManager is Ownable, AutomationCompatibleInterface {
         IERC20(link).approve(address(pegSwap), type(uint256).max);
     }
     
+    function setMaxDelay(uint32 _maxDelay) external onlyOwner {
+        maxDelay = _maxDelay;
+    }
+
     function setForwarderAddress(address forwarderAddress) external onlyOwner {
         s_forwarderAddress = forwarderAddress;
     }
@@ -199,8 +204,19 @@ contract DoppiUpkeepManager is Ownable, AutomationCompatibleInterface {
         // back to trader
         uint256 diff = finalBal - initBal;
         uint256 refund = diff > fee ? diff - fee : 0;
-        if(refund > 0) linkToken.transfer(trader, refund);
+
+        // reset 
+        address targetContract = doppiUpKeepsId[_upkeepId];
+        doppiUpkeeps[targetContract].upkeepId = 0;
+        doppiUpkeeps[targetContract].targetContract = address(0);
+        doppiUpkeeps[targetContract].isRegistered = false;
+        doppiUpkeeps[targetContract].trader = address(0);
+        doppiUpkeepPayment[_upkeepId].lastBlockCharged = block.number;
+        doppiUpkeepPayment[_upkeepId].lastPaidAmount = 0;
+        doppiUpkeepPayment[_upkeepId].trader = address(0);
+        
         if(finalBal >= fee) linkToken.transfer(treasury, fee);
+        if(refund > 0) linkToken.transfer(trader, refund);
     }
     
     // trader top up using USDT manually
@@ -298,7 +314,7 @@ contract DoppiUpkeepManager is Ownable, AutomationCompatibleInterface {
                 uint96 minBalance = registryConsumer.getMinBalance(upkeepId);
                 uint256 topUpBorder = minBalance * 13000 / 10000; 
                 uint256 fee = amountLastSpent * doppiBotFee / 10000;
-                uint256 price = DALiquidityLib.getPrice(chainLinkFeed);
+                uint256 price = DALiquidityLib.getPrice(chainLinkFeed, maxDelay);
                 uint256 feeInfundToken = (fee * price) / priceDecimals;
                 bool needTopUp = result.balance < topUpBorder;
                 if((needTopUp && allowance >= DEFAULT_AMOUNT) || (!needTopUp && allowance >= feeInfundToken)){
@@ -379,7 +395,7 @@ contract DoppiUpkeepManager is Ownable, AutomationCompatibleInterface {
 
     function _swapToLinkERC677(uint256 _amount) internal returns (uint256 linkOut) {
         // swap fundToken to link
-        uint256 price = DALiquidityLib.getPrice(chainLinkFeed);
+        uint256 price = DALiquidityLib.getPrice(chainLinkFeed, maxDelay);
         uint256 amountOut = (_amount * priceDecimals) / price;
         // bridge link to erc677 link
         linkOut = _swapExactInputV3(_amount, address(this), amountOut);

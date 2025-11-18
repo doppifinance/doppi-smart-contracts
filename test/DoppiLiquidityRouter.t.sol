@@ -29,6 +29,7 @@ contract DoppiLiquidityRouterTest is Test {
     event Redeemed(address indexed user, uint256 shares, uint256 assetsA, uint256 assetsB);
     
     function setUp() public {
+        vm.warp(1735689600);
         vm.startPrank(owner);
         
         // Deploy mock tokens

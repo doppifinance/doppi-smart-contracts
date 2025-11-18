@@ -120,7 +120,7 @@ contract DoppiUpkeepManagerTest is Test {
         );
         doppiUpkeepManager.setForwarderAddress(forwarder);
         doppiConfig.setDoppiUpKeepManager(address(doppiUpkeepManager));
-        
+        vm.warp(vm.getBlockTimestamp() - 2592483);
         vm.stopPrank();
     }
 
@@ -426,6 +426,29 @@ contract DoppiUpkeepManagerTest is Test {
         
         vm.stopPrank();
         
+    }
+
+    function test_setupAutomation_cancel_withdraw_registerAgain() public {
+        
+        vm.startPrank(trader);
+        deal(USDT, address(trader), 1000 ether);
+        deal(LINK, address(trader), 1000 ether);
+
+        // Deploy bot
+        uint32 traderId = doppiFactory.deployTraderBot(defaultWeights);
+        DoppiTrader traderBot = DoppiTrader(doppiFactory.traderBots(traderId));
+        usdt.approve(address(doppiUpkeepManager), 10000 ether);
+        uint256 upkeepId = doppiUpkeepManager.setupAutomation(address(traderBot));
+        doppiUpkeepManager.cancelUpkeep(upkeepId);
+        // console.log(block.number);
+        vm.roll(block.number + 51);
+        // console.log(block.number);
+        doppiUpkeepManager.stopWithdraw(upkeepId);
+
+        uint256 newupkeepId = doppiUpkeepManager.setupAutomation(address(traderBot));
+        // console.log(newupkeepId, "newupkeepId");
+        assertGt(newupkeepId, 0);
+        vm.stopPrank();        
     }
 
 

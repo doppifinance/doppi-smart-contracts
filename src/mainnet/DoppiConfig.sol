@@ -30,6 +30,7 @@ contract DoppiConfig is Ownable {
     uint256 public minimal_assetB;
     uint32 public twapDuration;
     uint24 public maxDepositPercentage;
+    uint32 public maxDelay;
     
     constructor() Ownable(msg.sender) {
 
@@ -51,6 +52,7 @@ contract DoppiConfig is Ownable {
         minimal_assetA = 100 ether;
         minimal_assetB = 0.001 ether;
         maxDepositPercentage = 10000;
+        maxDelay = 2 minutes;
     }
 
     function getAmountFee(uint256 _amount) external view returns (uint256 amountAfterFee, uint256 amountFee) {
@@ -59,6 +61,10 @@ contract DoppiConfig is Ownable {
     }
 
     // Configuration functions
+    function setMaxDelay(uint32 _maxDelay) external onlyOwner {
+        maxDelay = _maxDelay;
+    }
+
     function setMaxDepositPercentage(uint24 _maxDepositPercentage) external onlyOwner {
         maxDepositPercentage = _maxDepositPercentage;
     }

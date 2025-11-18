@@ -34,6 +34,7 @@ contract DoppiLiquidity is ERC20, Ownable, Pausable, IDoppiLiquidity, Automation
         address v3Pool; 
         uint32 twapDuration;
         uint24 maxDepositPercentage;
+        uint32 maxDelay;
     }
 
     Config public config;
@@ -104,7 +105,7 @@ contract DoppiLiquidity is ERC20, Ownable, Pausable, IDoppiLiquidity, Automation
     }
 
     function assetRatio() external view returns (uint256 ratioA, uint256 ratioB) {
-        uint256 price = DALiquidityLib.getPriceWithFallback(config.chainLinkFeed, config.v3Pool, config.twapDuration);
+        uint256 price = DALiquidityLib.getPriceWithFallback(config.chainLinkFeed, config.v3Pool, config.twapDuration, config.maxDelay);
         uint256 assetBInAValue = assetB.balanceOf(address(this)) * price / config.decimals;
         uint256 assetAvalue = assetA.balanceOf(address(this));
         uint256 total = assetBInAValue + assetAvalue;
@@ -113,12 +114,12 @@ contract DoppiLiquidity is ERC20, Ownable, Pausable, IDoppiLiquidity, Automation
     }
 
     function totalAssetsInAssetA() public view override returns (uint256) {
-        uint256 price = DALiquidityLib.getPriceWithFallback(config.chainLinkFeed, config.v3Pool, config.twapDuration);
+        uint256 price = DALiquidityLib.getPriceWithFallback(config.chainLinkFeed, config.v3Pool, config.twapDuration, config.maxDelay);
         return assetA.balanceOf(address(this)) + assetB.balanceOf(address(this)) * price / config.decimals;
     }
 
     function totalAssetsInAssetB() public view override returns (uint256) {
-        uint256 price = DALiquidityLib.getPriceWithFallback(config.chainLinkFeed, config.v3Pool, config.twapDuration);
+        uint256 price = DALiquidityLib.getPriceWithFallback(config.chainLinkFeed, config.v3Pool, config.twapDuration, config.maxDelay);
         return assetB.balanceOf(address(this)) + assetA.balanceOf(address(this)) * config.decimals / price;
     }
 
@@ -127,7 +128,7 @@ contract DoppiLiquidity is ERC20, Ownable, Pausable, IDoppiLiquidity, Automation
     }
 
     function getPrice() external view returns (uint256) {
-        return DALiquidityLib.getPriceWithFallback(config.chainLinkFeed, config.v3Pool, config.twapDuration);
+        return DALiquidityLib.getPriceWithFallback(config.chainLinkFeed, config.v3Pool, config.twapDuration, config.maxDelay);
     }
 
     function getPriceDecimals() external view returns (uint8) {
@@ -189,6 +190,7 @@ contract DoppiLiquidity is ERC20, Ownable, Pausable, IDoppiLiquidity, Automation
         config.v3Pool = _doppiConfig.pancakeV3Pool();
         config.twapDuration = _doppiConfig.twapDuration();
         config.maxDepositPercentage = _doppiConfig.maxDepositPercentage();
+        config.maxDelay = _doppiConfig.maxDelay();
     }
 
     function setDoppiTraderFactory(address _traderFactory) external onlyOwner {
@@ -237,7 +239,7 @@ contract DoppiLiquidity is ERC20, Ownable, Pausable, IDoppiLiquidity, Automation
     {
         if(paused()) return (false, bytes(""));
 
-        uint256 currentPrice = DALiquidityLib.getPriceWithFallback(config.chainLinkFeed, config.v3Pool, config.twapDuration);
+        uint256 currentPrice = DALiquidityLib.getPriceWithFallback(config.chainLinkFeed, config.v3Pool, config.twapDuration, config.maxDelay);
 
         (uint256[] memory buyindexes, uint256 totalBuyAmount, uint256 totalBuyAmountOut) = 
             _getAccumulatedPrices(currentPrice, true);
@@ -441,7 +443,7 @@ contract DoppiLiquidity is ERC20, Ownable, Pausable, IDoppiLiquidity, Automation
     ) internal returns (uint256) {
         
         require(_amountIn > _fee, "Insufficient amount after fee");
-        uint256 price = DALiquidityLib.getPriceWithFallback(config.chainLinkFeed, config.v3Pool, config.twapDuration);
+        uint256 price = DALiquidityLib.getPriceWithFallback(config.chainLinkFeed, config.v3Pool, config.twapDuration, config.maxDelay);
         require(_price == price, "Price mismatch");
 
         IERC20 assetIn = _isBuy ? assetA : assetB;

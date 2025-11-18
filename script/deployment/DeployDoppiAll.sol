@@ -105,7 +105,7 @@ contract DeployDoppiAll is Script {
         _doppiCore.setForwarderAddress(forwarder);
         _doppiCore.setOpportunityBot(_doppiOpportunity, true);
         _doppiCore.setDoppiTraderFactory(_doppiFactory);
-        _doppiCore.setAPRTolerance(300);
+        _doppiCore.setAPRTolerance(500);
     }
 
     function _setDoppiLiquidityProperties(
@@ -241,8 +241,11 @@ contract DeployDoppiAll is Script {
             _doppiFactory,
             treasury
         );
+        
+        console.log("mockRegistryConsumer deployed at:", address(mockRegistryConsumer));
         console.log("DoppiUpkeepManager deployed at:", address(doppiUpkeepManager));
         _doppiConfig.setDoppiUpKeepManager(address(doppiUpkeepManager));
+        doppiUpkeepManager.setMaxDelay(10 days);
         return doppiUpkeepManager;
     }  
         

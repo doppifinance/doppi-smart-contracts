@@ -120,6 +120,7 @@ contract MockRegistryConsumer is IAutomationRegistryConsumer {
     function withdrawFunds(uint256 id, address to) external{
 		dummyAdd(id);
 		upkeepInfos[id].balance = 0;
+		console.log("bal", address(this), linkToken.balanceOf(address(this)));
 		linkToken.transfer(to, 12329638941840579811);
 	}
 

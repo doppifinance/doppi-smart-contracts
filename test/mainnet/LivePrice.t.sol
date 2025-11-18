@@ -7,6 +7,8 @@ import {IUniswapV3Pool} from "@uniswap/v3-core/contracts/interfaces/IUniswapV3Po
 import {DoppiLiquidity} from "../../src/mainnet/DoppiLiquidity.sol";
 import {DoppiConfig} from "../../src/mainnet/DoppiConfig.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
+import {AggregatorV3Interface} from "../../src/Interface/AggregatorV3Interface.sol";
 
 contract LivePriceTest is Test {
     IERC20 usdt;
@@ -16,6 +18,7 @@ contract LivePriceTest is Test {
     
     
     // Mainnet addresses for forking
+    address constant CAKE = address(0x0E09FaBB73Bd3Ade0a17ECC321fD13a19e81cE82);
     address constant USDT = address(0x55d398326f99059fF775485246999027B3197955);
     address constant BTCB = address(0x7130d2A12B9BCbFAe4f2634d864A1Ee1Ce3Ead9c);
     address constant CHAINLINK_BTC_USD = address(0x264990fbd0A4796A3E3d8E37C4d5F87a3aCa5Ebf);
@@ -56,14 +59,48 @@ contract LivePriceTest is Test {
         assertGt(price, 0);
     }
 
-    function test_getPancakePrice() public view {
+    function test_getPriceFallbackTwap() public view {
 
         uint32 twapDuration = 3600;
-        IUniswapV3Pool pancakeV3Pool = IUniswapV3Pool(PCSWAP_V3Pool);
-        uint256 price = DALiquidityLib.getPancakePrice(pancakeV3Pool, twapDuration);
-        price = 1e26 / price;
-        console.log(price, "price");
+        uint256 pricePCS = DALiquidityLib.getTWAPPrice(PCSWAP_V3Pool, twapDuration);
+        // console.log(pricePCS, "price from twapPrice");
+        uint256 priceFromLP = DALiquidityLib.getPriceWithFallback(AggregatorV3Interface(CHAINLINK_BTC_USD), PCSWAP_V3Pool, 3600, 0);
+        // console.log(pricePCS, priceFromLP);
+        assertEq(pricePCS, priceFromLP);
+        uint256 lowerBound = priceFromLP * 9950 / 10000; // -0.50%
+        uint256 upperBound = priceFromLP * 10050 / 10000; // +0.50%
+        assertGe(pricePCS, lowerBound, "Price below -0.50% tolerance");
+        assertLe(pricePCS, upperBound, "Price above +0.50% tolerance");
     }
+
+     function test_getOtherTokens() public {
+
+        uint32 twapDuration = 3600;
+        address cakeusdt = address(0x7f51c8AaA6B0599aBd16674e2b17FEc7a9f674A1);
+        address chainlinkcakeusdt = address(0xB6064eD41d4f67e353768aA239cA86f4F73665a1);
+
+        vm.startPrank(owner);
+        doppiConfig.setPancakeV3Pool(cakeusdt); 
+        doppiConfig.setOracle(chainlinkcakeusdt);
+        vm.stopPrank();
+
+        DoppiLiquidity doppiLPCakeUSDT = _setupLP(address(usdt), address(CAKE));
+
+        uint256 pricePCS = DALiquidityLib.getTWAPPrice(cakeusdt, twapDuration);
+        // console.log(pricePCS, "pricePCS");
+
+        uint256 priceFromLP = doppiLPCakeUSDT.getPrice();
+        // console.log("CAKE Price from priceFromLP (chainlink):", priceFromLP);
+
+        // Calculate allowed range
+        uint256 lowerBound = priceFromLP * 9950 / 10000; // -0.50%
+        uint256 upperBound = priceFromLP * 10050 / 10000; // +0.50%
+        assertGe(pricePCS, lowerBound, "Price below -0.50% tolerance");
+        assertLe(pricePCS, upperBound, "Price above +0.50% tolerance");
+
+    }
+
+    
 
     function _setupLP(address _assetA, address _assetB) internal returns (DoppiLiquidity _doppiLP) {
         _doppiLP =

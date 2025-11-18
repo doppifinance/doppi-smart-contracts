@@ -89,7 +89,7 @@ contract DoppiTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCompati
     function start(uint256 _amountA, uint256 _amountB) external onlyTrader nonReentrant whenPaused {
         require(_amountA > 0 || _amountB > 0, "amount not specified");
         _updateForwarder();
-        _unpause();
+        if(paused()) _unpause();
         _processDeposit(_amountA, _amountB);
         _placeBulk(doppiLP.getPrice());
     }

@@ -8,7 +8,7 @@ import {DALiquidityLib} from "../Library/DALiquidityLib.sol";
 import {AggregatorV3Interface} from "../Interface/AggregatorV3Interface.sol";
 import {IBlackScholes} from "../Interface/IBlackScholes.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
-// import "forge-std/console.sol";
+import "forge-std/console.sol";
 
 // Simple MarkIV Contract
 contract DoppiOffer is IDoppiOffer, Ownable {
@@ -30,6 +30,7 @@ contract DoppiOffer is IDoppiOffer, Ownable {
     uint256 public PRICE_GAP_PEROFFER;
     AggregatorV3Interface chainLinkFeed; 
     uint32 public twapDuration;
+    uint32 public maxDelay = 2 minutes;
     address public pancakeV3Pool;
     uint256 private constant SECONDS_PER_YEAR = 31536000;
     uint256 private constant SECONDS_PER_DAY = 86400;
@@ -44,6 +45,10 @@ contract DoppiOffer is IDoppiOffer, Ownable {
         chainLinkFeed = AggregatorV3Interface(_newOracle);
         PRICE_GAP_PEROFFER = _gapOffer;
         admins[msg.sender] = true;
+    }
+
+    function setMaxDelay(uint32 _maxDelay) external onlyOwner {
+        maxDelay = _maxDelay;
     }
 
     function setTwapDuration(uint32 _twapDuration) external onlyOwner {
@@ -116,11 +121,14 @@ contract DoppiOffer is IDoppiOffer, Ownable {
     {
         (uint256 vsell, uint256 lastUpdated) = _getImpliedVol(timeToExpiry, _strikeSell, false);
         if(vsell == 0) return (0, 0);
+        console.log(block.timestamp - SECONDS_PER_DAY, lastUpdated);
         if(lastUpdated < block.timestamp - SECONDS_PER_DAY) return (0, 0);
         IBlackScholes.PricesDeltaStdVega memory data =
             blackScholes.pricesDeltaStdVega(timeToExpiry, vsell, _spot, _strikeSell, 0);
+        // console.log(data.callPrice, "data.callPrice");
         delta = blackScholes.abs(data.callDelta / 1e14);
         uint256 hedgeCost = _getHedgeAdjust(vsell, _spot, _strikeSell, delta, timeToExpiry);
+        // console.log(hedgeCost, "hedgeCost");
         sellapr = SafeCast.toUint32((data.callPrice - hedgeCost) * 10000 * SECONDS_PER_YEAR / timeToExpiry / _spot);
     }
 
@@ -153,7 +161,7 @@ contract DoppiOffer is IDoppiOffer, Ownable {
         view
         returns (DualAssetOffer memory offer)
     {
-        uint256 price = DALiquidityLib.getPriceWithFallback(chainLinkFeed, pancakeV3Pool, twapDuration);
+        uint256 price = DALiquidityLib.getPriceWithFallback(chainLinkFeed, pancakeV3Pool, twapDuration, maxDelay);
         return _getOffer(_isBuy, _numDays, _strikeZone, price);
     }
 
@@ -162,7 +170,7 @@ contract DoppiOffer is IDoppiOffer, Ownable {
         view 
         returns (DualAssetOffer[] memory buyoffers) 
     {
-        uint256 price = DALiquidityLib.getPriceWithFallback(chainLinkFeed, pancakeV3Pool, twapDuration);
+        uint256 price = DALiquidityLib.getPriceWithFallback(chainLinkFeed, pancakeV3Pool, twapDuration, maxDelay);
         buyoffers = new DualAssetOffer[](TOTAL_OFFER);
         for (uint8 i = 0; i < TOTAL_OFFER; ) {
             buyoffers[i] = _getOffer(true, _numDays, i, price);
@@ -176,7 +184,7 @@ contract DoppiOffer is IDoppiOffer, Ownable {
         view 
         returns (DualAssetOffer[] memory selloffers) 
     {
-        uint256 price = DALiquidityLib.getPriceWithFallback(chainLinkFeed, pancakeV3Pool, twapDuration);
+        uint256 price = DALiquidityLib.getPriceWithFallback(chainLinkFeed, pancakeV3Pool, twapDuration, maxDelay);
         selloffers = new DualAssetOffer[](TOTAL_OFFER);
         for (uint8 i = 0; i < TOTAL_OFFER; ) {
             selloffers[i] = _getOffer(false, _numDays, i, price);
