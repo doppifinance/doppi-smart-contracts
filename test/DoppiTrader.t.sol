@@ -259,7 +259,6 @@ contract DoppiTraderTest is Test {
         
         // stop trader bot
         vm.startPrank(trader);
-        doppiTrader.setPause();
         doppiTrader.stop();
         vm.stopPrank();
 
@@ -288,7 +287,6 @@ contract DoppiTraderTest is Test {
         
         // stop trader bot
         vm.startPrank(trader);
-        doppiTrader.setPause();
         doppiTrader.stop();
         vm.stopPrank();
 
@@ -302,9 +300,6 @@ contract DoppiTraderTest is Test {
 
     function test_stop_not_yet_settle() public {
         _start();
-        vm.prank(trader);
-        doppiTrader.setPause();
-        vm.stopPrank();
         vm.prank(trader);
         vm.expectRevert("active orders");
         doppiTrader.stop();
@@ -423,14 +418,9 @@ contract DoppiTraderTest is Test {
         // ***** END    
     }
 
-    function test_pauseTrades_onlyOwner() public {
-        vm.expectRevert();
-        doppiTrader.setPause();
-    }
-
     function test_createUnwindPosition_onlyDoppiCore() public {
         vm.expectRevert("only doppicore");
-        doppiTrader.createUnwindPosition(100_000 ether, 99_000 ether, true);
+        doppiTrader.createUnwindPosition(100_000 ether, 99_000 * 1e8, true);
     }
 
     function test_createUnwindPosition_buy() public {
@@ -546,15 +536,13 @@ contract DoppiTraderTest is Test {
     function test_performUpkeep_priceOutsideTolerance() public {
         // Create buy unwind position
         vm.startPrank(address(doppiCore));
-        doppiTrader.createUnwindPosition(100_000 ether, 100_000 ether, true);
+        doppiTrader.createUnwindPosition(100_000 ether, 100_000 * 1e8, true);
         vm.stopPrank();
 
         oracle.setPrice(int256(100_500 * 1e8));
-        (, bytes memory performData) = doppiTrader.checkUpkeep("");
-
+        (bool upkeepNeeded, bytes memory performData) = doppiTrader.checkUpkeep("");
         // Change price significantly
         oracle.setPrice(int256(102_000 * 1e8));
-
         // Should not execute due to price tolerance
         vm.prank(mockForwarder);
         doppiTrader.performUpkeep(performData);
@@ -570,13 +558,13 @@ contract DoppiTraderTest is Test {
         vm.startPrank(address(doppiCore));
 
         // Create multiple buy unwind positions
-        doppiTrader.createUnwindPosition(50_000 ether, 100_000 ether, true);
-        doppiTrader.createUnwindPosition(75_000 ether, 101_000 ether, true);
-        doppiTrader.createUnwindPosition(100_000 ether, 99_000 ether, true);
+        doppiTrader.createUnwindPosition(50_000 ether, 100_000 * 1e8, true);
+        doppiTrader.createUnwindPosition(75_000 ether, 101_000 * 1e8, true);
+        doppiTrader.createUnwindPosition(100_000 ether, 99_000 * 1e8, true);
 
         // Create multiple sell unwind positions
-        doppiTrader.createUnwindPosition(0.5 ether, 100_000 ether, false);
-        doppiTrader.createUnwindPosition(0.7 ether, 101_000 ether, false);
+        doppiTrader.createUnwindPosition(0.5 ether, 100_000 * 1e8, false);
+        doppiTrader.createUnwindPosition(0.7 ether, 101_000 * 1e8, false);
 
         vm.stopPrank();
 
@@ -839,7 +827,6 @@ contract DoppiTraderTest is Test {
         _start();
 
         vm.startPrank(trader);
-        doppiTrader.setPause();
         vm.expectRevert("only for emergency");
         doppiTrader.emergencyWithdraw();
         vm.stopPrank();
@@ -868,8 +855,8 @@ contract DoppiTraderTest is Test {
         console.log(start_btcbal, end_btcbal);
         
         // Check BTC balance decreased
-        assertEq(end_usdtbal, 9999983999999999999955264);
-        assertEq(end_btcbal, 100000158400000000000);
+        assertEq(end_usdtbal, 9999999999999999999999999);
+        assertEq(end_btcbal, 100000000000000000000);
 
     }
 

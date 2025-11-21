@@ -28,7 +28,7 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
     uint32 public constant SECONDS_PER_YEAR = 31536000;
     uint24 public constant SECONDS_PER_DAY = 86400;
     uint16 public constant BASIS_POINTS = 10000;
-
+    
     event Deposited(address indexed trader, uint64 positionId, address asset, uint256 amount, uint256 interest, uint256 strikePrice, uint32 apr, uint32 numDays);
     event Settled(address indexed trader, uint64 positionId, bool striked, bool isProfit, uint256 profitLoss, uint256 payout, uint256 interest, address profitToken, address payoutToken, address interestToken);
     event HedgeSettled(address indexed trader, uint64 positionId, bool isProfit, uint256 profitLoss, address profitToken);
@@ -62,6 +62,7 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
     function deposit_buy(DepositParams calldata params) 
         external nonReentrant whenNotPaused whenOpen {
         
+        if(params.amount < minOrderA) revert InvalidAmount(); 
         if (!canAcceptDeposit(true, params.amount)) {
             revert ExceedsPoolCap();
         }
@@ -74,6 +75,7 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
     function deposit_sell(DepositParams calldata params) 
         external nonReentrant whenNotPaused whenOpen {
         
+        if(params.amount < minOrderB) revert InvalidAmount(); 
         if (!canAcceptDeposit(false, params.amount)) {
             revert ExceedsPoolCap();
         }
@@ -85,7 +87,6 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
 
     function bulkHedge(uint256 _amountInHedgeAsset, uint256 _price, bool isBuy) external onlyTraderBot returns (uint256 swappedHedgeAmount, uint256 hedgePrice) {
         (swappedHedgeAmount, hedgePrice) = _doppiHedgeSwap(_amountInHedgeAsset, _price, isBuy);
-        
     }
 
     function bulkDeposit(bool isBuy, DepositParams[] calldata params, DualAssetOffer[] memory _offers, bool _hedge) external onlyTraderBot whenNotPaused {

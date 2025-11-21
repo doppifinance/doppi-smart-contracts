@@ -8,7 +8,7 @@ import {DALiquidityLib} from "../Library/DALiquidityLib.sol";
 import {AggregatorV3Interface} from "../Interface/AggregatorV3Interface.sol";
 import {IBlackScholes} from "../Interface/IBlackScholes.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
-import "forge-std/console.sol";
+// import "forge-std/console.sol";
 
 // Simple MarkIV Contract
 contract DoppiOffer is IDoppiOffer, Ownable {
@@ -121,14 +121,11 @@ contract DoppiOffer is IDoppiOffer, Ownable {
     {
         (uint256 vsell, uint256 lastUpdated) = _getImpliedVol(timeToExpiry, _strikeSell, false);
         if(vsell == 0) return (0, 0);
-        console.log(block.timestamp - SECONDS_PER_DAY, lastUpdated);
         if(lastUpdated < block.timestamp - SECONDS_PER_DAY) return (0, 0);
         IBlackScholes.PricesDeltaStdVega memory data =
             blackScholes.pricesDeltaStdVega(timeToExpiry, vsell, _spot, _strikeSell, 0);
-        // console.log(data.callPrice, "data.callPrice");
         delta = blackScholes.abs(data.callDelta / 1e14);
         uint256 hedgeCost = _getHedgeAdjust(vsell, _spot, _strikeSell, delta, timeToExpiry);
-        // console.log(hedgeCost, "hedgeCost");
         sellapr = SafeCast.toUint32((data.callPrice - hedgeCost) * 10000 * SECONDS_PER_YEAR / timeToExpiry / _spot);
     }
 

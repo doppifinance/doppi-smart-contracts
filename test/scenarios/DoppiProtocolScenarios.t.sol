@@ -269,11 +269,9 @@ contract DoppiProtocolScenariosTest is Test {
         traderBot.start(1000 * 10 ** usdt.decimals(), 2 * 10 ** btc.decimals());
         
         // Verify active
-        assertTrue(doppiCore.getBuyPositionCount(address(traderBot)) > 0);
-        
-        // pause it
-        traderBot.setPause();
+        assertTrue(doppiCore.getBuyPositionCount(address(traderBot)) > 0);        
         vm.stopPrank();
+        
         // settle it
         _doppiCoreCheckUpkeep_performUpkeep(100_000 * 1e8);     
         

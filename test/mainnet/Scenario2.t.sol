@@ -166,13 +166,12 @@ contract Scenario2Test is Test {
         assertGt(balLINK, 0);
         vm.stopPrank();
 
-        // // settle core
-        // _doppiCoreCheckUpkeep_performUpkeep();
+        // settle core
+        _doppiCoreCheckUpkeep_performUpkeep();
 
         // stop and withdraw fund 
         vm.startPrank(trader);
-        traderBot.setPause();
-        // traderBot.stop();
+        traderBot.stop();
         vm.stopPrank();
 
         vm.startPrank(owner);

@@ -6,6 +6,8 @@ import {IDoppiTraderFactory} from "../Interface/IDoppiTraderFactory.sol";
 
 abstract contract DoppiCoreAdmin is Ownable, Pausable {
     
+    uint256 public minOrderA = 100 ether; 
+    uint256 public minOrderB = 0.002 ether; 
     bool public emergencyMode;
     bool public publicOpen = true;
     address public s_forwarderAddress;
@@ -16,6 +18,11 @@ abstract contract DoppiCoreAdmin is Ownable, Pausable {
     IDoppiTraderFactory public doppiTraderFactory;
     
     // Configuration functions
+    function setMinOrder(uint256 _minOrderA, uint256 _minOrderB) external onlyOwner {
+        minOrderA = _minOrderA;
+        minOrderB = _minOrderB;
+    }
+
     function setAPRTolerance(uint16 _toleranceBP) external onlyOwner {
         aprToleranceBP = _toleranceBP;
     }

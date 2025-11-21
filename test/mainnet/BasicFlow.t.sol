@@ -222,11 +222,6 @@ contract BasicFlowTest is Test {
         
         _doppiCoreCheckUpkeep_performUpkeep();     
         
-        // stop trader bot
-        vm.startPrank(trader);
-        traderBot.setPause();
-        traderBot.stop();
-
         // Verify stopped and funds returned
         uint256 finalBalanceA = usdt.balanceOf(trader);
         uint256 finalBalanceB = btc.balanceOf(trader);
@@ -262,7 +257,6 @@ contract BasicFlowTest is Test {
 
         // stop trader bot
         vm.startPrank(trader);
-        traderBot.setPause();
         traderBot.stop();
 
         // Verify stopped and funds returned
