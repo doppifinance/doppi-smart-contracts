@@ -109,7 +109,7 @@ contract DoppiLiquidityRouterTest is Test {
         usdt.approve(address(router.entryPointA()), depositAmount);
         
         EntryPointAssetA entryPointA = EntryPointAssetA(address(router.entryPointA()));
-        vm.expectRevert("Only router can call");
+        vm.expectRevert("Mint not supported");
         entryPointA.mint(depositAmount, user1);
         vm.stopPrank();
     }

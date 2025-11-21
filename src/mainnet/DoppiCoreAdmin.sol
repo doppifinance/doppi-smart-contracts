@@ -2,30 +2,41 @@
 pragma solidity ^0.8.26;
 import {Pausable} from "@openzeppelin/contracts/utils/Pausable.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
-import {DoppiTraderFactory} from "./DoppiTraderFactory.sol";
+import {IDoppiTraderFactory} from "../Interface/IDoppiTraderFactory.sol";
 
-//       DualAsset Admin Module (Owner / Keeper Ops)
 abstract contract DoppiCoreAdmin is Ownable, Pausable {
     
+    uint256 public minOrderA = 100 ether; 
+    uint256 public minOrderB = 0.002 ether; 
     bool public emergencyMode;
     bool public publicOpen = true;
     address public s_forwarderAddress;
-    uint256 public UPKEEPS_PER_CHECK = 20; // Process 20 upkeeps per check
-    mapping(address => bool) public admins;
+    uint16 public UPKEEPS_PER_CHECK = 20; 
+    mapping(address => bool) public opportunityBots;
+    uint16 public aprToleranceBP = 0; // 1% default, configurable by owner
     
-    DoppiTraderFactory public doppiTraderFactory;
+    IDoppiTraderFactory public doppiTraderFactory;
     
     // Configuration functions
-    function setUpkeeps_per_check(uint24 _percheck) external onlyOwner {
+    function setMinOrder(uint256 _minOrderA, uint256 _minOrderB) external onlyOwner {
+        minOrderA = _minOrderA;
+        minOrderB = _minOrderB;
+    }
+
+    function setAPRTolerance(uint16 _toleranceBP) external onlyOwner {
+        aprToleranceBP = _toleranceBP;
+    }
+
+    function setUpkeeps_per_check(uint16 _percheck) external onlyOwner {
         UPKEEPS_PER_CHECK = _percheck;
     }
 
-    function setDoppiTraderFactory(DoppiTraderFactory _traderFactory) external onlyOwner {
+    function setDoppiTraderFactory(IDoppiTraderFactory _traderFactory) external onlyOwner {
         doppiTraderFactory = _traderFactory;
     }
 
-    function setAdmin(address _admin, bool _status) external onlyOwner {
-        admins[_admin] = _status;
+    function setOpportunityBot(address _opportunityBot, bool _status) external onlyOwner {
+        opportunityBots[_opportunityBot] = _status;
     }
 
     function setEmergencyMode(bool _emergency) external onlyOwner whenPaused {
@@ -47,5 +58,4 @@ abstract contract DoppiCoreAdmin is Ownable, Pausable {
     function setUnPause() external onlyOwner {
         _unpause();
     }
-
 }

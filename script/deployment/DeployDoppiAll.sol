@@ -50,7 +50,7 @@ contract DeployDoppiAll is Script {
         DoppiOffer impliedVol = _deployDoppiOffer(address(blackScholes));
         DoppiPoints doppiPoints = _deployDoppiPoints();
         DoppiConfig doppiConfig = _deployDoppiConfig(address(doppiPoints));
-        doppiConfig.setImpliedVol(address(impliedVol)); 
+        doppiConfig.setDoppiOffer(address(impliedVol)); 
         DoppiLiquidity doppiLP = _deployDoppiLiquidity(doppiConfig);
         DoppiCore doppiCore = _deployDoppiCore(doppiLP, impliedVol, doppiPoints);
         DoppiOpportunity doppiOpportunity = _deployDoppiOpportunity(address(doppiCore), address(doppiLP), doppiConfig);
@@ -73,6 +73,7 @@ contract DeployDoppiAll is Script {
 
         _setDoppiCoreProperties(doppiCore, doppiFactory, address(doppiOpportunity));
 
+        doppiPoints.setDoppiTraderFactory(address(doppiFactory));
         // set setForwarderAddress for all necessary contracts
         // doppiOpportunity.setForwarderAddress(forwarder);
         
@@ -102,8 +103,9 @@ contract DeployDoppiAll is Script {
         
         console.log("Setting DoppiCore Properties...");
         _doppiCore.setForwarderAddress(forwarder);
-        _doppiCore.setAdmin(_doppiOpportunity, true);
+        _doppiCore.setOpportunityBot(_doppiOpportunity, true);
         _doppiCore.setDoppiTraderFactory(_doppiFactory);
+        _doppiCore.setAPRTolerance(500);
     }
 
     function _setDoppiLiquidityProperties(
@@ -129,7 +131,7 @@ contract DeployDoppiAll is Script {
         console.log("Deploying DoppiCore...");
         DoppiCore doppiCore = new DoppiCore(USDT, BTC, _doppiLP, _impliedVol);
         console.log("DoppiCore deployed at:", address(doppiCore));
-        _doppiPoints.setDoppiCore(address(doppiCore));
+        _doppiPoints.setDoppiCore(address(doppiCore), true);
         return doppiCore;
     }
         
@@ -213,6 +215,7 @@ contract DeployDoppiAll is Script {
         doppiConfig.setPancakeV3Pool(PCSWAP_V3Pool); 
         doppiConfig.setOracle(CHAINLINK_BTC_USD);
         doppiConfig.setSlippage(500);
+        doppiConfig.setMaxDepositPercentage(20000); // if pool is 10000, allow up to 2x deposit
         // doppiConfig.setDoppiUpKeepManager(address(mockDoppiUpKeepManager));
         doppiConfig.setDoppiPoints(_doppiPoints); 
 
@@ -238,8 +241,11 @@ contract DeployDoppiAll is Script {
             _doppiFactory,
             treasury
         );
+        
+        console.log("mockRegistryConsumer deployed at:", address(mockRegistryConsumer));
         console.log("DoppiUpkeepManager deployed at:", address(doppiUpkeepManager));
         _doppiConfig.setDoppiUpKeepManager(address(doppiUpkeepManager));
+        doppiUpkeepManager.setMaxDelay(10 days);
         return doppiUpkeepManager;
     }  
         

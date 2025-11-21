@@ -42,10 +42,10 @@ contract DoppiCoreTest is Test {
 
     uint256 constant INITIAL_PRICE = 100_000 * 1e8;
 
-    event Deposited(address indexed trader, uint256 positionId, address asset, uint256 amount, uint256 interest, uint256 strikePrice, uint32 apr, uint32 numDays);
-    event Settled(address indexed trader, uint256 positionId, bool striked, bool isProfit, uint256 profitLoss, uint256 payout, uint256 interest, address profitToken, address payoutToken, address interestToken);
-    event HedgeSettled(address indexed trader, uint256 positionId, bool isProfit, uint256 profitLoss, address profitToken);
-    
+    event Deposited(address indexed trader, uint64 positionId, address asset, uint256 amount, uint256 interest, uint256 strikePrice, uint32 apr, uint32 numDays);
+    event Settled(address indexed trader, uint64 positionId, bool striked, bool isProfit, uint256 profitLoss, uint256 payout, uint256 interest, address profitToken, address payoutToken, address interestToken);
+    event HedgeSettled(address indexed trader, uint64 positionId, bool isProfit, uint256 profitLoss, address profitToken);
+
     function setUp() public {
         vm.warp(1735689600);
         int256 a_buy = 0.0000000807142857142833 * 1e27;
@@ -78,7 +78,7 @@ contract DoppiCoreTest is Test {
         doppiConfig.setTreasury(treasury);
         doppiConfig.setOracle(address(oracle));
         doppiConfig.setDoppiPoints(address(doppiPoints)); 
-        doppiConfig.setImpliedVol(address(impliedVol)); 
+        doppiConfig.setDoppiOffer(address(impliedVol)); 
         
         doppiLP =
             new DoppiLiquidity("Dual Asset Liquidity Pool", "DALP", IERC20(usdt), IERC20(btc));
@@ -86,7 +86,7 @@ contract DoppiCoreTest is Test {
         doppiLP.approveRouter();
                 
         doppiCore = new DoppiCore(address(usdt), address(btc), doppiLP, impliedVol);
-        doppiPoints.setDoppiCore(address(doppiCore));
+        doppiPoints.setDoppiCore(address(doppiCore), true);
 
         doppiLP.setDoppiCore(address(doppiCore));
 
@@ -102,7 +102,7 @@ contract DoppiCoreTest is Test {
             new DoppiTraderFactory(IERC20(usdt), IERC20(btc), address(doppiCore), address(doppiLP), address(doppiRouter));
 
         doppiCore.setDoppiTraderFactory(traderFactory);
-        doppiCore.setAdmin(admin, true);
+        doppiCore.setOpportunityBot(admin, true);
         doppiCore.setForwarderAddress(mockForwarder);
         
 
@@ -126,23 +126,23 @@ contract DoppiCoreTest is Test {
         assertEq(address(doppiCore.assetA()), address(usdt));
         assertEq(address(doppiCore.assetB()), address(btc));
         assertEq(address(doppiCore.doppiLP()), address(doppiLP));
-        assertEq(address(doppiCore.impliedVol()), address(impliedVol));
+        assertEq(address(doppiCore.doppiOffer()), address(impliedVol));
         assertEq(doppiCore.owner(), owner);
-        assertTrue(doppiCore.admins(owner));
+        assertTrue(doppiCore.opportunityBots(owner));
     }
 
-    function test_setAdmin() public {
-        assertFalse(doppiCore.admins(user1));
-        doppiCore.setAdmin(user1, true);
-        assertTrue(doppiCore.admins(user1));
+    function test_setOpportunityBot() public {
+        assertFalse(doppiCore.opportunityBots(user1));
+        doppiCore.setOpportunityBot(user1, true);
+        assertTrue(doppiCore.opportunityBots(user1));
 
-        doppiCore.setAdmin(user1, false);
-        assertFalse(doppiCore.admins(user1));
+        doppiCore.setOpportunityBot(user1, false);
+        assertFalse(doppiCore.opportunityBots(user1));
     }
 
-    function test_setAdmin_onlyOwner() public {
+    function test_setOpportunityBot_onlyOwner() public {
         vm.startPrank(owner);
-        doppiCore.setAdmin(user2, true);
+        doppiCore.setOpportunityBot(user2, true);
         vm.stopPrank();
     }
 
@@ -178,14 +178,14 @@ contract DoppiCoreTest is Test {
     function test_deposit_buy() public {
         _depositUSDT();
 
-        assertEq(doppiCore.getBuyPositionCount(), 1);
+        assertEq(doppiCore.getBuyPositionCount(address(0)), 1);
         assertEq(usdt.balanceOf(user1), 200_000 ether - 50_000 ether);
     }
 
     function test_deposit_sell() public {
         _depositBTC();
 
-        assertEq(doppiCore.getSellPositionCount(), 1);
+        assertEq(doppiCore.getSellPositionCount(address(0)), 1);
         assertEq(btc.balanceOf(user1), 2 ether - 0.5 ether);
     }
 
@@ -202,7 +202,7 @@ contract DoppiCoreTest is Test {
 
         vm.startPrank(user1);
         usdt.approve(address(doppiCore), params.amount);
-        vm.expectRevert("InvalidStrikePrice()");
+        vm.expectRevert("InvalidStrikePriceOrPrice()");
         doppiCore.deposit_buy(params);
         vm.stopPrank();
     }
@@ -273,7 +273,7 @@ contract DoppiCoreTest is Test {
 
         // Should receive original amount + interest
         assertGt(usdt.balanceOf(user1), initialBalance);
-        assertEq(doppiCore.getBuyPositionCount(), 0);
+        assertEq(doppiCore.getBuyPositionCount(address(0)), 0);
     }
 
     function test_settle_buys_priceBelowStrike() public {
@@ -294,7 +294,7 @@ contract DoppiCoreTest is Test {
         // Should receive BTC (converted at strike price) + interest in USDT
         assertGt(btc.balanceOf(user1), initialBtcBalance);
         assertGt(usdt.balanceOf(user1), initialUsdtBalance);
-        assertEq(doppiCore.getBuyPositionCount(), 0);
+        assertEq(doppiCore.getBuyPositionCount(address(0)), 0);
     }
 
     function test_settle_sells_priceBelowStrike() public {
@@ -313,7 +313,7 @@ contract DoppiCoreTest is Test {
 
         // Should receive original amount + interest
         assertGt(btc.balanceOf(user1), initialBalance);
-        assertEq(doppiCore.getSellPositionCount(), 0);
+        assertEq(doppiCore.getSellPositionCount(address(0)), 0);
     }
 
     function test_settle_sells_priceAboveStrike() public {
@@ -334,7 +334,7 @@ contract DoppiCoreTest is Test {
         // Should receive USDT (converted at strike price) + interest in BTC
         assertGt(usdt.balanceOf(user1), initialUsdtBalance);
         assertGt(btc.balanceOf(user1), initialBtcBalance);
-        assertEq(doppiCore.getSellPositionCount(), 0);
+        assertEq(doppiCore.getSellPositionCount(address(0)), 0);
     }
 
     function test_opportunitySwap() public {
@@ -403,12 +403,12 @@ contract DoppiCoreTest is Test {
         (bool upkeepNeeded, bytes memory performData) = doppiCore.checkUpkeep("");
         assertTrue(upkeepNeeded);
 
-        uint256 initialPositionCount = doppiCore.getBuyPositionCount();
+        uint256 initialPositionCount = doppiCore.getBuyPositionCount(address(0));
         vm.prank(mockForwarder);
         doppiCore.performUpkeep(performData);
 
         // Position should be settled
-        assertLt(doppiCore.getBuyPositionCount(), initialPositionCount);
+        assertLt(doppiCore.getBuyPositionCount(address(0)), initialPositionCount);
     }
 
     function test_performUpkeep_sell() public {
@@ -421,12 +421,12 @@ contract DoppiCoreTest is Test {
         (bool upkeepNeeded, bytes memory performData) = doppiCore.checkUpkeep("");
         assertTrue(upkeepNeeded);
 
-        uint256 initialPositionCount = doppiCore.getSellPositionCount();
+        uint256 initialPositionCount = doppiCore.getSellPositionCount(address(0));
         vm.prank(mockForwarder);
         doppiCore.performUpkeep(performData);
 
         // Position should be settled
-        assertLt(doppiCore.getSellPositionCount(), initialPositionCount);
+        assertLt(doppiCore.getSellPositionCount(address(0)), initialPositionCount);
     }
 
     function test_performUpkeep_buy_pagination() public {
@@ -449,7 +449,7 @@ contract DoppiCoreTest is Test {
         
         assertFalse(cached);
 
-        // uint256 initialPositionCount = doppiCore.getBuyPositionCount();
+        // uint256 initialPositionCount = doppiCore.getBuyPositionCount(address(0));
         vm.prank(mockForwarder);
         doppiCore.performUpkeep(performData);
 
@@ -467,7 +467,7 @@ contract DoppiCoreTest is Test {
         assertFalse(upkeepNeeded);
         
         // // Position should be settled
-        assertEq(doppiCore.getBuyPositionCount(), 0);
+        assertEq(doppiCore.getBuyPositionCount(address(0)), 0);
     }
 
     function test_performUpkeep_buy_hedge_profit() public {
@@ -586,7 +586,7 @@ contract DoppiCoreTest is Test {
         doppiCore.deposit_buy(params);
         vm.stopPrank();
 
-        assertEq(doppiCore.getBuyPositionCount(), 1);
+        assertEq(doppiCore.getBuyPositionCount(address(0)), 1);
     }
 
     function testFuzz_deposit_sell_amounts(uint256 amount) public {
@@ -608,7 +608,7 @@ contract DoppiCoreTest is Test {
         doppiCore.deposit_sell(params);
         vm.stopPrank();
 
-        assertEq(doppiCore.getSellPositionCount(), 1);
+        assertEq(doppiCore.getSellPositionCount(address(0)), 1);
     }
 
     function test_get_positions() public {
@@ -1253,8 +1253,8 @@ contract DoppiCoreTest is Test {
         doppiCore.emergencyWithdraw();
         vm.stopPrank();
 
-        assertEq(doppiCore.getBuyPositionCount(), 0);
-        assertEq(doppiCore.getSellPositionCount(), 0);
+        assertEq(doppiCore.getBuyPositionCount(address(0)), 0);
+        assertEq(doppiCore.getSellPositionCount(address(0)), 0);
 
         uint256 end_usdtbal = usdt.balanceOf(user1);
         uint256 end_btcbal = btc.balanceOf(user1);
@@ -1262,6 +1262,70 @@ contract DoppiCoreTest is Test {
         assertEq(end_usdtbal, start_usdtbal + 50_000 ether);
         assertEq(end_btcbal, start_btcbal + 0.5 ether);
         
+    }
+
+    function test_maxDepositBuy() public {
+
+        // doppiRouter.deposit(address(usdt), 100_000 ether);
+        // doppiRouter.deposit(address(btc), 1 ether);
+
+        doppiConfig.setMaxDepositPercentage(10000);
+        doppiLP.setDoppiConfig(doppiConfig);
+        // Deposit a buy position
+        
+        // 1st order 50k
+        DualAssetOffer memory buyOffer = _depositUSDT();
+        // 2nd order 50k
+        _depositUSDT();
+        // 3rd order 50k
+        _depositUSDT();
+        
+        // 4th order 50k, should fail
+        DepositParams memory params = DepositParams({
+            amount: 50_000 ether,
+            strikeZone: 0,
+            strikePrice: buyOffer.strikePrice,
+            numDays: 1,
+            apr: buyOffer.apr,
+            expiry: buyOffer.expiry
+        });
+        vm.startPrank(user1);
+        usdt.approve(address(doppiCore), params.amount);
+        vm.expectRevert("ExceedsPoolCap()");
+        doppiCore.deposit_buy(params);
+
+        vm.stopPrank();
+
+    }
+
+    function test_maxDepositSell() public {
+
+        doppiConfig.setMaxDepositPercentage(10000);
+        doppiLP.setDoppiConfig(doppiConfig);
+        
+        // 1st order 0.5
+        DualAssetOffer memory sellOffer = _depositBTC();
+        // 2nd order 0.5
+        _depositBTC();
+        // 3rd order 0.5
+        _depositBTC();
+        
+        // 4th order 0.5, should fail
+        DepositParams memory params = DepositParams({
+            amount: 0.5 ether,
+            strikeZone: 0,
+            strikePrice: sellOffer.strikePrice,
+            numDays: 1,
+            apr: sellOffer.apr,
+            expiry: sellOffer.expiry
+        });
+        vm.startPrank(user1);
+        usdt.approve(address(doppiCore), params.amount);
+        vm.expectRevert("ExceedsPoolCap()");
+        doppiCore.deposit_sell(params);
+
+        vm.stopPrank();
+
     }
 
     function _depositBTC() internal returns (DualAssetOffer memory) {

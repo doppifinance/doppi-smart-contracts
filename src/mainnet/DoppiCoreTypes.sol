@@ -33,7 +33,7 @@ struct DualAssetPosition {
 
 struct KeyPosition {
     address owner;
-    uint32 positionId; // Changed to uint32
+    uint64 positionId; // Changed to uint32
 }
 
 struct DepositParams {

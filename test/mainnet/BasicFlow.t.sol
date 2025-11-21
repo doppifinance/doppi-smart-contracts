@@ -91,11 +91,11 @@ contract BasicFlowTest is Test {
         doppiRouter = new DoppiLiquidityRouter(IERC20(usdt), IERC20(btc), doppiLP);
         doppiFactory = new DoppiTraderFactory(IERC20(usdt), IERC20(btc), address(doppiCore), address(doppiLP), address(doppiRouter));
 
-        doppiPoints.setDoppiCore(address(doppiCore));
+        doppiPoints.setDoppiCore(address(doppiCore), true);
         doppiOpportunity.setForwarderAddress(forwarder);
         doppiOpportunity.setDoppiConfig(doppiConfig);
         doppiCore.setForwarderAddress(forwarder);
-        doppiCore.setAdmin(address(doppiOpportunity), true);
+        doppiCore.setOpportunityBot(address(doppiOpportunity), true);
         doppiLP.setForwarderAddress(forwarder);
         doppiLP.setDoppiCore(address(doppiCore));
         doppiLP.setEntryPoint(address(doppiRouter.entryPointA()), true);
@@ -117,9 +117,9 @@ contract BasicFlowTest is Test {
         assertEq(address(doppiCore.assetA()), address(usdt));
         assertEq(address(doppiCore.assetB()), address(btc));
         assertEq(address(doppiCore.doppiLP()), address(doppiLP));
-        assertEq(address(doppiCore.impliedVol()), address(impliedVol));
+        assertEq(address(doppiCore.doppiOffer()), address(impliedVol));
         assertEq(doppiCore.owner(), owner);
-        assertTrue(doppiCore.admins(owner));
+        assertTrue(doppiCore.opportunityBots(owner));
 
         assertEq(doppiOpportunity.owner(), owner);
         assertEq(address(doppiOpportunity.doppiLP()), address(doppiLP));
@@ -156,7 +156,7 @@ contract BasicFlowTest is Test {
 
         // Phase 2: Trader Bot Creation
         vm.startPrank(trader);
-        uint256 traderId = doppiFactory.deployTraderBot(defaultWeights);
+        uint32 traderId = doppiFactory.deployTraderBot(defaultWeights);
         DoppiTrader traderBot = DoppiTrader(doppiFactory.traderBots(traderId));
         traderBot.setForwarderAddress(forwarder);
         assertTrue(doppiFactory.isTraderBot(address(traderBot)));
@@ -202,7 +202,7 @@ contract BasicFlowTest is Test {
         deal(USDT, address(trader), 100_000 ether);
 
         // Deploy bot
-        uint256 traderId = doppiFactory.deployTraderBot(defaultWeights);
+        uint32 traderId = doppiFactory.deployTraderBot(defaultWeights);
         DoppiTrader traderBot = DoppiTrader(doppiFactory.traderBots(traderId));
         traderBot.setForwarderAddress(forwarder);
         // Fund and start
@@ -222,11 +222,6 @@ contract BasicFlowTest is Test {
         
         _doppiCoreCheckUpkeep_performUpkeep();     
         
-        // stop trader bot
-        vm.startPrank(trader);
-        traderBot.setPause();
-        traderBot.stop();
-
         // Verify stopped and funds returned
         uint256 finalBalanceA = usdt.balanceOf(trader);
         uint256 finalBalanceB = btc.balanceOf(trader);
@@ -241,7 +236,7 @@ contract BasicFlowTest is Test {
         vm.startPrank(trader);
         deal(USDT, address(trader), 100_000 ether);
         // Deploy bot
-        uint256 traderId = doppiFactory.deployTraderBot(defaultWeights);
+        uint32 traderId = doppiFactory.deployTraderBot(defaultWeights);
         DoppiTrader traderBot = DoppiTrader(doppiFactory.traderBots(traderId));
         traderBot.setForwarderAddress(forwarder);
         // Fund and start
@@ -262,7 +257,6 @@ contract BasicFlowTest is Test {
 
         // stop trader bot
         vm.startPrank(trader);
-        traderBot.setPause();
         traderBot.stop();
 
         // Verify stopped and funds returned
@@ -284,7 +278,7 @@ contract BasicFlowTest is Test {
         deal(USDT, address(trader), 100_000 ether);
 
         // Deploy bot
-        uint256 traderId = doppiFactory.deployTraderBot(defaultWeights);
+        uint32 traderId = doppiFactory.deployTraderBot(defaultWeights);
         DoppiTrader traderBot = DoppiTrader(doppiFactory.traderBots(traderId));
         traderBot.setForwarderAddress(forwarder);
         // Fund and start
@@ -358,7 +352,7 @@ contract BasicFlowTest is Test {
         _impliedVol.setRegression(86400, a_buy, b_buy, c_buy, a_sell, b_sell, c_sell);
         _impliedVol.setTwapDuration(3600);
         _impliedVol.setPancakeV3Pool(PCSWAP_V3Pool);
-        doppiConfig.setImpliedVol(address(_impliedVol)); 
+        doppiConfig.setDoppiOffer(address(_impliedVol)); 
     }
 
     function _doppiCoreCheckUpkeep_performUpkeep() internal {

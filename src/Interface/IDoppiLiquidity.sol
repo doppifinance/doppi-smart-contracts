@@ -22,4 +22,5 @@ interface IDoppiLiquidity is IShares {
     function totalAssetsInAssetA() external view returns (uint256);
     function totalAssetsInAssetB() external view returns (uint256);
     function getDoppiConfig() external view returns (address);
+    function getMaxDepositAmount(bool isBuy) external view returns (uint256);
 }

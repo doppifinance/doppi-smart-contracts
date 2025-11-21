@@ -10,7 +10,7 @@ import {Pausable} from "@openzeppelin/contracts/utils/Pausable.sol";
 import {IDoppiLiquidity} from "../Interface/IDoppiLiquidity.sol";
 import {IShares} from "../Interface/IShares.sol";
 import {IERC7575, ERC7575} from "./ERC7575.sol";
-import "forge-std/console.sol";
+// import "forge-std/console.sol";
 
 contract DoppiLiquidityRouter is Ownable, Pausable, ReentrancyGuard {
     using SafeERC20 for IERC20;
@@ -118,11 +118,11 @@ contract EntryPointAssetA is ERC7575 {
         return super.redeem(shares, receiver, owner);
     }
 
-    function mint(uint256 shares, address receiver) public override onlyRouter returns (uint256) {
+    function mint(uint256 shares, address receiver) public pure override returns (uint256) {
         revert("Mint not supported");
     }
 
-    function withdraw(uint256 assets, address receiver, address owner) public override onlyRouter returns (uint256) {
+    function withdraw(uint256 assets, address receiver, address owner) public pure override returns (uint256) {
         revert("Withdraw not supported");
     }
 
@@ -156,11 +156,11 @@ contract EntryPointAssetB is ERC7575 {
         return super.redeem(shares, receiver, owner);
     }
 
-    function mint(uint256 shares, address receiver) public override onlyRouter returns (uint256) {
+    function mint(uint256 shares, address receiver) public override pure returns (uint256) {
         revert("Mint not supported");
     }
 
-    function withdraw(uint256 assets, address receiver, address owner) public override onlyRouter returns (uint256) {
+    function withdraw(uint256 assets, address receiver, address owner) public override pure returns (uint256) {
         revert("Withdraw not supported");
     }
 

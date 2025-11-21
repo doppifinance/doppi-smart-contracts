@@ -41,6 +41,8 @@ contract DoppiLiquidityTest is Test {
     event UnwindPerformed(bool isNetBuy, uint256 totalAmount, uint256 totalAmountOut);
     
     function setUp() public {
+
+        vm.warp(1735689600);
         // Deploy mock tokens
         usdt = new MockToken("USDT", "USDT");
         btc = new MockToken("Bitcoin", "BTC");

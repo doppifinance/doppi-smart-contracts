@@ -3,7 +3,7 @@ pragma solidity ^0.8.26;
 
 import {AggregatorV3Interface} from "../Interface/AggregatorV3Interface.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
-import "forge-std/console.sol";
+// import "forge-std/console.sol";
 
 /// One DoppiConfig for one pair ie. USDT/BTC
 contract DoppiConfig is Ownable {
@@ -22,13 +22,15 @@ contract DoppiConfig is Ownable {
     uint32 public DEFAULT_DAYS;
     address public treasury;
     address public doppiUpKeepManager;
-    address public impliedVol;
+    address public doppiOffer;
     address public doppiPoints;
     uint24 public MAX_ORDER;
     uint24 public treasury_fee; 
     uint256 public minimal_assetA;
     uint256 public minimal_assetB;
     uint32 public twapDuration;
+    uint24 public maxDepositPercentage;
+    uint32 public maxDelay;
     
     constructor() Ownable(msg.sender) {
 
@@ -49,7 +51,8 @@ contract DoppiConfig is Ownable {
         treasury_fee = 1000;
         minimal_assetA = 100 ether;
         minimal_assetB = 0.001 ether;
-        
+        maxDepositPercentage = 10000;
+        maxDelay = 2 minutes;
     }
 
     function getAmountFee(uint256 _amount) external view returns (uint256 amountAfterFee, uint256 amountFee) {
@@ -58,6 +61,14 @@ contract DoppiConfig is Ownable {
     }
 
     // Configuration functions
+    function setMaxDelay(uint32 _maxDelay) external onlyOwner {
+        maxDelay = _maxDelay;
+    }
+
+    function setMaxDepositPercentage(uint24 _maxDepositPercentage) external onlyOwner {
+        maxDepositPercentage = _maxDepositPercentage;
+    }
+
     function setDoppiPoints(address _doppiPoints) external onlyOwner {
         doppiPoints = _doppiPoints;
     }
@@ -66,8 +77,8 @@ contract DoppiConfig is Ownable {
         doppiUpKeepManager = _doppiUpKeepManager;
     }
 
-    function setImpliedVol(address _impliedVol) external onlyOwner {
-        impliedVol = _impliedVol;
+    function setDoppiOffer(address _doppiOffer) external onlyOwner {
+        doppiOffer = _doppiOffer;
     }
 
     function setMinimal(uint256 _assetA, uint256 _assetB) external onlyOwner {

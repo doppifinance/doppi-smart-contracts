@@ -67,7 +67,7 @@ contract DoppiOpportunityTest is Test {
         doppiConfig.setQuoter(address(swapper));
         doppiConfig.setTreasury(treasury);
         doppiConfig.setOracle(address(oracle));
-        doppiConfig.setImpliedVol(address(impliedVol)); 
+        doppiConfig.setDoppiOffer(address(impliedVol)); 
 
         doppiLP =
             new DoppiLiquidity("Dual Asset Liquidity Pool", "DALP", IERC20(usdt), IERC20(btc));
@@ -86,7 +86,7 @@ contract DoppiOpportunityTest is Test {
         doppiLP.setDoppiCore(address(doppiCore));
 
         doppiOpportunity = new DoppiOpportunity(address(doppiCore), address(doppiLP));
-        doppiCore.setAdmin(address(doppiOpportunity), true);
+        doppiCore.setOpportunityBot(address(doppiOpportunity), true);
         doppiOpportunity.setForwarderAddress(mockForwarder);
         doppiOpportunity.setDoppiConfig(doppiConfig);
 
@@ -111,7 +111,7 @@ contract DoppiOpportunityTest is Test {
 
     function test_checkUpkeep_opportunityBuy() public {
         depositUSDT();
-        assertEq(doppiCore.getBuyPositionCount(), 1);
+        assertEq(doppiCore.getBuyPositionCount(address(0)), 1);
         oracle.setPrice(int256(95_500  * 1e8));
         (bool upkeepNeeded, bytes memory performData) = doppiOpportunity.checkUpkeep("");
         assertTrue(upkeepNeeded);
@@ -124,7 +124,7 @@ contract DoppiOpportunityTest is Test {
 
     function test_checkUpkeep_opportunitySell() public {
         depositBTC();
-        assertEq(doppiCore.getSellPositionCount(), 1);
+        assertEq(doppiCore.getSellPositionCount(address(0)), 1);
         oracle.setPrice(int256(104_000 * 1e8));
         (bool upkeepNeeded, bytes memory performData) = doppiOpportunity.checkUpkeep("");
         assertTrue(upkeepNeeded);
@@ -244,7 +244,7 @@ contract DoppiOpportunityTest is Test {
         depositUSDT();
         depositUSDT();
         
-        assertEq(doppiCore.getBuyPositionCount(), 3);
+        assertEq(doppiCore.getBuyPositionCount(address(0)), 3);
         oracle.setPrice(int256(95_500  * 1e8));
         doppiOpportunity.setUpkeeps_per_check(2);
 

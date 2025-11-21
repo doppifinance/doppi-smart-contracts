@@ -18,7 +18,7 @@ contract DoppiPointsMonthIdTest is Test {
     function setUp() public {
 
         doppiPoints = new DoppiPoints();
-        doppiPoints.setDoppiCore(mockDoppiCore);
+        doppiPoints.setDoppiCore(mockDoppiCore, true);
         doppiPoints.setDoppiClaim(mockDoppiClaim);
         vm.warp(START_TIMESTAMP + 100 days);
 
@@ -29,7 +29,7 @@ contract DoppiPointsMonthIdTest is Test {
         vm.prank(mockDoppiCore);
         doppiPoints.recordTrade(trader, 1000e18);
         
-        uint256 currentMonthId1 = doppiPoints.getCurrentMonthId();
+        uint24 currentMonthId1 = doppiPoints.getCurrentMonthId();
         (,, uint256 currentVol) = doppiPoints.getAllPointData(trader);
         
         assertEq(currentVol, 1000e18, "Should have 1000 volume");
@@ -43,7 +43,7 @@ contract DoppiPointsMonthIdTest is Test {
         vm.prank(mockDoppiCore);
         doppiPoints.recordTrade(trader, 2000e18);
         
-        uint256 currentMonthId2 = doppiPoints.getCurrentMonthId();
+        uint24 currentMonthId2 = doppiPoints.getCurrentMonthId();
         (uint256 claimedPoint, uint256 readyPoint, uint256 currentPoint) = doppiPoints.getAllPointData(trader);
 
         assertEq(currentPoint, 2000e18, "Should have 2000 current point");

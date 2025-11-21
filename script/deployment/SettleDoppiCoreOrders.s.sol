@@ -11,10 +11,10 @@ import "../../src/mainnet/DoppiReferral.sol";
 contract SettleDoppiCoreOrders is Script {
     
     // Replace with your actual DoppiCore contract address
-    address public constant DOPPI_CORE = 0xcfF18562F2484F9630ED1DbC3970EbaB62E11Abf; 
-    address public constant DOPPI_POINTS = 0x2f326AB5033f8DBC1B546c380BDe2D8Fd82370CC; 
-    address public constant DOPPI_TRADER = 0x4F397052CC6661858F49640515Db7b47AdA17248; 
-    address public constant DOPPI_REF = 0xFFB959134A7f4c29826144563252aE329cDcCa64; 
+    address public constant DOPPI_CORE = 0xDbA6d9BD28E49365645dFb808854B322BdAa4BD7; 
+    address public constant DOPPI_POINTS = 0x38fab55984985b0ed1Ed8963C053c15b197048C6; 
+    address public constant DOPPI_TRADER = 0x1B7B5Dd6b859E7AC8B3C06116a936bCDB4091fb8; 
+    address public constant DOPPI_REF = 0x210dAd5c0BaB3925dd997a1af0EfEb7996df5A9d; 
 
     // Replace with the admin address you want to impersonate
     address public constant ADMIN = 0x5D450b7A2bAFbc071cF1313099C3744f91c3BC24; // Add the admin address here
@@ -33,7 +33,7 @@ contract SettleDoppiCoreOrders is Script {
         DoppiPoints doppiPoints = DoppiPoints(DOPPI_POINTS);
         DoppiReferral doppiReferral = DoppiReferral(DOPPI_REF);
         
-        uint256[] memory ids = doppiPoints.getMonthIds();
+        uint24[] memory ids = doppiPoints.getMonthIds();
         for(uint256 i; i <ids.length; i++){
             uint256 vol = doppiPoints.getMonthlyVolume(address(trader), ids[i]);
             console.log("month id", ids[i], vol);
@@ -60,7 +60,7 @@ contract SettleDoppiCoreOrders is Script {
         }
 
 
-        uint256 buyCount = doppiCore.getBuyPositionCount();
+        uint256 buyCount = doppiCore.getBuyPositionCount(address(0));
         DualAssetPosition[] memory positions = doppiCore.get_positions_buy();
         for(uint256 i; i <positions.length; i++){
             console.log("expiryTimestamp", positions[i].expiryTimestamp, block.timestamp);

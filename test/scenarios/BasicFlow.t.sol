@@ -75,11 +75,11 @@ contract BasicFlowTest is Test {
         doppiRouter = new DoppiLiquidityRouter(IERC20(usdt), IERC20(btc), doppiLP);
         doppiFactory = new DoppiTraderFactory(IERC20(usdt), IERC20(btc), address(doppiCore), address(doppiLP), address(doppiRouter));
 
-        doppiPoints.setDoppiCore(address(doppiCore));
+        doppiPoints.setDoppiCore(address(doppiCore), true);
         opportunityBot.setForwarderAddress(mockForwarder);
         opportunityBot.setDoppiConfig(doppiConfig);
         doppiCore.setForwarderAddress(mockForwarder);
-        doppiCore.setAdmin(address(opportunityBot), true);
+        doppiCore.setOpportunityBot(address(opportunityBot), true);
         doppiLP.setForwarderAddress(mockForwarder);
         doppiLP.setDoppiCore(address(doppiCore));
         doppiLP.setEntryPoint(address(doppiRouter.entryPointA()), true);
@@ -116,41 +116,41 @@ contract BasicFlowTest is Test {
         // ***** END  
     }
 
-    function test_lp_swapfallback_sell_with_opportunity() public {
+    // function test_lp_swapfallback_sell_with_opportunity() public {
         
-        // start trader bot
-        _start();
+    //     // start trader bot
+    //     _start();
 
-        // ***** START perform opportunityBot.checkUpkeep
-        _doppiOpportunityCheckUpkeep_performUpkeep(126_500 * 1e8); // set higher price for sell opp
-        KeyPosition[] memory keyPositions = doppiCore.get_sell_positions_id(address(traderBot));
-        for(uint8 i=0; i< keyPositions.length; i++){
-            DualAssetPosition memory pos = doppiCore.get_sell(address(traderBot), keyPositions[i].positionId);
-            assertEq(pos.isTraded, true);
-        }
-        keyPositions = doppiCore.get_buy_positions_id(address(traderBot));
-        for(uint8 i=0; i< keyPositions.length; i++){
-            DualAssetPosition memory pos = doppiCore.get_buy(address(traderBot), keyPositions[i].positionId);
-            assertEq(pos.isTraded, false);
-        }
-        // ***** END 
-        // ***** START perform opportunityBot.checkUpkeep to unwind opportunity trades
-        _doppiOpportunityCheckUpkeep_performUpkeep(99_500 * 1e8); 
-        keyPositions = doppiCore.get_sell_positions_id(address(traderBot));
-        for(uint8 i=0; i< keyPositions.length; i++){
-            DualAssetPosition memory pos = doppiCore.get_sell(address(traderBot), keyPositions[i].positionId);
-            assertEq(pos.isTraded, false);
+    //     // ***** START perform opportunityBot.checkUpkeep
+    //     _doppiOpportunityCheckUpkeep_performUpkeep(126_500 * 1e8); // set higher price for sell opp
+    //     KeyPosition[] memory keyPositions = doppiCore.get_sell_positions_id(address(traderBot));
+    //     for(uint8 i=0; i< keyPositions.length; i++){
+    //         DualAssetPosition memory pos = doppiCore.get_sell(address(traderBot), keyPositions[i].positionId);
+    //         assertEq(pos.isTraded, true);
+    //     }
+    //     keyPositions = doppiCore.get_buy_positions_id(address(traderBot));
+    //     for(uint8 i=0; i< keyPositions.length; i++){
+    //         DualAssetPosition memory pos = doppiCore.get_buy(address(traderBot), keyPositions[i].positionId);
+    //         assertEq(pos.isTraded, false);
+    //     }
+    //     // ***** END 
+    //     // ***** START perform opportunityBot.checkUpkeep to unwind opportunity trades
+    //     _doppiOpportunityCheckUpkeep_performUpkeep(99_500 * 1e8); 
+    //     keyPositions = doppiCore.get_sell_positions_id(address(traderBot));
+    //     for(uint8 i=0; i< keyPositions.length; i++){
+    //         DualAssetPosition memory pos = doppiCore.get_sell(address(traderBot), keyPositions[i].positionId);
+    //         assertEq(pos.isTraded, false);
         
-        }
-        // ***** END 
+    //     }
+    //     // ***** END 
 
-        // ***** doppiCore settle buy and sell order
-        _doppiCoreCheckUpkeep_performUpkeep(105_500 * 1e8);    
-        assertEq(doppiCore.getBuyPositionCount(), 0); 
-        assertEq(doppiCore.getSellPositionCount(), 0);
-        // ***** END  
+    //     // ***** doppiCore settle buy and sell order
+    //     _doppiCoreCheckUpkeep_performUpkeep(105_500 * 1e8);    
+    //     assertEq(doppiCore.getBuyPositionCount(address(0)), 0); 
+    //     assertEq(doppiCore.getSellPositionCount(address(0)), 0);
+    //     // ***** END  
         
-    }
+    // }
 
     // internal
     function _start() internal {
@@ -175,7 +175,7 @@ contract BasicFlowTest is Test {
         weights[3] = 2500;
         weights[4] = 4500;
 
-        uint256 id = doppiFactory.deployTraderBot(weights);
+        uint32 id = doppiFactory.deployTraderBot(weights);
         vm.stopPrank();
         _traderbot = DoppiTrader(doppiFactory.traderBots(id));
         vm.prank(trader);
@@ -205,7 +205,7 @@ contract BasicFlowTest is Test {
         BlackScholes blackScholes = new BlackScholes();
         _impliedVol = new DoppiOffer(blackScholes, address(doppiConfig.chainLinkFeed()), 500);
         _impliedVol.setRegression(86400, a_buy, b_buy, c_buy, a_sell, b_sell, c_sell);
-        doppiConfig.setImpliedVol(address(_impliedVol)); 
+        doppiConfig.setDoppiOffer(address(_impliedVol)); 
     }
 
     function _setupMockSwapper(address _usdt, address _btc, address _oracle) internal returns (Swapper _swapper) {

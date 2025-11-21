@@ -26,7 +26,7 @@ contract DoppiTraderFactory is Ownable, IDoppiTraderFactory {
     BotRegistryLib.BotRegistry internal botRegistry;
     bool public publicOpen = true;
 
-    event BotDeployed(address indexed user, address traderBot, uint256 botId);
+    event BotDeployed(address indexed user, address traderBot, uint32 botId);
     
     constructor(
         IERC20 _assetA,
@@ -46,7 +46,7 @@ contract DoppiTraderFactory is Ownable, IDoppiTraderFactory {
         traderBotImplementation = address(new DoppiTrader());
     }
 
-    function deployTraderBot(uint24[] calldata _weights) external whenOpen returns (uint256) {
+    function deployTraderBot(uint24[] calldata _weights) external whenOpen returns (uint32) {
         // Use Clones to create minimal proxy
         address traderBot = Clones.clone(traderBotImplementation);
         
@@ -61,7 +61,7 @@ contract DoppiTraderFactory is Ownable, IDoppiTraderFactory {
             _weights
         );
         
-        uint256 id = botRegistry.deployBot(msg.sender, traderBot);
+        uint32 id = botRegistry.deployBot(msg.sender, traderBot);
         emit BotDeployed(msg.sender, traderBot, id);
         return id;
     }
@@ -75,7 +75,7 @@ contract DoppiTraderFactory is Ownable, IDoppiTraderFactory {
         return botRegistry.getIdByBot(_addr);
     }
 
-    function traderBots(uint256 _id) external view returns (address) {
+    function traderBots(uint32 _id) external view returns (address) {
         return botRegistry.getBotsById(_id);
     }
 

@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.26;
-import {Pausable} from "@openzeppelin/contracts/utils/Pausable.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {DoppiConfig} from "./DoppiConfig.sol";
 import {IDoppiCore} from "../Interface/IDoppiCore.sol";
@@ -8,8 +7,7 @@ import {IDoppiLiquidity} from "../Interface/IDoppiLiquidity.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "./DoppiCoreTypes.sol";
 
-//       DoppiTrader Admin View Module (Owner / Keeper Ops)
-abstract contract DoppiTraderAdminView is Ownable, Pausable {
+abstract contract DoppiTraderAdminView is Ownable {
     
     IERC20 public assetA;
     IERC20 public assetB;
@@ -19,7 +17,7 @@ abstract contract DoppiTraderAdminView is Ownable, Pausable {
     Trade[] public sell_undo_list;
     address public validTrader;
     address public s_forwarderAddress;
-    uint32 public traderDefaultDay;
+    uint16 public traderDefaultDay;
     DoppiConfig public doppiConfig;
     
     function getTotalBalancesInLP() external view returns (uint256 totalAssetA, uint256 totalAssetB) {
@@ -93,15 +91,7 @@ abstract contract DoppiTraderAdminView is Ownable, Pausable {
         return validTrader;
     }
 
-    function setPause() external onlyTrader {
-        _pause();
-    }
-
-    function setUnPause() external onlyTrader {
-        _unpause();
-    }
-
-    function setDefaultDay(uint32 _day) external onlyTrader {
+    function setDefaultDay(uint16 _day) external onlyTrader {
         traderDefaultDay = _day;
     }
 

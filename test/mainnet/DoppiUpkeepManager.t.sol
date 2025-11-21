@@ -91,7 +91,7 @@ contract DoppiUpkeepManagerTest is Test {
         doppiOpportunity.setForwarderAddress(forwarder);
         doppiOpportunity.setDoppiConfig(doppiConfig);
         doppiCore.setForwarderAddress(forwarder);
-        doppiCore.setAdmin(address(doppiOpportunity), true);
+        doppiCore.setOpportunityBot(address(doppiOpportunity), true);
         doppiLP.setForwarderAddress(forwarder);
         doppiLP.setDoppiCore(address(doppiCore));
         doppiLP.setEntryPoint(address(doppiRouter.entryPointA()), true);
@@ -120,7 +120,7 @@ contract DoppiUpkeepManagerTest is Test {
         );
         doppiUpkeepManager.setForwarderAddress(forwarder);
         doppiConfig.setDoppiUpKeepManager(address(doppiUpkeepManager));
-        
+        vm.warp(vm.getBlockTimestamp() - 2592483);
         vm.stopPrank();
     }
 
@@ -131,7 +131,7 @@ contract DoppiUpkeepManagerTest is Test {
         deal(LINK, address(trader), 1000 ether);
 
         // Deploy bot
-        uint256 traderId = doppiFactory.deployTraderBot(defaultWeights);
+        uint32 traderId = doppiFactory.deployTraderBot(defaultWeights);
         DoppiTrader traderBot = DoppiTrader(doppiFactory.traderBots(traderId));
         usdt.approve(address(doppiUpkeepManager), 10000 ether);
         doppiUpkeepManager.setupAutomation(address(traderBot));
@@ -341,7 +341,7 @@ contract DoppiUpkeepManagerTest is Test {
         deal(LINK, address(trader), 1000 ether);
 
         // Deploy bot
-        uint256 traderId = doppiFactory.deployTraderBot(defaultWeights);
+        uint32 traderId = doppiFactory.deployTraderBot(defaultWeights);
         DoppiTrader traderBot = DoppiTrader(doppiFactory.traderBots(traderId));
         usdt.approve(address(doppiUpkeepManager), 300 ether);
         uint256 upKeepId = doppiUpkeepManager.setupAutomation(address(traderBot));
@@ -400,7 +400,7 @@ contract DoppiUpkeepManagerTest is Test {
         // Deploy bot
         vm.startPrank(trader);
         deal(USDT, address(trader), 1000 ether);
-        uint256 traderId = doppiFactory.deployTraderBot(defaultWeights);
+        uint32 traderId = doppiFactory.deployTraderBot(defaultWeights);
         DoppiTrader traderBot = DoppiTrader(doppiFactory.traderBots(traderId));
         usdt.approve(address(doppiUpkeepManager), 300 ether);
         doppiUpkeepManager.setupAutomation(address(traderBot));
@@ -428,6 +428,29 @@ contract DoppiUpkeepManagerTest is Test {
         
     }
 
+    function test_setupAutomation_cancel_withdraw_registerAgain() public {
+        
+        vm.startPrank(trader);
+        deal(USDT, address(trader), 1000 ether);
+        deal(LINK, address(trader), 1000 ether);
+
+        // Deploy bot
+        uint32 traderId = doppiFactory.deployTraderBot(defaultWeights);
+        DoppiTrader traderBot = DoppiTrader(doppiFactory.traderBots(traderId));
+        usdt.approve(address(doppiUpkeepManager), 10000 ether);
+        uint256 upkeepId = doppiUpkeepManager.setupAutomation(address(traderBot));
+        doppiUpkeepManager.cancelUpkeep(upkeepId);
+        // console.log(block.number);
+        vm.roll(block.number + 51);
+        // console.log(block.number);
+        doppiUpkeepManager.stopWithdraw(upkeepId);
+
+        uint256 newupkeepId = doppiUpkeepManager.setupAutomation(address(traderBot));
+        // console.log(newupkeepId, "newupkeepId");
+        assertGt(newupkeepId, 0);
+        vm.stopPrank();        
+    }
+
 
     function _setupLP(address _assetA, address _assetB) internal returns (DoppiLiquidity _doppiLP) {
         _doppiLP =
@@ -450,7 +473,7 @@ contract DoppiUpkeepManagerTest is Test {
         BlackScholes blackScholes = new BlackScholes();
         _impliedVol = new DoppiOffer(blackScholes, address(doppiConfig.chainLinkFeed()), 500);
         _impliedVol.setRegression(86400, a_buy, b_buy, c_buy, a_sell, b_sell, c_sell);
-        doppiConfig.setImpliedVol(address(_impliedVol)); 
+        doppiConfig.setDoppiOffer(address(_impliedVol)); 
     }
 
     

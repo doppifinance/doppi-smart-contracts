@@ -37,7 +37,7 @@ contract DoppiClaimTest is Test {
             address(referral),
             10000 // 1 token per point
         );
-        doppiPoints.setDoppiCore(mockDoppiCore);
+        doppiPoints.setDoppiCore(mockDoppiCore, true);
         doppiPoints.setDoppiClaim(address(doppiClaim));
         referral.setDoppiClaim(address(doppiClaim));
 
