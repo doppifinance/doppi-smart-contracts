@@ -18,6 +18,9 @@ import {MockOracle} from "../src/test/MockOracle.sol";
 // import "forge-std/console.sol";
 import {Swapper} from "../src/test/Swapper.sol";
 import "../src/mainnet/DoppiCoreTypes.sol";
+import {TestParamLib} from "../src/Library/TestParamLib.sol";
+import "../src/mainnet/DoppiLiquidityTypes.sol";
+
 
 contract DoppiCoreTest is Test {
     DoppiCore doppiCore;
@@ -32,6 +35,7 @@ contract DoppiCoreTest is Test {
     MockOracle oracle;
     Swapper swapper;
     DoppiPoints doppiPoints;
+    ConfigParam configLP;
 
     address owner = address(this);
     address user1 = address(0x1);
@@ -72,20 +76,24 @@ contract DoppiCoreTest is Test {
         
         // Deploy Swapper that will act as both router and pool
         swapper = new Swapper(MockToken(usdt), MockToken(btc));
-        swapper.setOracle(MockOracle(oracle));    
-        doppiConfig.setRouter(address(swapper));
-        doppiConfig.setQuoter(address(swapper));
-        doppiConfig.setTreasury(treasury);
-        doppiConfig.setOracle(address(oracle));
-        doppiConfig.setDoppiPoints(address(doppiPoints)); 
-        doppiConfig.setDoppiOffer(address(impliedVol)); 
+        swapper.setOracle(MockOracle(oracle));  
+        
+        configLP = TestParamLib.get_configLP();
+        configLP.chainLinkFeed = address(oracle);
+        configLP.quoter = address(swapper);
+        configLP.router = address(swapper);
+        configLP.doppiConfig = address(doppiConfig);
+        
+        // doppiConfig.setDoppiPoints(address(doppiPoints)); 
+        // doppiConfig.setDoppiOffer(address(impliedVol)); 
         
         doppiLP =
             new DoppiLiquidity("Dual Asset Liquidity Pool", "DALP", IERC20(usdt), IERC20(btc));
-        doppiLP.setDoppiConfig(doppiConfig);
+
+        doppiLP.setConfig(configLP);
         doppiLP.approveRouter();
                 
-        doppiCore = new DoppiCore(address(usdt), address(btc), doppiLP, impliedVol);
+        doppiCore = new DoppiCore(address(usdt), address(btc), doppiLP, impliedVol, address(doppiPoints));
         doppiPoints.setDoppiCore(address(doppiCore), true);
 
         doppiLP.setDoppiCore(address(doppiCore));
@@ -96,14 +104,14 @@ contract DoppiCoreTest is Test {
         doppiLP.setEntryPoint(address(doppiRouter.entryPointB()), true);
         doppiLP.approveEntryPoint(address(doppiRouter.entryPointA()), address(usdt));
         doppiLP.approveEntryPoint(address(doppiRouter.entryPointB()), address(btc));
-        doppiLP.setDoppiConfig(doppiConfig);
-
+        
         traderFactory =
             new DoppiTraderFactory(IERC20(usdt), IERC20(btc), address(doppiCore), address(doppiLP), address(doppiRouter));
 
         doppiCore.setDoppiTraderFactory(traderFactory);
         doppiCore.setOpportunityBot(admin, true);
         doppiCore.setForwarderAddress(mockForwarder);
+        doppiCore.setTreasury(treasury, 1000);
         
 
         // Mint tokens
@@ -694,7 +702,7 @@ contract DoppiCoreTest is Test {
 
         vm.startPrank(owner);
         doppiCore.settle_buys(readyPositions);
-        assertEq(usdt.balanceOf(doppiConfig.treasury()), 43012328767123287671); // 50000 * 313.99% / 365 * 10%
+        assertEq(usdt.balanceOf(doppiCore.treasury()), 43012328767123287671); // 50000 * 313.99% / 365 * 10%
     }
 
     function test_opportunity_profit_fee() public {
@@ -717,7 +725,7 @@ contract DoppiCoreTest is Test {
         assertGt(amountOut, 0);
         // console.log(amountOut, "amountOut");
         uint256 fee = profit * 1000 / 10000;
-        assertEq(usdt.balanceOf(doppiConfig.treasury()), fee); 
+        assertEq(usdt.balanceOf(doppiCore.treasury()), fee); 
     }
 
     function test_settle_buys_strike_profit_fee() public {
@@ -732,8 +740,8 @@ contract DoppiCoreTest is Test {
         
         uint256 userUSDTbefore = usdt.balanceOf(user1);
         uint256 userBTCbefore = btc.balanceOf(user1);
-        uint256 tresuryUSDTbefore = usdt.balanceOf(doppiConfig.treasury());
-        uint256 tresuryBTCbefore = btc.balanceOf(doppiConfig.treasury());
+        uint256 tresuryUSDTbefore = usdt.balanceOf(doppiCore.treasury());
+        uint256 tresuryBTCbefore = btc.balanceOf(doppiCore.treasury());
         // uint256 lpBTCbefore = btc.balanceOf(address(doppiLP));
         // uint256 lpUSDTbefore = usdt.balanceOf(address(doppiLP));
         
@@ -744,8 +752,8 @@ contract DoppiCoreTest is Test {
         
         uint256 userUSDTafter = usdt.balanceOf(user1);
         uint256 userBTCafter = btc.balanceOf(user1);
-        uint256 tresuryUSDTafter = usdt.balanceOf(doppiConfig.treasury());
-        uint256 tresuryBTCafter = btc.balanceOf(doppiConfig.treasury());
+        uint256 tresuryUSDTafter = usdt.balanceOf(doppiCore.treasury());
+        uint256 tresuryBTCafter = btc.balanceOf(doppiCore.treasury());
         uint256 lpBTCafter = btc.balanceOf(address(doppiLP));
         uint256 lpUSDTafter = usdt.balanceOf(address(doppiLP));
         
@@ -801,8 +809,8 @@ contract DoppiCoreTest is Test {
         
         uint256 userUSDTbefore = usdt.balanceOf(user1);
         uint256 userBTCbefore = btc.balanceOf(user1);
-        uint256 tresuryUSDTbefore = usdt.balanceOf(doppiConfig.treasury());
-        uint256 tresuryBTCbefore = btc.balanceOf(doppiConfig.treasury());
+        uint256 tresuryUSDTbefore = usdt.balanceOf(doppiCore.treasury());
+        uint256 tresuryBTCbefore = btc.balanceOf(doppiCore.treasury());
         // uint256 lpBTCbefore = btc.balanceOf(address(doppiLP));
         // uint256 lpUSDTbefore = usdt.balanceOf(address(doppiLP));
         
@@ -813,8 +821,8 @@ contract DoppiCoreTest is Test {
         
         uint256 userUSDTafter = usdt.balanceOf(user1);
         uint256 userBTCafter = btc.balanceOf(user1);
-        uint256 tresuryUSDTafter = usdt.balanceOf(doppiConfig.treasury());
-        uint256 tresuryBTCafter = btc.balanceOf(doppiConfig.treasury());
+        uint256 tresuryUSDTafter = usdt.balanceOf(doppiCore.treasury());
+        uint256 tresuryBTCafter = btc.balanceOf(doppiCore.treasury());
         uint256 lpBTCafter = btc.balanceOf(address(doppiLP));
         uint256 lpUSDTafter = usdt.balanceOf(address(doppiLP));
         
@@ -1266,11 +1274,8 @@ contract DoppiCoreTest is Test {
 
     function test_maxDepositBuy() public {
 
-        // doppiRouter.deposit(address(usdt), 100_000 ether);
-        // doppiRouter.deposit(address(btc), 1 ether);
-
-        doppiConfig.setMaxDepositPercentage(10000);
-        doppiLP.setDoppiConfig(doppiConfig);
+        configLP.maxDepositPercentage = 10000;
+        doppiLP.setConfig(configLP);
         // Deposit a buy position
         
         // 1st order 50k
@@ -1300,8 +1305,8 @@ contract DoppiCoreTest is Test {
 
     function test_maxDepositSell() public {
 
-        doppiConfig.setMaxDepositPercentage(10000);
-        doppiLP.setDoppiConfig(doppiConfig);
+        configLP.maxDepositPercentage = 10000;
+        doppiLP.setConfig(configLP);
         
         // 1st order 0.5
         DualAssetOffer memory sellOffer = _depositBTC();

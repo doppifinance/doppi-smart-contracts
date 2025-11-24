@@ -10,6 +10,8 @@ import {IERC7575} from "../src/Interface/IERC7575.sol";
 import {MockOracle} from "../src/test/MockOracle.sol";
 import {Swapper} from "../src/test/Swapper.sol";
 import {DoppiConfig} from "../src/mainnet/DoppiConfig.sol";
+import {TestParamLib} from "../src/Library/TestParamLib.sol";
+import "../src/mainnet/DoppiLiquidityTypes.sol";
 
 contract DoppiLiquidityRouterTest is Test {
     DoppiLiquidityRouter public router;
@@ -19,6 +21,7 @@ contract DoppiLiquidityRouterTest is Test {
     MockOracle public oracle;
     Swapper public swapper;
     DoppiConfig public doppiConfig;
+    ConfigParam configLP;
     
     uint256 public INITIAL_BALANCE_USDT = 10000 ether;
 
@@ -47,12 +50,8 @@ contract DoppiLiquidityRouterTest is Test {
         swapper.setOracle(MockOracle(oracle)); 
         // deploy doppiConfig
         doppiConfig = new DoppiConfig();
-        doppiConfig.setRouter(address(swapper));
-        doppiConfig.setQuoter(address(swapper));
-        doppiConfig.setTreasury(address(0x9));
-        doppiConfig.setOracle(address(oracle));
-
-
+        // doppiConfig.setTreasury(address(0x9));
+        
         // Deploy doppiLP
         doppiLP =
             new DoppiLiquidity("Dual Asset LP", "DALP", IERC20(address(usdt)), IERC20(address(btc)));
@@ -62,7 +61,12 @@ contract DoppiLiquidityRouterTest is Test {
 
         
         // Setup liquidity pool
-        doppiLP.setDoppiConfig(doppiConfig);
+        configLP = TestParamLib.get_configLP();
+        configLP.chainLinkFeed = address(oracle);
+        configLP.quoter = address(swapper);
+        configLP.router = address(swapper);
+        doppiLP.setConfig(configLP);
+
         doppiLP.setDoppiCore(address(0x4)); // Mock core address
         doppiLP.setDoppiTraderFactory(address(0x5)); // Mock factory address
         doppiLP.approveRouter();

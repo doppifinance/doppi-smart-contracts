@@ -15,6 +15,8 @@ import {MockToken} from "../src/test/MockToken.sol";
 import {MockOracle} from "../src/test/MockOracle.sol";
 import {Swapper} from "../src/test/Swapper.sol";
 import "../src/mainnet/DoppiCoreTypes.sol";
+import {TestParamLib} from "../src/Library/TestParamLib.sol";
+import "../src/mainnet/DoppiLiquidityTypes.sol";
 
 contract DoppiOpportunityTest is Test {
     DoppiOpportunity doppiOpportunity;
@@ -28,6 +30,7 @@ contract DoppiOpportunityTest is Test {
     MockToken btc;
     MockOracle oracle;
     Swapper swapper;
+    ConfigParam configLP;
 
     address owner = address(this);
     address user1 = address(0x1);
@@ -63,32 +66,34 @@ contract DoppiOpportunityTest is Test {
         // Deploy Swapper that will act as both router and pool
         swapper = new Swapper(MockToken(usdt), MockToken(btc));
         swapper.setOracle(MockOracle(oracle));    
-        doppiConfig.setRouter(address(swapper));
-        doppiConfig.setQuoter(address(swapper));
-        doppiConfig.setTreasury(treasury);
-        doppiConfig.setOracle(address(oracle));
-        doppiConfig.setDoppiOffer(address(impliedVol)); 
+        // doppiConfig.setDoppiOffer(address(impliedVol)); 
 
         doppiLP =
             new DoppiLiquidity("Dual Asset Liquidity Pool", "DALP", IERC20(usdt), IERC20(btc));
-        doppiLP.setDoppiConfig(doppiConfig);
+        
+        configLP = TestParamLib.get_configLP();
+        configLP.chainLinkFeed = address(oracle);
+        configLP.quoter = address(swapper);
+        configLP.router = address(swapper);
+        configLP.doppiConfig = address(doppiConfig);
+        doppiLP.setConfig(configLP);
         doppiLP.approveRouter();
-
         // Create router and set entry points
         doppiRouter = new DoppiLiquidityRouter(IERC20(usdt), IERC20(btc), doppiLP);
         doppiLP.setEntryPoint(address(doppiRouter.entryPointA()), true);
         doppiLP.setEntryPoint(address(doppiRouter.entryPointB()), true);
         doppiLP.approveEntryPoint(address(doppiRouter.entryPointA()), address(usdt));
         doppiLP.approveEntryPoint(address(doppiRouter.entryPointB()), address(btc));
-
-        doppiCore = new DoppiCore(address(usdt), address(btc), doppiLP, impliedVol);
-
+        
+        doppiCore = new DoppiCore(address(usdt), address(btc), doppiLP, impliedVol, address(0));
+        
         doppiLP.setDoppiCore(address(doppiCore));
 
         doppiOpportunity = new DoppiOpportunity(address(doppiCore), address(doppiLP));
         doppiCore.setOpportunityBot(address(doppiOpportunity), true);
+        doppiCore.setTreasury(treasury, 1000);
         doppiOpportunity.setForwarderAddress(mockForwarder);
-        doppiOpportunity.setDoppiConfig(doppiConfig);
+        // doppiOpportunity.setDoppiConfig(doppiConfig);
 
         // Mint tokens to a liquidity provider and properly deposit into LP
         address liquidityProvider = address(0x999);

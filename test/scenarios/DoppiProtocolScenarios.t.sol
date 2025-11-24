@@ -19,6 +19,8 @@ import {DoppiOpportunity} from "../../src/mainnet/DoppiOpportunity.sol";
 import {Swapper} from "../../src/test/Swapper.sol";
 import {DoppiConfig} from "../../src/mainnet/DoppiConfig.sol";
 import "../../src/mainnet/DoppiCoreTypes.sol";
+import {TestParamLib} from "../../src/Library/TestParamLib.sol";
+import "../../src/mainnet/DoppiLiquidityTypes.sol";
 
 
 contract DoppiProtocolScenariosTest is Test {
@@ -37,6 +39,7 @@ contract DoppiProtocolScenariosTest is Test {
     Swapper public swapper;
     DoppiConfig doppiConfig;
     DoppiPoints doppiPoints;
+    ConfigParam configLP;
     
     // Addresses
     address public owner = address(0x1);
@@ -63,25 +66,29 @@ contract DoppiProtocolScenariosTest is Test {
         doppiPoints = new DoppiPoints();
 
         doppiConfig = new DoppiConfig();
-        doppiConfig.setRouter(address(swapper));
-        doppiConfig.setQuoter(address(swapper));
-        doppiConfig.setTreasury(treasury);
-        doppiConfig.setPancakeV3Pool(address(swapper)); 
-        doppiConfig.setOracle(address(oracle));
         doppiConfig.setDoppiUpKeepManager(address(mockDoppiUpKeepManager));
-        doppiConfig.setDoppiPoints(address(doppiPoints)); 
+        // doppiConfig.setDoppiPoints(address(doppiPoints)); 
         
+        configLP = TestParamLib.get_configLP();
+        configLP.router = address(swapper);
+        configLP.quoter = address(swapper);
+        configLP.v3Pool = address(swapper);
+        configLP.chainLinkFeed = address(oracle);
+        configLP.doppiConfig = address(doppiConfig);
+
         impliedVol = _setupIV();
         doppiLP = _setupLP(address(usdt), address(btc));
-        doppiCore = new DoppiCore(address(usdt), address(btc), doppiLP, impliedVol);
+        
+        doppiCore = new DoppiCore(address(usdt), address(btc), doppiLP, impliedVol, address(doppiPoints));
         opportunityBot = new DoppiOpportunity(address(doppiCore), address(doppiLP));
         doppiRouter = new DoppiLiquidityRouter(IERC20(usdt), IERC20(btc), doppiLP);
         doppiFactory = new DoppiTraderFactory(IERC20(usdt), IERC20(btc), address(doppiCore), address(doppiLP), address(doppiRouter));
 
         doppiPoints.setDoppiCore(address(doppiCore), true);
         opportunityBot.setForwarderAddress(mockForwarder);
-        opportunityBot.setDoppiConfig(doppiConfig);
+        // opportunityBot.setDoppiConfig(doppiConfig);
         doppiCore.setForwarderAddress(mockForwarder);
+        doppiCore.setTreasury(treasury, 1000);
         doppiCore.setOpportunityBot(address(opportunityBot), true);
         doppiLP.setForwarderAddress(mockForwarder);
         doppiLP.setDoppiCore(address(doppiCore));
@@ -420,7 +427,7 @@ contract DoppiProtocolScenariosTest is Test {
     function _setupLP(address _assetA, address _assetB) internal returns (DoppiLiquidity _doppiLP) {
         _doppiLP =
             new DoppiLiquidity("Dual Asset Liquidity Pool", "DALP", IERC20(_assetA), IERC20(_assetB));
-        _doppiLP.setDoppiConfig(doppiConfig); 
+        _doppiLP.setConfig(configLP);
         _doppiLP.approveRouter();
     }
     
@@ -436,9 +443,9 @@ contract DoppiProtocolScenariosTest is Test {
         int256 b_sell = -0.02447200000000008 * 1e27;
         int256 c_sell = 1485.8762857142906 * 1e27;
         BlackScholes blackScholes = new BlackScholes();
-        _impliedVol = new DoppiOffer(blackScholes, address(doppiConfig.chainLinkFeed()), 500);
+        _impliedVol = new DoppiOffer(blackScholes, configLP.chainLinkFeed, 500);
         _impliedVol.setRegression(86400, a_buy, b_buy, c_buy, a_sell, b_sell, c_sell);
-        doppiConfig.setDoppiOffer(address(_impliedVol)); 
+        // doppiConfig.setDoppiOffer(address(_impliedVol)); 
     }
 
     function _setupMockSwapper(address _usdt, address _btc, address _oracle) internal returns (Swapper _swapper) {

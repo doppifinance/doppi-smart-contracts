@@ -15,27 +15,12 @@ import {AutomationCompatibleInterface} from "../Interface/AutomationCompatibleIn
 import {DoppiConfig} from "./DoppiConfig.sol";
 import {Pausable} from "@openzeppelin/contracts/utils/Pausable.sol";
 import {AggregatorV3Interface} from "../Interface/AggregatorV3Interface.sol";
+import "./DoppiLiquidityTypes.sol";
 // import "forge-std/console.sol";
 
 contract DoppiLiquidity is ERC20, Ownable, Pausable, IDoppiLiquidity, AutomationCompatibleInterface {
     using SafeERC20 for IERC20;
     using Math for uint256;
-
-    struct Config {
-        AggregatorV3Interface chainLinkFeed; 
-        address router; 
-        address quoter; 
-        uint24 poolFee;  
-        uint24 slippage; 
-        uint24 liquidityFee; 
-        uint32 swapMargin; 
-        uint8 priceDecimals;
-        uint256 decimals;
-        address v3Pool; 
-        uint32 twapDuration;
-        uint24 maxDepositPercentage;
-        uint32 maxDelay;
-    }
 
     Config public config;
     uint16 public constant BASIS_POINTS = 10000;
@@ -176,21 +161,21 @@ contract DoppiLiquidity is ERC20, Ownable, Pausable, IDoppiLiquidity, Automation
     }
 
     /// Copy from doppiconfig to local for gas optimization
-    function setDoppiConfig(DoppiConfig _doppiConfig) external onlyOwner {
-        doppiConfig = _doppiConfig;
-        config.priceDecimals = DALiquidityLib.getPriceDecimals(_doppiConfig.chainLinkFeed());
+    function setConfig(ConfigParam memory _config) external onlyOwner {
+        doppiConfig = DoppiConfig(_config.doppiConfig);
+        config.priceDecimals = _config.priceDecimals;
         config.decimals = 10 ** config.priceDecimals;
-        config.chainLinkFeed = AggregatorV3Interface(_doppiConfig.chainLinkFeed());
-        config.router = _doppiConfig.router();
-        config.quoter = _doppiConfig.quoter();
-        config.poolFee = _doppiConfig.poolFee();
-        config.slippage = _doppiConfig.slippage();
-        config.liquidityFee = _doppiConfig.liquidityFee();
-        config.swapMargin = _doppiConfig.swapMargin();
-        config.v3Pool = _doppiConfig.pancakeV3Pool();
-        config.twapDuration = _doppiConfig.twapDuration();
-        config.maxDepositPercentage = _doppiConfig.maxDepositPercentage();
-        config.maxDelay = _doppiConfig.maxDelay();
+        config.chainLinkFeed = AggregatorV3Interface(_config.chainLinkFeed);
+        config.router = _config.router;
+        config.quoter = _config.quoter;
+        config.poolFee = _config.poolFee;
+        config.slippage = _config.slippage;
+        config.liquidityFee = _config.liquidityFee;
+        config.swapMargin = _config.swapMargin;
+        config.v3Pool = _config.v3Pool;
+        config.twapDuration = _config.twapDuration;
+        config.maxDepositPercentage = _config.maxDepositPercentage;
+        config.maxDelay = _config.maxDelay;
     }
 
     function setDoppiTraderFactory(address _traderFactory) external onlyOwner {

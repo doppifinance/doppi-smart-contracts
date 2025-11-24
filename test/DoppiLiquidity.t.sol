@@ -9,6 +9,9 @@ import {MockToken} from "../src/test/MockToken.sol";
 import {MockOracle} from "../src/test/MockOracle.sol";
 import {Swapper} from "../src/test/Swapper.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {TestParamLib} from "../src/Library/TestParamLib.sol";
+import "../src/mainnet/DoppiLiquidityTypes.sol";
+
 
 contract DoppiLiquidityTest is Test {
     DoppiLiquidity public doppiLP;
@@ -18,6 +21,7 @@ contract DoppiLiquidityTest is Test {
     MockToken public btc;
     MockOracle public oracle;
     Swapper public swapper;
+    ConfigParam configLP;
 
     address public owner = address(this);
     address public user = address(0x1);
@@ -43,6 +47,7 @@ contract DoppiLiquidityTest is Test {
     function setUp() public {
 
         vm.warp(1735689600);
+ 
         // Deploy mock tokens
         usdt = new MockToken("USDT", "USDT");
         btc = new MockToken("Bitcoin", "BTC");
@@ -56,17 +61,17 @@ contract DoppiLiquidityTest is Test {
         // Deploy Swapper that will act as both router and pool
         swapper = new Swapper(usdt, btc);
         swapper.setOracle(oracle);
-        doppiConfig.setRouter(address(swapper));
-        doppiConfig.setQuoter(address(swapper));
-        doppiConfig.setTreasury(treasury);
-        doppiConfig.setOracle(address(oracle));
-
+        
         // Deploy doppiLP
         doppiLP =
             new DoppiLiquidity("Dual Asset LP", "DALP", IERC20(address(usdt)), IERC20(address(btc)));
 
         // Set the mock oracle, router, pool, and quoter
-        doppiLP.setDoppiConfig(doppiConfig);
+        configLP = TestParamLib.get_configLP();
+        configLP.chainLinkFeed = address(oracle);
+        configLP.quoter = address(swapper);
+        configLP.router = address(swapper);
+        doppiLP.setConfig(configLP);
         doppiLP.setDoppiCore(mockDualAsset);
         doppiLP.approveRouter();
         doppiLP.setForwarderAddress(mockForwarder);

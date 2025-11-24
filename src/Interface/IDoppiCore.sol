@@ -15,4 +15,8 @@ interface IDoppiCore {
     function isEmergency() external view returns (bool);
     function emergencyWithdraw() external;
     function getCurrentDeposits(bool isBuy) external view returns (uint256);
+    function getInterestLiabilities() external view returns (uint256, uint256);
+    function acceptedDeposit(bool isBuy) external view returns (uint256 acceptedAmount);
+    function getMinOrder() external view returns (uint256, uint256);
+    function getDoppiOffer() external view returns (address);
 }

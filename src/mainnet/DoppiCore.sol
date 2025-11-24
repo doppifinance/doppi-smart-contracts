@@ -43,16 +43,16 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
     error NoPosition();
     error ExceedsPoolCap();
 
-    constructor(address _assetA, address _assetB, IDoppiLiquidity _doppiLP, IDoppiOffer _doppiOffer)
+    constructor(address _assetA, address _assetB, IDoppiLiquidity _doppiLP, IDoppiOffer _doppiOffer, address _doppiPoints)
         Ownable(msg.sender)
     {
         assetA = IERC20(_assetA);
         assetB = IERC20(_assetB);
         doppiLP = _doppiLP;
-        doppiConfig = DoppiConfig(doppiLP.getDoppiConfig());
+        // doppiConfig = DoppiConfig(doppiLP.getDoppiConfig());
         doppiOffer = _doppiOffer;
         priceDecimal = 10 ** _doppiLP.getPriceDecimals();
-        doppiPoints = IDoppiPoints(doppiConfig.doppiPoints());
+        doppiPoints = IDoppiPoints(_doppiPoints);
         opportunityBots[msg.sender] = true;
         assetA.safeIncreaseAllowance(address(doppiLP), type(uint256).max);
         assetB.safeIncreaseAllowance(address(doppiLP), type(uint256).max);
@@ -62,6 +62,7 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
     function deposit_buy(DepositParams calldata params) 
         external nonReentrant whenNotPaused whenOpen {
         
+        require(!emergencyMode, "Emergency mode active");
         if(params.amount < minOrderA) revert InvalidAmount(); 
         if (!canAcceptDeposit(true, params.amount)) {
             revert ExceedsPoolCap();
@@ -75,6 +76,7 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
     function deposit_sell(DepositParams calldata params) 
         external nonReentrant whenNotPaused whenOpen {
         
+        require(!emergencyMode, "Emergency mode active");
         if(params.amount < minOrderB) revert InvalidAmount(); 
         if (!canAcceptDeposit(false, params.amount)) {
             revert ExceedsPoolCap();
@@ -186,7 +188,36 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
         return emergencyMode;
     } 
 
+    function getDoppiOffer() external view returns (address){
+        return address(doppiOffer);
+    } 
+
     // Internal functions
+    function _updateInterestLiability(uint256 interest, bool isBuy) internal {
+        if (isBuy) {
+            totalInterestLiabilityA += interest;
+        } else {
+            totalInterestLiabilityB += interest;
+        }
+    }
+
+    function _removeInterestLiability(uint256 interest, bool isBuy) internal {
+        if (isBuy) {
+            if (totalInterestLiabilityA >= interest) {
+                totalInterestLiabilityA -= interest;
+            } else {
+                totalInterestLiabilityA = 0;
+            }
+        } else {
+            if (totalInterestLiabilityB >= interest) {
+                totalInterestLiabilityB -= interest;
+            } else {
+                totalInterestLiabilityB = 0;
+            }
+        }
+    }
+
+
     function _isAPRWithinTolerance(uint256 offerAPR, uint256 providedAPR) internal view returns (bool) {
         
         if (offerAPR == 0) return false;
@@ -198,24 +229,31 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
     }
 
     function _emergencyWithdrawSells() internal {
-        for (uint256 i = sellPositionKeys.length; i > 0; ) {
+        
+        uint256 initialLength = sellPositionKeys.length;
+        for (uint256 i = initialLength; i > 0; ) {
             uint256 index = i - 1;
-            KeyPosition memory keyPos = sellPositionKeys[index];
+
+            if (index < sellPositionKeys.length) {
+                KeyPosition memory keyPos = sellPositionKeys[index];
             
-            if (keyPos.owner == msg.sender) {
-                DualAssetPosition storage pos = positions_sell[keyPos.owner][keyPos.positionId];
-                
-                if (pos.amount > 0) {
-                    uint256 amountToReturn = pos.amount;
-                    // Update total deposits (prevent underflow)
-                    if (totalSellDeposits >= amountToReturn) {
-                        totalSellDeposits -= amountToReturn;
-                    } else {
-                        totalSellDeposits = 0;
+                if (keyPos.owner == msg.sender) {
+                    DualAssetPosition storage pos = positions_sell[keyPos.owner][keyPos.positionId];
+                    
+                    if (pos.amount > 0) {
+                        uint256 amountToReturn = pos.amount;
+                        uint256 interest = pos.interest;
+                        // Update total deposits (prevent underflow)
+                        if (totalSellDeposits >= amountToReturn) {
+                            totalSellDeposits -= amountToReturn;
+                        } else {
+                            totalSellDeposits = 0;
+                        }
+                        _removeInterestLiability(interest, false);
+                        _removePosition(index, keyPos, false); // for sells
+                        assetB.safeTransfer(keyPos.owner, amountToReturn);
+                        emit EmergencyWithdraw(false, keyPos.owner, keyPos.positionId, amountToReturn);
                     }
-                    _removePosition(index, keyPos, false); // for sells
-                    assetB.safeTransfer(keyPos.owner, amountToReturn);
-                    emit EmergencyWithdraw(false, keyPos.owner, keyPos.positionId, amountToReturn);
                 }
             }
             unchecked { --i; }
@@ -223,24 +261,31 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
     }
 
     function _emergencyWithdrawBuys() internal {
-        for (uint256 i = buyPositionKeys.length; i > 0; ) {
+
+        uint256 initialLength = buyPositionKeys.length;
+        for (uint256 i = initialLength; i > 0; ) {
             uint256 index = i - 1;
-            KeyPosition memory keyPos = buyPositionKeys[index];
+
+            if (index < buyPositionKeys.length) {
+                KeyPosition memory keyPos = buyPositionKeys[index];
             
-            if (keyPos.owner == msg.sender) {
-                DualAssetPosition storage pos = positions_buy[keyPos.owner][keyPos.positionId];
-                
-                if (pos.amount > 0) {
-                    uint256 amountToReturn = pos.amount;
-                    // Update total deposits (prevent underflow)
-                    if (totalBuyDeposits >= amountToReturn) {
-                        totalBuyDeposits -= amountToReturn;
-                    } else {
-                        totalBuyDeposits = 0;
+                if (keyPos.owner == msg.sender) {
+                    DualAssetPosition storage pos = positions_buy[keyPos.owner][keyPos.positionId];
+                    
+                    if (pos.amount > 0) {
+                        uint256 amountToReturn = pos.amount;
+                        uint256 interest = pos.interest;
+                        // Update total deposits (prevent underflow)
+                        if (totalBuyDeposits >= amountToReturn) {
+                            totalBuyDeposits -= amountToReturn;
+                        } else {
+                            totalBuyDeposits = 0;
+                        }
+                        _removeInterestLiability(interest, true);
+                        _removePosition(index, keyPos, true);  // for buys
+                        assetA.safeTransfer(keyPos.owner, amountToReturn);
+                        emit EmergencyWithdraw(true, keyPos.owner, keyPos.positionId, amountToReturn);
                     }
-                    _removePosition(index, keyPos, true);  // for buys
-                    assetA.safeTransfer(keyPos.owner, amountToReturn);
-                    emit EmergencyWithdraw(true, keyPos.owner, keyPos.positionId, amountToReturn);
                 }
             }
             unchecked { --i; }
@@ -388,6 +433,8 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
         );
 
         buyPositionKeys.push(KeyPosition(sender, positionId));
+        // Update interest liability
+        _updateInterestLiability(interest, true);
         emit Deposited(sender, positionId, address(assetA), amount, interest, _buyOffer.strikePrice, _buyOffer.apr, numDays);
 
     }
@@ -433,6 +480,7 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
             hedgePrice
         );
         sellPositionKeys.push(KeyPosition(sender, positionId));
+        _updateInterestLiability(interest, false);
         emit Deposited(sender, positionId, address(assetB), amount, interest, _sellOffer.strikePrice, _sellOffer.apr, numDays);
     }
 
@@ -446,6 +494,9 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
             : positions_sell[position.owner][position.positionId];
 
         if(p.expiryTimestamp > block.timestamp) revert NotExpired();
+
+        // Remove interest liability BEFORE settlement
+        _removeInterestLiability(p.interest, isBuy);
 
         // Track results for event emission (computed in each branch)
         address profitToken;
@@ -521,7 +572,7 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
         }else{
             totalSellDeposits -= p.amount; 
         }
-        
+    
         emit Settled(
             p.owner,
             position.positionId,
@@ -766,16 +817,17 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
 
     function _safeTransferWithFee(IERC20 _asset, address _to, uint256 _amount) internal {
         
-        uint256 amountFee = _amount * doppiConfig.treasury_fee() / 10000;
+        uint256 amountFee = _amount * treasury_fee / 10000;
         uint256 amountAfterFee = _amount - amountFee;
         _asset.safeTransfer(_to, amountAfterFee);
-        _asset.safeTransfer(doppiConfig.treasury(), amountFee);
+        _asset.safeTransfer(treasury, amountFee);
 
     }
     
     // Helpers interacting via low-level calls (to avoid interface in module)
     function _recordTradePoints(address trader, uint256 volume) internal {
         (bool ok,) = address(doppiPoints).call(abi.encodeWithSignature("recordTrade(address,uint256)", trader, volume));
+        require(ok, "record point failed");
     }
 
     function _swapLowLevel(

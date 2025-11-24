@@ -19,6 +19,9 @@ abstract contract DoppiTraderAdminView is Ownable {
     address public s_forwarderAddress;
     uint16 public traderDefaultDay;
     DoppiConfig public doppiConfig;
+    uint24 public maxOrder;
+    uint32 public ratioLP;
+    uint32 public tolerance;
     
     function getTotalBalancesInLP() external view returns (uint256 totalAssetA, uint256 totalAssetB) {
         uint256 totalAssetLP = doppiLP.totalAssetsInAssetA();
@@ -95,8 +98,20 @@ abstract contract DoppiTraderAdminView is Ownable {
         traderDefaultDay = _day;
     }
 
+    function setMaxOrder(uint24 _maxOrder) external onlyTrader {
+        maxOrder = _maxOrder;
+    }
+
     function setForwarderAddress(address forwarderAddress) external onlyTrader {
         s_forwarderAddress = forwarderAddress;
+    }
+
+    function setRatioLP(uint32 _ratioLP) external onlyOwner {
+        ratioLP = _ratioLP;
+    }
+
+    function setTolerance(uint32 _tolerance) external onlyOwner {
+        tolerance = _tolerance;
     }
 
     function setDoppiConfig(DoppiConfig _doppiConfig) external onlyOwner {
