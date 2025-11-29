@@ -6,7 +6,6 @@ import {DoppiOpportunity} from "../src/mainnet/DoppiOpportunity.sol";
 import {DoppiCore} from "../src/mainnet/DoppiCore.sol";
 import {DoppiLiquidity} from "../src/mainnet/DoppiLiquidity.sol";
 import {DoppiLiquidityRouter} from "../src/mainnet/DoppiLiquidityRouter.sol";
-import {DoppiConfig} from "../src/mainnet/DoppiConfig.sol";
 import {BlackScholes} from "../src/mainnet/BlackScholes.sol";
 import {DoppiOffer} from "../src/mainnet/DoppiOffer.sol";
 import {IDoppiOffer} from "../src/Interface/IDoppiOffer.sol";
@@ -23,7 +22,6 @@ contract DoppiOpportunityTest is Test {
     DoppiCore doppiCore;
     DoppiLiquidity doppiLP;
     DoppiLiquidityRouter doppiRouter;
-    DoppiConfig doppiConfig;
     BlackScholes blackScholes;
     DoppiOffer impliedVol;
     MockToken usdt;
@@ -60,13 +58,9 @@ contract DoppiOpportunityTest is Test {
         impliedVol = new DoppiOffer(blackScholes, address(oracle), 500);
         impliedVol.setRegression(86400, a_buy, b_buy, c_buy, a_sell, b_sell, c_sell);
 
-        // deploy doppiConfig
-        doppiConfig = new DoppiConfig();
-
         // Deploy Swapper that will act as both router and pool
         swapper = new Swapper(MockToken(usdt), MockToken(btc));
         swapper.setOracle(MockOracle(oracle));    
-        // doppiConfig.setDoppiOffer(address(impliedVol)); 
 
         doppiLP =
             new DoppiLiquidity("Dual Asset Liquidity Pool", "DALP", IERC20(usdt), IERC20(btc));
@@ -75,7 +69,6 @@ contract DoppiOpportunityTest is Test {
         configLP.chainLinkFeed = address(oracle);
         configLP.quoter = address(swapper);
         configLP.router = address(swapper);
-        configLP.doppiConfig = address(doppiConfig);
         doppiLP.setConfig(configLP);
         doppiLP.approveRouter();
         // Create router and set entry points
@@ -93,8 +86,7 @@ contract DoppiOpportunityTest is Test {
         doppiCore.setOpportunityBot(address(doppiOpportunity), true);
         doppiCore.setTreasury(treasury, 1000);
         doppiOpportunity.setForwarderAddress(mockForwarder);
-        // doppiOpportunity.setDoppiConfig(doppiConfig);
-
+        
         // Mint tokens to a liquidity provider and properly deposit into LP
         address liquidityProvider = address(0x999);
         usdt.mint(liquidityProvider, 1_000_000 ether);

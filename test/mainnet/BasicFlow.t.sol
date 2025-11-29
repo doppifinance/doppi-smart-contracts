@@ -17,7 +17,6 @@ import {MockOracle} from "../../src/test/MockOracle.sol";
 import {MockDoppiUpKeepManager} from "../../src/test/MockDoppiUpkeepManager.sol";
 import {DoppiOpportunity} from "../../src/mainnet/DoppiOpportunity.sol";
 import {Swapper} from "../../src/test/Swapper.sol";
-import {DoppiConfig} from "../../src/mainnet/DoppiConfig.sol";
 import "../../src/mainnet/DoppiCoreTypes.sol";
 import {DALiquidityLib} from "../../src/Library/DALiquidityLib.sol";
 import {IUniswapV3Pool} from "@uniswap/v3-core/contracts/interfaces/IUniswapV3Pool.sol";
@@ -39,7 +38,6 @@ contract BasicFlowTest is Test {
     MockDoppiUpKeepManager mockDoppiUpKeepManager;
     DoppiOpportunity doppiOpportunity;
     Swapper public swapper;
-    DoppiConfig doppiConfig;
     DoppiPoints doppiPoints;
     ConfigParam configLP;
 
@@ -76,9 +74,6 @@ contract BasicFlowTest is Test {
         usdt = IERC20(USDT);
         btc = IERC20(BTCB);
         doppiPoints = new DoppiPoints();
-        doppiConfig = new DoppiConfig();
-        doppiConfig.setDoppiUpKeepManager(address(mockDoppiUpKeepManager));
-        // doppiConfig.setDoppiPoints(address(doppiPoints)); 
         
         configLP = TestParamLib.get_configLP();
         impliedVol = _setupIV();
@@ -91,7 +86,6 @@ contract BasicFlowTest is Test {
 
         doppiPoints.setDoppiCore(address(doppiCore), true);
         doppiOpportunity.setForwarderAddress(forwarder);
-        // doppiOpportunity.setDoppiConfig(doppiConfig);
         doppiCore.setForwarderAddress(forwarder);
         doppiCore.setOpportunityBot(address(doppiOpportunity), true);
         doppiCore.setTreasury(treasury, 1000);
@@ -103,6 +97,7 @@ contract BasicFlowTest is Test {
         doppiLP.approveEntryPoint(address(doppiRouter.entryPointB()), address(btc));
         doppiLP.setDoppiTraderFactory(address(doppiFactory));
         doppiCore.setDoppiTraderFactory(doppiFactory);
+        doppiFactory.setDoppiUpKeepManager(address(mockDoppiUpKeepManager));
         
         vm.stopPrank();
     }
@@ -110,9 +105,7 @@ contract BasicFlowTest is Test {
     function testForkDeployment() public view {
         assertEq(doppiLP.owner(), owner);
         assertEq(address(doppiLP.assetA()), USDT);
-        assertEq(address(doppiLP.assetB()), BTCB);
-        assertEq(address(doppiLP.getDoppiConfig()), address(doppiConfig));
-        
+        assertEq(address(doppiLP.assetB()), BTCB);        
         assertEq(address(doppiCore.assetA()), address(usdt));
         assertEq(address(doppiCore.assetB()), address(btc));
         assertEq(address(doppiCore.doppiLP()), address(doppiLP));
@@ -331,7 +324,6 @@ contract BasicFlowTest is Test {
     function _setupLP(address _assetA, address _assetB) internal returns (DoppiLiquidity _doppiLP) {
         _doppiLP =
             new DoppiLiquidity("Doppi BTC-USDT LP", "BTCB-USDT", IERC20(_assetA), IERC20(_assetB));
-        configLP.doppiConfig = address(doppiConfig);
         _doppiLP.setConfig(configLP);
         _doppiLP.approveRouter();
     }
@@ -352,7 +344,6 @@ contract BasicFlowTest is Test {
         _impliedVol.setRegression(86400, a_buy, b_buy, c_buy, a_sell, b_sell, c_sell);
         _impliedVol.setTwapDuration(3600);
         _impliedVol.setPancakeV3Pool(PCSWAP_V3Pool);
-        // doppiConfig.setDoppiOffer(address(_impliedVol)); 
     }
 
     function _doppiCoreCheckUpkeep_performUpkeep() internal {
@@ -368,12 +359,11 @@ contract BasicFlowTest is Test {
     function _manipulateRealChainlink(int256 newPrice, address _oracle) internal {
         
         // Then override the feed address
-        vm.prank(doppiConfig.owner());
+        vm.prank(owner);
         MockOracle(_oracle).setPrice(newPrice);
         vm.stopPrank();
         console.log(doppiLP.owner(), "doppiLP.owner()");
         configLP = TestParamLib.get_configLP();
-        configLP.doppiConfig = address(doppiConfig);
         configLP.chainLinkFeed = _oracle;
         vm.prank(doppiLP.owner());
         doppiLP.setConfig(configLP); 

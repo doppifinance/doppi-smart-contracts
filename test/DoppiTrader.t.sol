@@ -16,7 +16,6 @@ import {MockOracle} from "../src/test/MockOracle.sol";
 import {MockDoppiUpKeepManager} from "../src/test/MockDoppiUpkeepManager.sol";
 import {DoppiOpportunity} from "../src/mainnet/DoppiOpportunity.sol";
 import {Swapper} from "../src/test/Swapper.sol";
-import {DoppiConfig} from "../src/mainnet/DoppiConfig.sol";
 import "../src/mainnet/DoppiCoreTypes.sol";
 import {TestParamLib} from "../src/Library/TestParamLib.sol";
 import "../src/mainnet/DoppiLiquidityTypes.sol";
@@ -26,7 +25,6 @@ contract DoppiTraderTest is Test {
     DoppiTrader doppiTrader;
     DoppiCore doppiCore;
     DoppiLiquidity doppiLP;
-    DoppiConfig doppiConfig;
     DoppiLiquidityRouter doppiRouter;
     BlackScholes blackScholes;
     DoppiOffer impliedVol;
@@ -71,27 +69,19 @@ contract DoppiTraderTest is Test {
 
         doppiPoints = new DoppiPoints();
 
-        // deploy doppiConfig
-        doppiConfig = new DoppiConfig();
-
         mockDoppiUpKeepManager = new MockDoppiUpKeepManager(mockForwarder);
 
         // Deploy Swapper that will act as both router and pool
         swapper = new Swapper(MockToken(usdt), MockToken(btc));
         swapper.setOracle(MockOracle(oracle));    
-        doppiConfig.setDoppiUpKeepManager(address(mockDoppiUpKeepManager));
-        // doppiConfig.setDoppiPoints(address(doppiPoints)); 
-        // doppiConfig.setDoppiOffer(address(impliedVol)); 
         
         doppiLP =
             new DoppiLiquidity("Dual Asset Liquidity Pool", "DALP", IERC20(usdt), IERC20(btc));
-        
         
         configLP = TestParamLib.get_configLP();
         configLP.chainLinkFeed = address(oracle);
         configLP.quoter = address(swapper);
         configLP.router = address(swapper);
-        configLP.doppiConfig = address(doppiConfig);
         doppiLP.setConfig(configLP);
         doppiLP.approveRouter();
 
@@ -104,11 +94,7 @@ contract DoppiTraderTest is Test {
         doppiCore.setTreasury(treasury, 1000);
         
         opportunityBot.setForwarderAddress(mockForwarder);
-        // opportunityBot.setDoppiConfig(doppiConfig);
-
         doppiLP.setDoppiCore(address(doppiCore));
-
-        
 
         defaultweights.push(500);
         defaultweights.push(1000);
@@ -127,6 +113,7 @@ contract DoppiTraderTest is Test {
             new DoppiTraderFactory(IERC20(usdt), IERC20(btc), address(doppiCore), address(doppiLP), address(doppiRouter));
         doppiLP.setDoppiTraderFactory(address(doppiFactory));
         doppiCore.setDoppiTraderFactory(doppiFactory);
+        doppiFactory.setDoppiUpKeepManager(address(mockDoppiUpKeepManager));
 
         vm.prank(trader);
         uint32 id = doppiFactory.deployTraderBot(defaultweights);

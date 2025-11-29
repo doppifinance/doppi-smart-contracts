@@ -17,7 +17,6 @@ import {DoppiPoints} from "../../src/mainnet/DoppiPoints.sol";
 import {DoppiClaim} from "../../src/mainnet/DoppiClaim.sol";
 import {DOPPI} from "../../src/test/Doppi.sol";
 import {DoppiOpportunity} from "../../src/mainnet/DoppiOpportunity.sol";
-import {DoppiConfig} from "../../src/mainnet/DoppiConfig.sol";
 import {DoppiUpkeepManager} from "../../src/mainnet/DoppiUpkeepManager.sol";
 import {MockRegistryConsumer} from "../../src/test/MockRegistryConsumer.sol";
 import {DoppiReferral} from "../../src/mainnet/DoppiReferral.sol";
@@ -42,7 +41,6 @@ contract Scenario2Test is Test {
     // MockDoppiUpKeepManager mockDoppiUpKeepManager;
     DoppiOpportunity doppiOpportunity;
     // Swapper public swapper;
-    DoppiConfig doppiConfig;
     DoppiPoints doppiPoints;
     DoppiUpkeepManager doppiUpkeepManager;
     DoppiReferral doppiReferral;
@@ -81,7 +79,7 @@ contract Scenario2Test is Test {
     function setUp() public {
         
         // Fork Mainnet at a specific block
-        uint256 mainnetFork = vm.createFork("mainnet", 68217868); // Do not change the block number for the unit test
+        uint256 mainnetFork = vm.createFork("mainnet", 69703761); // Do not change the block number for the unit test
         vm.selectFork(mainnetFork);
         
         // Start prank as owner
@@ -94,11 +92,9 @@ contract Scenario2Test is Test {
         blackScholes = _deployBlackScholes();
         impliedVol = _deployDoppiOffer(address(blackScholes));
         doppiPoints = _deployDoppiPoints();
-        doppiConfig = _deployDoppiConfig(address(doppiPoints));
-        // doppiConfig.setDoppiOffer(address(impliedVol)); 
-        doppiLP = _deployDoppiLiquidity(doppiConfig);
+        doppiLP = _deployDoppiLiquidity();
         doppiCore = _deployDoppiCore(doppiLP, impliedVol, doppiPoints);
-        doppiOpportunity = _deployDoppiOpportunity(address(doppiCore), address(doppiLP), doppiConfig);
+        doppiOpportunity = _deployDoppiOpportunity(address(doppiCore), address(doppiLP));
         doppiReferral = _deployDoppiReferral(address(doppiPoints));
     
         console.log("Deploying DoppiLiquidityRouter...");
@@ -110,7 +106,7 @@ contract Scenario2Test is Test {
         doppiFactory = new DoppiTraderFactory(IERC20(USDT), IERC20(BTC), address(doppiCore), address(doppiLP), address(doppiRouter));
         console.log("DoppiTraderFactory deployed at:", address(doppiFactory));
         
-        doppiUpkeepManager = _deployDoppiUpkeepManager(doppiConfig, address(doppiFactory));
+        doppiUpkeepManager = _deployDoppiUpkeepManager(address(doppiFactory));
         
         doppiToken = new DOPPI("Doppi Token", "DOPPI");
         doppiClaim = _deployDoppiClaim(doppiPoints, doppiReferral, doppiToken);
@@ -121,14 +117,13 @@ contract Scenario2Test is Test {
 
         doppiPoints.setDoppiTraderFactory(address(doppiFactory));
         
-        _setupIV(impliedVol, doppiConfig);
+        _setupIV(impliedVol);
         
         // Log deployment addresses for easy access
         console.log("\n=== Deployment Summary ===");
         console.log("BlackScholes:", address(blackScholes));
         console.log("DoppiOffer:", address(impliedVol));
         console.log("DoppiPoints:", address(doppiPoints));
-        console.log("DoppiConfig:", address(doppiConfig));
         console.log("DoppiLiquidity:", address(doppiLP));
         console.log("DoppiCore:", address(doppiCore));
         console.log("DoppiOpportunity:", address(doppiOpportunity));
@@ -244,7 +239,7 @@ contract Scenario2Test is Test {
 
         uint256 avail = doppiRouter.getWithdrawableAmount(trader);
         // console.log(avail, "avail");
-        assertEq(avail, 93118959176899509401319);
+        assertEq(avail, 89650912277126775266676);
 
         
         _depositBTC(1 ether);
@@ -304,7 +299,7 @@ contract Scenario2Test is Test {
         vm.stopPrank();
 
         vm.startPrank(owner);
-        _setupIV(impliedVol, doppiConfig);
+        _setupIV(impliedVol);
         vm.stopPrank();
 
         // setup again new automation
@@ -342,7 +337,7 @@ contract Scenario2Test is Test {
         _doppiCoreCheckUpkeep_performUpkeep();
 
         vm.startPrank(owner);
-        _setupIV(impliedVol, doppiConfig);
+        _setupIV(impliedVol);
         vm.stopPrank();
 
         uint256 usdtbal = usdt.balanceOf(address(traderBot));
@@ -358,6 +353,53 @@ contract Scenario2Test is Test {
 
         assertTrue(doppiCore.getBuyPositionCount(address(traderBot)) == 0); // no new order
         assertTrue(doppiCore.getSellPositionCount(address(traderBot)) > 0); // with new orders
+    }
+
+    function test_Scenario_DepositUSDTBTC_Without_BTC_Liquidity() public {
+        
+        uint256 depositAmount = 10000 ether;
+        uint256 depositBTCAmount = 0.10000 ether;
+        vm.startPrank(trader);
+        deal(BTC, address(trader), 10 ether);
+        deal(USDT, address(trader), 10_000_000 ether);
+        deal(LINK, mockRegistryConsumerAddr, 10_000 ether); //mockRegistryConsumer
+
+        usdt.approve(address(doppiRouter), depositAmount);
+        
+        uint256 sharesA = doppiRouter.deposit(address(usdt), depositAmount);
+
+        uint256 maxDeposit = doppiLP.getMaxDepositAmount(true);
+        console.log(maxDeposit, "maxDeposit");
+        
+        usdt.approve(address(doppiCore), depositAmount);
+        btc.approve(address(doppiCore), depositBTCAmount);
+        vm.stopPrank();
+
+        int256 startPrice = int256(9142000000000);
+        _manipulateRealChainlink(startPrice, address(oracle));
+
+        DualAssetOffer memory sellOffer = impliedVol.getOffer(false, 1, 0);
+        vm.startPrank(trader);
+        doppiCore.deposit_sell(DepositParams({
+            amount: depositBTCAmount,
+            strikeZone: 0,
+            strikePrice: sellOffer.strikePrice,
+            numDays: 1,
+            apr: sellOffer.apr,
+            expiry: sellOffer.expiry
+        }));
+        
+        vm.stopPrank();
+
+        // Verify active
+        // assertTrue(doppiCore.getBuyPositionCount(address(trader)) > 0);
+        assertTrue(doppiCore.getSellPositionCount(address(trader)) > 0);
+
+        int256 newPrice = int256(9152000000000);
+        _manipulateRealChainlink(newPrice, address(oracle));
+
+        // 1 day fast forward and settle
+        _doppiCoreCheckUpkeep_performUpkeep();
     }
 
     function _depositBTC(uint256 amount) internal returns (DualAssetOffer memory) {
@@ -437,23 +479,21 @@ contract Scenario2Test is Test {
     }
         
         
-    function _deployDoppiOpportunity(address _doppiCore, address _doppiLP, DoppiConfig doppiConfig) internal returns (DoppiOpportunity) {
+    function _deployDoppiOpportunity(address _doppiCore, address _doppiLP) internal returns (DoppiOpportunity) {
     
         console.log("Deploying DoppiOpportunity...");
         DoppiOpportunity _doppiOpportunity = new DoppiOpportunity(_doppiCore, _doppiLP);
         console.log("DoppiOpportunity deployed at:", address(_doppiOpportunity));
         // doppiOpportunity.setForwarderAddress(forwarder);
-        // _doppiOpportunity.setDoppiConfig(doppiConfig);
         return _doppiOpportunity;
     }
 
-    function _deployDoppiLiquidity(DoppiConfig _doppiConfig) internal returns (DoppiLiquidity) {
+    function _deployDoppiLiquidity() internal returns (DoppiLiquidity) {
         
         console.log("Deploying DoppiLiquidity...");
         DoppiLiquidity _doppiLP = new DoppiLiquidity("Doppi BTC-USDT LP", "BTCB-USDT", IERC20(USDT), IERC20(BTC));
         console.log("DoppiLiquidity deployed at:", address(_doppiLP));
         configLP = TestParamLib.get_configLP();
-        configLP.doppiConfig = address(_doppiConfig);
         _doppiLP.setConfig(configLP); 
         _doppiLP.approveRouter();
         return _doppiLP;
@@ -507,18 +547,7 @@ contract Scenario2Test is Test {
         return _doppiPoints;
     }
 
-    function _deployDoppiConfig(address _doppiPoints) internal returns (DoppiConfig) {
-        
-        console.log("Deploying DoppiConfig...");
-        DoppiConfig _doppiConfig = new DoppiConfig();
-        console.log("DoppiConfig deployed at:", address(_doppiConfig));
-        // doppiConfig.setDoppiUpKeepManager(address(mockDoppiUpKeepManager));
-        // _doppiConfig.setDoppiPoints(_doppiPoints); 
-
-        return _doppiConfig;
-    }
-
-    function _deployDoppiUpkeepManager(DoppiConfig _doppiConfig, address _doppiFactory) internal returns (DoppiUpkeepManager) {
+    function _deployDoppiUpkeepManager(address _doppiFactory) internal returns (DoppiUpkeepManager) {
 
         console.log("Deploying DoppiUpkeepManager...");
         IAutomationRegistrar registrar = IAutomationRegistrar(CHAINLINK_Registrar);
@@ -540,8 +569,9 @@ contract Scenario2Test is Test {
         
         console.log("mockRegistryConsumer deployed at:", address(mockRegistryConsumer));
         console.log("DoppiUpkeepManager deployed at:", address(_doppiUpkeepManager));
-        _doppiConfig.setDoppiUpKeepManager(address(_doppiUpkeepManager));
         _doppiUpkeepManager.setMaxDelay(10 days);
+        doppiFactory.setDoppiUpKeepManager(address(_doppiUpkeepManager));
+
         return _doppiUpkeepManager;
     }  
 
@@ -555,7 +585,7 @@ contract Scenario2Test is Test {
         vm.stopPrank();
     }
 
-    function _setupIV(DoppiOffer _impliedVol, DoppiConfig doppiConfig) internal {
+    function _setupIV(DoppiOffer _impliedVol) internal {
         
         // vm.warp(vm.getBlockTimestamp() + 30 days); 
         int256 a_buy = 0.0000000807142857142833 * 1e27;
@@ -568,21 +598,22 @@ contract Scenario2Test is Test {
         _impliedVol.setRegression(86400, a_buy, b_buy, c_buy, a_sell, b_sell, c_sell);
         _impliedVol.setTwapDuration(3600);
         _impliedVol.setPancakeV3Pool(PCSWAP_V3Pool);
-        // doppiConfig.setDoppiOffer(address(_impliedVol)); 
     }
 
     function _manipulateRealChainlink(int256 newPrice, address _oracle) internal {
         
         // Then override the feed address
-        vm.prank(doppiConfig.owner());
+        vm.prank(owner);
         MockOracle(_oracle).setPrice(newPrice);
         vm.stopPrank();
-        console.log(doppiLP.owner(), "doppiLP.owner()");
+        // console.log(doppiLP.owner(), "doppiLP.owner()");
         configLP = TestParamLib.get_configLP();
-        configLP.doppiConfig = address(doppiConfig);
         configLP.chainLinkFeed = _oracle;
         vm.prank(doppiLP.owner());
         doppiLP.setConfig(configLP); 
+        vm.stopPrank();
+        vm.prank(impliedVol.owner());
+        impliedVol.setOracle(_oracle);
         vm.stopPrank();
 
     }

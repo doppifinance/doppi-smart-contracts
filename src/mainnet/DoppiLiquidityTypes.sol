@@ -16,7 +16,6 @@ struct ConfigParam {
     uint32 twapDuration;
     uint24 maxDepositPercentage;
     uint32 maxDelay;
-    address doppiConfig;
 }
 
 struct Config {

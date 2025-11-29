@@ -15,7 +15,6 @@ import {MockOracle} from "../../src/test/MockOracle.sol";
 import {MockRegistryConsumer} from "../../src/test/MockRegistryConsumer.sol";
 import {DoppiOpportunity} from "../../src/mainnet/DoppiOpportunity.sol";
 import {Swapper} from "../../src/test/Swapper.sol";
-import {DoppiConfig} from "../../src/mainnet/DoppiConfig.sol";
 import {DoppiUpkeepManager} from "../../src/mainnet/DoppiUpkeepManager.sol";
 import "../../src/Interface/LinkTokenInterface.sol";
 import "../../src/Interface/IAutomationRegistrar.sol";
@@ -35,7 +34,6 @@ contract DoppiUpkeepManagerTest is Test {
     MockOracle oracle;
     DoppiOpportunity doppiOpportunity;
     Swapper public swapper;
-    DoppiConfig doppiConfig;
     DoppiUpkeepManager doppiUpkeepManager;
     IAutomationRegistrar public registrar;
     IAutomationRegistryConsumer public registryConsumer;
@@ -74,7 +72,6 @@ contract DoppiUpkeepManagerTest is Test {
         usdt = IERC20(USDT);
         btc = IERC20(BTCB);
         link = LinkTokenInterface(LINK);
-        doppiConfig = new DoppiConfig();
         
         configLP = TestParamLib.get_configLP();
         impliedVol = _setupIV();
@@ -86,7 +83,6 @@ contract DoppiUpkeepManagerTest is Test {
         doppiFactory = new DoppiTraderFactory(IERC20(usdt), IERC20(btc), address(doppiCore), address(doppiLP), address(doppiRouter));
 
         doppiOpportunity.setForwarderAddress(forwarder);
-        // doppiOpportunity.setDoppiConfig(doppiConfig);
         doppiCore.setForwarderAddress(forwarder);
         doppiCore.setTreasury(treasury, 1000);
         doppiCore.setOpportunityBot(address(doppiOpportunity), true);
@@ -117,7 +113,7 @@ contract DoppiUpkeepManagerTest is Test {
             treasury
         );
         doppiUpkeepManager.setForwarderAddress(forwarder);
-        doppiConfig.setDoppiUpKeepManager(address(doppiUpkeepManager));
+        doppiFactory.setDoppiUpKeepManager(address(doppiUpkeepManager));
         vm.warp(vm.getBlockTimestamp() - 2592483);
         vm.stopPrank();
     }
@@ -453,7 +449,6 @@ contract DoppiUpkeepManagerTest is Test {
     function _setupLP(address _assetA, address _assetB) internal returns (DoppiLiquidity _doppiLP) {
         _doppiLP =
             new DoppiLiquidity("Doppi BTC-USDT LP", "BTCB-USDT", IERC20(_assetA), IERC20(_assetB));
-        configLP.doppiConfig = address(doppiConfig);
         _doppiLP.setConfig(configLP);
         _doppiLP.approveRouter();
     }
@@ -472,7 +467,6 @@ contract DoppiUpkeepManagerTest is Test {
         BlackScholes blackScholes = new BlackScholes();
         _impliedVol = new DoppiOffer(blackScholes, configLP.chainLinkFeed, 500);
         _impliedVol.setRegression(86400, a_buy, b_buy, c_buy, a_sell, b_sell, c_sell);
-        // doppiConfig.setDoppiOffer(address(_impliedVol)); 
     }
 
     

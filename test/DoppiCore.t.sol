@@ -7,7 +7,6 @@ import {DoppiLiquidity} from "../src/mainnet/DoppiLiquidity.sol";
 import {DoppiLiquidityRouter} from "../src/mainnet/DoppiLiquidityRouter.sol";
 import {DoppiTraderFactory} from "../src/mainnet/DoppiTraderFactory.sol";
 import {DoppiTrader} from "../src/mainnet/DoppiTrader.sol";
-import {DoppiConfig} from "../src/mainnet/DoppiConfig.sol";
 import {BlackScholes} from "../src/mainnet/BlackScholes.sol";
 import {DoppiOffer} from "../src/mainnet/DoppiOffer.sol";
 import {IDoppiOffer} from "../src/Interface/IDoppiOffer.sol";
@@ -25,7 +24,6 @@ import "../src/mainnet/DoppiLiquidityTypes.sol";
 contract DoppiCoreTest is Test {
     DoppiCore doppiCore;
     DoppiLiquidity doppiLP;
-    DoppiConfig doppiConfig;
     DoppiLiquidityRouter doppiRouter;
     DoppiTraderFactory traderFactory;
     BlackScholes blackScholes;
@@ -70,10 +68,6 @@ contract DoppiCoreTest is Test {
 
         doppiPoints = new DoppiPoints();
 
-        // deploy doppiConfig
-        doppiConfig = new DoppiConfig();
-        
-        
         // Deploy Swapper that will act as both router and pool
         swapper = new Swapper(MockToken(usdt), MockToken(btc));
         swapper.setOracle(MockOracle(oracle));  
@@ -82,10 +76,6 @@ contract DoppiCoreTest is Test {
         configLP.chainLinkFeed = address(oracle);
         configLP.quoter = address(swapper);
         configLP.router = address(swapper);
-        configLP.doppiConfig = address(doppiConfig);
-        
-        // doppiConfig.setDoppiPoints(address(doppiPoints)); 
-        // doppiConfig.setDoppiOffer(address(impliedVol)); 
         
         doppiLP =
             new DoppiLiquidity("Dual Asset Liquidity Pool", "DALP", IERC20(usdt), IERC20(btc));

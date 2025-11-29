@@ -49,7 +49,6 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
         assetA = IERC20(_assetA);
         assetB = IERC20(_assetB);
         doppiLP = _doppiLP;
-        // doppiConfig = DoppiConfig(doppiLP.getDoppiConfig());
         doppiOffer = _doppiOffer;
         priceDecimal = 10 ** _doppiLP.getPriceDecimals();
         doppiPoints = IDoppiPoints(_doppiPoints);
@@ -85,10 +84,6 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
         if(sellOffer.strikePrice != params.strikePrice) revert InvalidStrikePriceOrPrice();
         if(!_isAPRWithinTolerance(sellOffer.apr, params.apr)) revert InvalidAPR();
         _depositSell(params, sellOffer, true);
-    }
-
-    function bulkHedge(uint256 _amountInHedgeAsset, uint256 _price, bool isBuy) external onlyTraderBot returns (uint256 swappedHedgeAmount, uint256 hedgePrice) {
-        (swappedHedgeAmount, hedgePrice) = _doppiHedgeSwap(_amountInHedgeAsset, _price, isBuy);
     }
 
     function bulkDeposit(bool isBuy, DepositParams[] calldata params, DualAssetOffer[] memory _offers, bool _hedge) external onlyTraderBot whenNotPaused {
@@ -498,13 +493,8 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
         // Remove interest liability BEFORE settlement
         _removeInterestLiability(p.interest, isBuy);
 
-        // Track results for event emission (computed in each branch)
-        address profitToken;
-        address payoutToken;
-        address interestToken;
-        bool isProfit;
-        uint256 profitLoss;
         uint256 payout;
+        SettlementResult memory result;
 
         // Transfer interest upfront only if >0
         if (p.interest > 0) {
@@ -512,9 +502,7 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
             _doppiTransfer(interestAsset, p.interest, address(this));
         }
 
-        // Determine in-the-money condition
         bool isInTheMoney = isBuy ? (price <= p.strikePrice) : (price >= p.strikePrice);
-
         // In-the-money branch
         if (isInTheMoney) {
             unchecked {
@@ -522,16 +510,7 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
                     ? (p.amount * priceDecimal) / p.strikePrice
                     : (p.amount * p.strikePrice) / priceDecimal;
             }
-
-            (
-                profitToken,
-                payoutToken,
-                interestToken,
-                isProfit,
-                profitLoss
-            ) = p.isTraded
-                ? _settleStrikeTraded(p, payout, isBuy)
-                : _settleStrikeNoTraded(p, price, payout, isBuy);
+            result = p.isTraded ? _settleStrikeTraded(p, payout, isBuy) : _settleStrikeNoTraded(p, price, payout, isBuy);
 
             // Trader-bot unwind hook
             if (
@@ -544,21 +523,9 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
                     isBuy
                 );
             }
-        }
-        // Out-of-the-money branch
-        else {
-
-            (
-                profitToken,
-                payoutToken,
-                interestToken,
-                isProfit,
-                profitLoss
-            ) = p.isTraded
-                ? _settleNoStrikeTraded(p, price, isBuy)
-                : _settleNoStrikeNoTraded(p, isBuy);
-
-            payout = 0; // explicit for clarity
+        } else {
+            result = p.isTraded ? _settleNoStrikeTraded(p, price, isBuy) : _settleNoStrikeNoTraded(p, isBuy);
+            payout = 0;
         }
 
         // record for points
@@ -577,15 +544,14 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
             p.owner,
             position.positionId,
             payout > 0, // in-the-money if payout > 0
-            isProfit,
-            profitLoss,
+            result.isProfit,
+            result.profitLoss,
             payout,
             p.interest,
-            profitToken,
-            payoutToken,
-            interestToken
+            result.profitToken,
+            result.payoutToken,
+            result.interestToken
         );
-
         // Hedge unwind settlement
         _settleHedgeSwap(p, price, isBuy, position.positionId);
     }
@@ -615,11 +581,9 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
         uint256 _price,
         uint256 _payout,
         bool _isBuy
-    ) internal returns (address payoutToken, address payoutTokenAgain, address interestToken, bool, uint256) {
+    ) internal returns (SettlementResult memory result) {
         (IERC20 payoutToken_, IERC20 interestToken_) = _isBuy ? (assetB, assetA): (assetA, assetB);
-
         // Settlement
-        // uint256 amountOut = doppiLP.settle(p.amount, _price, _isBuy);
         uint256 amountOut = _doppiSettleCall(p.amount, _price, _isBuy);
         if (amountOut > _payout) {
             unchecked {
@@ -632,7 +596,11 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
         if (p.interest > 0) {
             _safeTransferWithFee(interestToken_, p.owner, p.interest);
         }
-        return (address(payoutToken_), address(payoutToken_), address(interestToken_), false, 0);
+
+        result.payoutToken = address(payoutToken_);
+        result.interestToken = address(interestToken_);
+        result.profitToken = address(payoutToken_);
+        return result;
     }
 
 
@@ -640,22 +608,22 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
         DualAssetPosition memory p,
         uint256 _payout,
         bool _isBuy
-    ) internal returns (address, address, address, bool isProfit, uint256 profitOrLoss) {
+    ) internal returns (SettlementResult memory result) {
         (IERC20 profitToken, IERC20 payoutToken, IERC20 interestToken) = _isBuy
             ? (assetB, assetB, assetA)
             : (assetA, assetA, assetB);
 
         if (p.swappedAmount >= _payout) {
             unchecked {
-                profitOrLoss = p.swappedAmount - _payout; // safe due to >= check
+                result.profitLoss = p.swappedAmount - _payout; // safe due to >= check
             }
-            isProfit = true;
-            _safeTransferWithFee(profitToken, address(doppiLP), profitOrLoss);
+            result.isProfit = true;
+            _safeTransferWithFee(profitToken, address(doppiLP), result.profitLoss);
         } else {
             unchecked {
-                profitOrLoss = _payout - p.swappedAmount; // safe due to < check
+                result.profitLoss = _payout - p.swappedAmount; // safe due to < check
             }
-            _doppiTransfer(profitToken, profitOrLoss, address(this));
+            _doppiTransfer(profitToken, result.profitLoss, address(this));
         }
 
         // Payout
@@ -665,7 +633,11 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
         if (p.interest > 0) {
             _safeTransferWithFee(interestToken, p.owner, p.interest);
         }
-        return (address(profitToken), address(payoutToken), address(interestToken), isProfit, profitOrLoss);
+
+        result.profitToken = address(profitToken);
+        result.payoutToken = address(payoutToken);
+        result.interestToken = address(interestToken);
+        return result;
     }
 
 
@@ -673,26 +645,23 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
         DualAssetPosition memory p,
         uint256 _price,
         bool _isBuy
-    ) internal returns (address tokenUsed, address tokenSettled, address tokenPaid, bool isProfit, uint256 profitOrLoss) {
+    ) internal returns (SettlementResult memory result) {
         // Pick settle/payout tokens based on trade direction
         IERC20 payoutToken = _isBuy ? assetA : assetB;
-
         // Perform settlement
-        // uint256 amountOut = doppiLP.settle(p.swappedAmount, _price, !_isBuy);
         uint256 amountOut = _doppiSettleCall(p.swappedAmount, _price, !_isBuy);
-
         // Profit/loss calculation
         if (amountOut >= p.amount) {
             unchecked {
-                profitOrLoss = amountOut - p.amount; // save gas with unchecked math
+                result.profitLoss = amountOut - p.amount; // save gas with unchecked math
             }
-            isProfit = true;
-            _safeTransferWithFee(payoutToken, address(doppiLP), profitOrLoss);
+            result.isProfit = true;
+            _safeTransferWithFee(payoutToken, address(doppiLP), result.profitLoss);
         } else {
             unchecked {
-                profitOrLoss = p.amount - amountOut;
+                result.profitLoss = p.amount - amountOut;
             }
-            _doppiTransfer(payoutToken, profitOrLoss, address(this));
+            _doppiTransfer(payoutToken, result.profitLoss, address(this));
         }
 
         // Transfer principal + interest
@@ -701,20 +670,17 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
             _safeTransferWithFee(payoutToken, p.owner, p.interest);
         }
 
-        return (
-            address(payoutToken), 
-            address(payoutToken), 
-            address(payoutToken), 
-            isProfit, 
-            profitOrLoss
-        );
+        result.profitToken = address(payoutToken);
+        result.payoutToken = address(payoutToken);
+        result.interestToken = address(payoutToken);
+        return result;
     }
 
 
     function _settleNoStrikeNoTraded(
         DualAssetPosition memory p,
         bool _isBuy
-    ) internal returns (address, address, address, bool, uint256) {
+    ) internal returns (SettlementResult memory result) {
         IERC20 payoutToken = _isBuy ? assetA : assetB;
 
         // Transfer principal
@@ -724,7 +690,10 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
         if (p.interest > 0) {
             _safeTransferWithFee(payoutToken, p.owner, p.interest);
         }
-        return (address(payoutToken), address(payoutToken), address(payoutToken), false, 0);
+        result.profitToken = address(payoutToken);
+        result.payoutToken = address(payoutToken);
+        result.interestToken = address(payoutToken);
+        return result;
     }
 
 

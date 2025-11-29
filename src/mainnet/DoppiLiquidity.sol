@@ -12,7 +12,6 @@ import {IDoppiTraderFactory} from "../Interface/IDoppiTraderFactory.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {DALiquidityLib} from "../Library/DALiquidityLib.sol";
 import {AutomationCompatibleInterface} from "../Interface/AutomationCompatibleInterface.sol";
-import {DoppiConfig} from "./DoppiConfig.sol";
 import {Pausable} from "@openzeppelin/contracts/utils/Pausable.sol";
 import {AggregatorV3Interface} from "../Interface/AggregatorV3Interface.sol";
 import "./DoppiLiquidityTypes.sol";
@@ -29,7 +28,6 @@ contract DoppiLiquidity is ERC20, Ownable, Pausable, IDoppiLiquidity, Automation
     IERC20 public immutable assetB;
     address public doppiCore;
     address public doppiTraderFactory;
-    DoppiConfig public doppiConfig;
     mapping(address => bool) public validEntryPoints;
     address public s_forwarderAddress;
 
@@ -74,8 +72,9 @@ contract DoppiLiquidity is ERC20, Ownable, Pausable, IDoppiLiquidity, Automation
         onlyDoppiCore
         returns (uint256 amountOut, uint256 tradedPrice)
     {
-        if ((_isBuy ? assetA : assetB).balanceOf(address(this)) < _amountIn) return (0, 0);
-
+        uint256 bal = (_isBuy ? assetA : assetB).balanceOf(address(this));
+        _amountIn = bal < _amountIn ? bal : _amountIn;
+        if(_amountIn == 0) return (0, 0);
         if (_isBuy) {  
             amountOut = _swapPancake(_amountIn, _amountIn * config.decimals / _price, true);
             tradedPrice = _amountIn * config.decimals / amountOut;
@@ -106,10 +105,6 @@ contract DoppiLiquidity is ERC20, Ownable, Pausable, IDoppiLiquidity, Automation
     function totalAssetsInAssetB() public view override returns (uint256) {
         uint256 price = DALiquidityLib.getPriceWithFallback(config.chainLinkFeed, config.v3Pool, config.twapDuration, config.maxDelay);
         return assetB.balanceOf(address(this)) + assetA.balanceOf(address(this)) * config.decimals / price;
-    }
-
-    function getDoppiConfig() external view returns (address) {
-        return address(doppiConfig);
     }
 
     function getPrice() external view returns (uint256) {
@@ -160,9 +155,7 @@ contract DoppiLiquidity is ERC20, Ownable, Pausable, IDoppiLiquidity, Automation
         UPKEEPS_PER_CHECK = _percheck;
     }
 
-    /// Copy from doppiconfig to local for gas optimization
     function setConfig(ConfigParam memory _config) external onlyOwner {
-        doppiConfig = DoppiConfig(_config.doppiConfig);
         config.priceDecimals = _config.priceDecimals;
         config.decimals = 10 ** config.priceDecimals;
         config.chainLinkFeed = AggregatorV3Interface(_config.chainLinkFeed);
@@ -394,12 +387,11 @@ contract DoppiLiquidity is ERC20, Ownable, Pausable, IDoppiLiquidity, Automation
             tokenOut: _toToken,
             fee: config.poolFee,
             recipient: _recipient,
-            deadline: block.timestamp + 300, 
+            // deadline: block.timestamp + 1200, 
             amountOut: _amountOutAssetB,
             amountInMaximum: amountIn.mulDiv(10000 + config.slippage, 10000),
             sqrtPriceLimitX96: 0 // no price limit
         });
-
         return ISwapRouter(config.router).exactOutputSingle(params);
     }
 

@@ -9,7 +9,6 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IERC7575} from "../src/Interface/IERC7575.sol";
 import {MockOracle} from "../src/test/MockOracle.sol";
 import {Swapper} from "../src/test/Swapper.sol";
-import {DoppiConfig} from "../src/mainnet/DoppiConfig.sol";
 import {TestParamLib} from "../src/Library/TestParamLib.sol";
 import "../src/mainnet/DoppiLiquidityTypes.sol";
 
@@ -20,7 +19,6 @@ contract DoppiLiquidityRouterTest is Test {
     MockToken public btc;
     MockOracle public oracle;
     Swapper public swapper;
-    DoppiConfig public doppiConfig;
     ConfigParam configLP;
     
     uint256 public INITIAL_BALANCE_USDT = 10000 ether;
@@ -48,9 +46,6 @@ contract DoppiLiquidityRouterTest is Test {
         // Deploy Swapper that will act as both router and pool
         swapper = new Swapper(usdt, btc);
         swapper.setOracle(MockOracle(oracle)); 
-        // deploy doppiConfig
-        doppiConfig = new DoppiConfig();
-        // doppiConfig.setTreasury(address(0x9));
         
         // Deploy doppiLP
         doppiLP =

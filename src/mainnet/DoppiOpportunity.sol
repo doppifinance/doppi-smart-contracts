@@ -11,7 +11,6 @@ import {Pausable} from "@openzeppelin/contracts/utils/Pausable.sol";
 contract DoppiOpportunity is Ownable, Pausable, AutomationCompatibleInterface {
     DoppiCore public immutable doppiCore;
     IDoppiLiquidity public immutable doppiLP;
-    // DoppiConfig public doppiConfig;
     address public s_forwarderAddress;
     uint16 public UPKEEPS_PER_CHECK = 5; // Process 5 upkeeps per check
     uint32 public tolerance = 100;
@@ -31,10 +30,6 @@ contract DoppiOpportunity is Ownable, Pausable, AutomationCompatibleInterface {
     function setForwarderAddress(address forwarderAddress) external onlyOwner {
         s_forwarderAddress = forwarderAddress;
     }
-
-    // function setDoppiConfig(DoppiConfig _doppiConfig) external onlyOwner {
-    //     doppiConfig = _doppiConfig;
-    // }
 
     function checkUpkeep(bytes calldata) external view override returns (bool upkeepNeeded, bytes memory performData) {
         

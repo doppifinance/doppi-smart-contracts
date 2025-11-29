@@ -5,7 +5,6 @@ import "forge-std/Test.sol";
 import {DALiquidityLib} from "../../src/Library/DALiquidityLib.sol";
 import {IUniswapV3Pool} from "@uniswap/v3-core/contracts/interfaces/IUniswapV3Pool.sol";
 import {DoppiLiquidity} from "../../src/mainnet/DoppiLiquidity.sol";
-import {DoppiConfig} from "../../src/mainnet/DoppiConfig.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import {AggregatorV3Interface} from "../../src/Interface/AggregatorV3Interface.sol";
@@ -16,7 +15,6 @@ contract LivePriceTest is Test {
     IERC20 usdt;
     IERC20 btc;
     DoppiLiquidity doppiLP;
-    DoppiConfig doppiConfig;
     ConfigParam configLP;
     
     // Mainnet addresses for forking
@@ -43,7 +41,6 @@ contract LivePriceTest is Test {
         usdt = IERC20(USDT);
         btc = IERC20(BTCB);
         
-        doppiConfig = new DoppiConfig();
         doppiLP = _setupLP(address(usdt), address(btc));
         
         vm.stopPrank();
@@ -106,8 +103,6 @@ contract LivePriceTest is Test {
         _doppiLP =
             new DoppiLiquidity("Doppi BTC-USDT LP", "BTCB-USDT", IERC20(_assetA), IERC20(_assetB));
         configLP = TestParamLib.get_configLP();
-        configLP.doppiConfig = address(doppiConfig);
         _doppiLP.setConfig(configLP);
-        // _doppiLP.approveRouter();
     }
 }

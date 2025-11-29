@@ -2,7 +2,6 @@
 pragma solidity ^0.8.26;
 
 import "forge-std/Test.sol";
-import {DoppiConfig} from "../src/mainnet/DoppiConfig.sol";
 import {DoppiLiquidity} from "../src/mainnet/DoppiLiquidity.sol";
 import {DoppiLiquidityRouter} from "../src/mainnet/DoppiLiquidityRouter.sol";
 import {MockToken} from "../src/test/MockToken.sol";
@@ -16,7 +15,6 @@ import "../src/mainnet/DoppiLiquidityTypes.sol";
 contract DoppiLiquidityTest is Test {
     DoppiLiquidity public doppiLP;
     DoppiLiquidityRouter public router;
-    DoppiConfig public doppiConfig;
     MockToken public usdt;
     MockToken public btc;
     MockOracle public oracle;
@@ -54,9 +52,6 @@ contract DoppiLiquidityTest is Test {
 
         // Deploy mock oracle with 100,000 USDT per BTC price
         oracle = new MockOracle(int256(100_000 * 1e8), 8);
-
-        // deploy doppiConfig
-        doppiConfig = new DoppiConfig();
 
         // Deploy Swapper that will act as both router and pool
         swapper = new Swapper(usdt, btc);

@@ -44,6 +44,7 @@ contract DoppiTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCompati
         address _doppiLP,
         address _doppiRouter,
         address _da,
+        address _doppiUpKeepManager,
         uint24[] memory _weights
     ) external initializer {
         
@@ -58,7 +59,6 @@ contract DoppiTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCompati
         doppiRouter = IDoppiLiquidityRouter(_doppiRouter);
         doppiCore = IDoppiCore(_da);
         validTrader = _trader;
-        doppiConfig = DoppiConfig(doppiLP.getDoppiConfig());
         _transferOwnership(msg.sender); 
 
         // Batch approvals
@@ -72,7 +72,7 @@ contract DoppiTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCompati
         }
         // Initialize with default weights
         _initializeOrderConfigs(_weights);
-        doppiUpkeepManager = IDoppiUpkeepManager(doppiConfig.doppiUpKeepManager());
+        doppiUpkeepManager = IDoppiUpkeepManager(_doppiUpKeepManager);
         impliedVol = IDoppiOffer(doppiCore.getDoppiOffer());
         traderDefaultDay = 1;
         maxOrder = 5;
@@ -189,7 +189,7 @@ contract DoppiTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCompati
         if(s_forwarderAddress == address(0)) return (false, bytes(""));
         uint256 price = doppiLP.getPrice();
         
-        (bool toBuy, bool toSell) = _shouldPlaceOrders();
+        (bool toBuy, bool toSell) = _shouldPlaceOrders(price);
         if(toBuy || toSell) return (true, abi.encode(false, price, 0, false, toBuy, toSell));
 
         (upkeepNeeded, performData) = _checkUndoTrade(true, price);
@@ -234,7 +234,7 @@ contract DoppiTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCompati
         }
     }
 
-    function _shouldPlaceOrders() internal view returns (bool toBuy, bool toSell) {
+    function _shouldPlaceOrders(uint256 price) internal view returns (bool toBuy, bool toSell) {
         if(doppiCore.paused()) return (false, false); 
         
         uint256 buyPosCount = doppiCore.getBuyPositionCount(address(this));
@@ -245,17 +245,22 @@ contract DoppiTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCompati
         // Early returns if no available balance or existing positions
         if (buyPosCount > 0 && sellPosCount > 0) return (false, false);
         if (availableA == 0 && availableB == 0) return (false, false);
-        
+
+        DualAssetOffer memory offerBuy = impliedVol.getSingleOffer(true, traderDefaultDay, 0, price);
+        DualAssetOffer memory offerSell = impliedVol.getSingleOffer(false, traderDefaultDay, 0, price);
+        if(offerBuy.apr == 0 && offerSell.apr == 0) return (false, false);
+
         bool hasValidBuyOrder = false;
         bool hasValidSellOrder = false;
         
-        if (buyPosCount == 0 && availableA > 0) {
+        if (buyPosCount == 0 && availableA > 0 && offerBuy.apr > 0) {
             hasValidBuyOrder = _hasValidOrderConfig(true, availableA);
         }
         
-        if (sellPosCount == 0 && availableB > 0) {
+        if (sellPosCount == 0 && availableB > 0 && offerSell.apr > 0) {
             hasValidSellOrder = _hasValidOrderConfig(false, availableB);
         }
+
         return (hasValidBuyOrder, hasValidSellOrder);
     }
 

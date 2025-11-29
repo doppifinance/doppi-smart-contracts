@@ -16,7 +16,6 @@ import {MockOracle} from "../../src/test/MockOracle.sol";
 import {MockDoppiUpKeepManager} from "../../src/test/MockDoppiUpkeepManager.sol";
 import {DoppiOpportunity} from "../../src/mainnet/DoppiOpportunity.sol";
 import {Swapper} from "../../src/test/Swapper.sol";
-import {DoppiConfig} from "../../src/mainnet/DoppiConfig.sol";
 import "../../src/mainnet/DoppiCoreTypes.sol";
 import {TestParamLib} from "../../src/Library/TestParamLib.sol";
 import "../../src/mainnet/DoppiLiquidityTypes.sol";
@@ -35,7 +34,6 @@ contract BasicFlowTest is Test {
     MockOracle oracle;
     DoppiOpportunity opportunityBot;
     Swapper public swapper;
-    DoppiConfig doppiConfig;
     DoppiPoints doppiPoints;
     ConfigParam configLP;
     
@@ -61,16 +59,11 @@ contract BasicFlowTest is Test {
 
         swapper = _setupMockSwapper(address(usdt), address(btc), address(oracle));        
         
-        doppiConfig = new DoppiConfig();
-        doppiConfig.setDoppiUpKeepManager(address(mockDoppiUpKeepManager));
-        // doppiConfig.setDoppiPoints(address(doppiPoints)); 
-        
         configLP = TestParamLib.get_configLP();
         configLP.router = address(swapper);
         configLP.quoter = address(swapper);
         configLP.v3Pool = address(swapper);
         configLP.chainLinkFeed = address(oracle);
-        configLP.doppiConfig = address(doppiConfig);
 
         impliedVol = _setupIV();
         doppiLP = _setupLP(address(usdt), address(btc));
@@ -81,7 +74,6 @@ contract BasicFlowTest is Test {
 
         doppiPoints.setDoppiCore(address(doppiCore), true);
         opportunityBot.setForwarderAddress(mockForwarder);
-        // opportunityBot.setDoppiConfig(doppiConfig);
         doppiCore.setForwarderAddress(mockForwarder);
         doppiCore.setTreasury(treasury, 1000);
         doppiCore.setOpportunityBot(address(opportunityBot), true);
@@ -93,6 +85,7 @@ contract BasicFlowTest is Test {
         doppiLP.approveEntryPoint(address(doppiRouter.entryPointB()), address(btc));
         doppiLP.setDoppiTraderFactory(address(doppiFactory));
         doppiCore.setDoppiTraderFactory(doppiFactory);
+        doppiFactory.setDoppiUpKeepManager(address(mockDoppiUpKeepManager));
 
         traderBot = _setupTraderBot();
         usdt.mint(owner, 1_000_000 ether);
@@ -210,7 +203,6 @@ contract BasicFlowTest is Test {
         BlackScholes blackScholes = new BlackScholes();
         _impliedVol = new DoppiOffer(blackScholes, address(configLP.chainLinkFeed), 500);
         _impliedVol.setRegression(86400, a_buy, b_buy, c_buy, a_sell, b_sell, c_sell);
-        // doppiConfig.setDoppiOffer(address(_impliedVol)); 
     }
 
     function _setupMockSwapper(address _usdt, address _btc, address _oracle) internal returns (Swapper _swapper) {

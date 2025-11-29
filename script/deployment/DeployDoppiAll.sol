@@ -17,7 +17,6 @@ import {DoppiPoints} from "../../src/mainnet/DoppiPoints.sol";
 import {DoppiClaim} from "../../src/mainnet/DoppiClaim.sol";
 import {DOPPI} from "../../src/test/Doppi.sol";
 import {DoppiOpportunity} from "../../src/mainnet/DoppiOpportunity.sol";
-import {DoppiConfig} from "../../src/mainnet/DoppiConfig.sol";
 import {DoppiUpkeepManager} from "../../src/mainnet/DoppiUpkeepManager.sol";
 import {MockRegistryConsumer} from "../../src/test/MockRegistryConsumer.sol";
 import {DoppiReferral} from "../../src/mainnet/DoppiReferral.sol";
@@ -53,11 +52,9 @@ contract DeployDoppiAll is Script {
         BlackScholes blackScholes = _deployBlackScholes();
         DoppiOffer impliedVol = _deployDoppiOffer(address(blackScholes));
         DoppiPoints doppiPoints = _deployDoppiPoints();
-        DoppiConfig doppiConfig = _deployDoppiConfig(address(doppiPoints));
-        // doppiConfig.setDoppiOffer(address(impliedVol)); 
-        DoppiLiquidity doppiLP = _deployDoppiLiquidity(doppiConfig);
+        DoppiLiquidity doppiLP = _deployDoppiLiquidity();
         DoppiCore doppiCore = _deployDoppiCore(doppiLP, impliedVol, doppiPoints);
-        DoppiOpportunity doppiOpportunity = _deployDoppiOpportunity(address(doppiCore), address(doppiLP), doppiConfig);
+        DoppiOpportunity doppiOpportunity = _deployDoppiOpportunity(address(doppiCore), address(doppiLP));
         DoppiReferral doppiReferral = _deployDoppiReferral(address(doppiPoints));
     
         console.log("Deploying DoppiLiquidityRouter...");
@@ -69,7 +66,7 @@ contract DeployDoppiAll is Script {
         DoppiTraderFactory doppiFactory = new DoppiTraderFactory(IERC20(USDT), IERC20(BTC), address(doppiCore), address(doppiLP), address(doppiRouter));
         console.log("DoppiTraderFactory deployed at:", address(doppiFactory));
         
-        DoppiUpkeepManager doppiUpkeepManager = _deployDoppiUpkeepManager(doppiConfig, address(doppiFactory));
+        DoppiUpkeepManager doppiUpkeepManager = _deployDoppiUpkeepManager(doppiFactory);
         
         DOPPI doppiToken = new DOPPI("Doppi Token", "DOPPI");
         DoppiClaim doppiClaim = _deployDoppiClaim(doppiPoints, doppiReferral, doppiToken);
@@ -89,7 +86,6 @@ contract DeployDoppiAll is Script {
         console.log("BlackScholes:", address(blackScholes));
         console.log("DoppiOffer:", address(impliedVol));
         console.log("DoppiPoints:", address(doppiPoints));
-        console.log("DoppiConfig:", address(doppiConfig));
         console.log("DoppiLiquidity:", address(doppiLP));
         console.log("DoppiCore:", address(doppiCore));
         console.log("DoppiOpportunity:", address(doppiOpportunity));
@@ -139,21 +135,22 @@ contract DeployDoppiAll is Script {
         DoppiCore doppiCore = new DoppiCore(USDT, BTC, _doppiLP, _impliedVol, address(_doppiPoints));
         console.log("DoppiCore deployed at:", address(doppiCore));
         _doppiPoints.setDoppiCore(address(doppiCore), true);
+        doppiCore.setTreasury(treasury, 1000);
         return doppiCore;
     }
         
         
-    function _deployDoppiOpportunity(address _doppiCore, address _doppiLP, DoppiConfig doppiConfig) internal returns (DoppiOpportunity) {
+    function _deployDoppiOpportunity(address _doppiCore, address _doppiLP) internal returns (DoppiOpportunity) {
     
         console.log("Deploying DoppiOpportunity...");
         DoppiOpportunity doppiOpportunity = new DoppiOpportunity(_doppiCore, _doppiLP);
         console.log("DoppiOpportunity deployed at:", address(doppiOpportunity));
         // doppiOpportunity.setForwarderAddress(forwarder);
-        // doppiOpportunity.setDoppiConfig(doppiConfig);
+        // doppiOpportunity.setTolerance(100);
         return doppiOpportunity;
     }
 
-    function _deployDoppiLiquidity(DoppiConfig _doppiConfig) internal returns (DoppiLiquidity) {
+    function _deployDoppiLiquidity() internal returns (DoppiLiquidity) {
         
         console.log("Deploying DoppiLiquidity...");
         DoppiLiquidity _doppiLP = new DoppiLiquidity("Doppi BTC-USDT LP", "BTCB-USDT", IERC20(USDT), IERC20(BTC));
@@ -211,19 +208,7 @@ contract DeployDoppiAll is Script {
         return doppiPoints;
     }
 
-    function _deployDoppiConfig(address _doppiPoints) internal returns (DoppiConfig) {
-        
-        console.log("Deploying DoppiConfig...");
-        DoppiConfig doppiConfig = new DoppiConfig();
-        console.log("DoppiConfig deployed at:", address(doppiConfig));
-        // doppiConfig.setTreasury(treasury);
-        // doppiConfig.setDoppiUpKeepManager(address(mockDoppiUpKeepManager));
-        // doppiConfig.setDoppiPoints(_doppiPoints); 
-
-        return doppiConfig;
-    }
-
-    function _deployDoppiUpkeepManager(DoppiConfig _doppiConfig, address _doppiFactory) internal returns (DoppiUpkeepManager) {
+    function _deployDoppiUpkeepManager(DoppiTraderFactory _doppiFactory) internal returns (DoppiUpkeepManager) {
 
         console.log("Deploying DoppiUpkeepManager...");
         IAutomationRegistrar registrar = IAutomationRegistrar(CHAINLINK_Registrar);
@@ -239,14 +224,14 @@ contract DeployDoppiAll is Script {
             USDT, 
             LINK, // erc677 link
             BNBLINK, //bnb link
-            _doppiFactory,
+            address(_doppiFactory),
             treasury
         );
         
         console.log("mockRegistryConsumer deployed at:", address(mockRegistryConsumer));
         console.log("DoppiUpkeepManager deployed at:", address(doppiUpkeepManager));
-        _doppiConfig.setDoppiUpKeepManager(address(doppiUpkeepManager));
         doppiUpkeepManager.setMaxDelay(10 days);
+        _doppiFactory.setDoppiUpKeepManager(address(doppiUpkeepManager));
         return doppiUpkeepManager;
     }  
         

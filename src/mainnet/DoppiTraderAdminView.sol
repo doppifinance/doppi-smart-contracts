@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.26;
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
-import {DoppiConfig} from "./DoppiConfig.sol";
 import {IDoppiCore} from "../Interface/IDoppiCore.sol";
 import {IDoppiLiquidity} from "../Interface/IDoppiLiquidity.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
@@ -18,7 +17,6 @@ abstract contract DoppiTraderAdminView is Ownable {
     address public validTrader;
     address public s_forwarderAddress;
     uint16 public traderDefaultDay;
-    DoppiConfig public doppiConfig;
     uint24 public maxOrder;
     uint32 public ratioLP;
     uint32 public tolerance;
@@ -112,10 +110,6 @@ abstract contract DoppiTraderAdminView is Ownable {
 
     function setTolerance(uint32 _tolerance) external onlyOwner {
         tolerance = _tolerance;
-    }
-
-    function setDoppiConfig(DoppiConfig _doppiConfig) external onlyOwner {
-        doppiConfig = _doppiConfig;
     }
 
     modifier onlyTrader() {

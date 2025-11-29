@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.26;
 import {IDoppiLiquidity} from "../Interface/IDoppiLiquidity.sol";
-// import {DoppiConfig} from "./DoppiConfig.sol";
 import "./DoppiCoreTypes.sol";
 // import "forge-std/console.sol";
 
@@ -13,7 +12,6 @@ abstract contract DoppiCoreView {
     uint256 public totalInterestLiabilityB;
 
     IDoppiLiquidity public immutable doppiLP; // Made immutable
-    // DoppiConfig public immutable doppiConfig;
     
     KeyPosition[] public buyPositionKeys;
     KeyPosition[] public sellPositionKeys;
@@ -180,6 +178,7 @@ abstract contract DoppiCoreView {
 
     function acceptedDeposit(bool isBuy) public view returns (uint256 acceptedAmount) {
         uint256 maxDeposit = doppiLP.getMaxDepositAmount(isBuy);
+        if(maxDeposit == 0) return 0;
         uint256 currentDeposits = getCurrentDeposits(isBuy); 
         acceptedAmount = maxDeposit - currentDeposits;
     }
