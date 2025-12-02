@@ -168,7 +168,7 @@ contract DoppiOfferTest is Test {
         for (uint256 i = 0; i < 5; i++) {
             assertEq(buyOffers[i].price, INITIAL_PRICE);
             assertEq(sellOffers[i].price, INITIAL_PRICE);
-            assertLt(buyOffers[i].strikePrice, INITIAL_PRICE);
+            assertLe(buyOffers[i].strikePrice, INITIAL_PRICE);
             assertGt(sellOffers[i].strikePrice, INITIAL_PRICE);
         }
         

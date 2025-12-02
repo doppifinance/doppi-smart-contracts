@@ -858,7 +858,7 @@ contract DoppiCoreTest is Test {
     // Event emit test
     function test_DepositBuy_EmitsDepositedEvent() public {
         
-        DualAssetOffer memory buyOffer = impliedVol.getOffer(true, 1, 0);
+        DualAssetOffer memory buyOffer = impliedVol.getOffer(true, 1, 1);
         uint256 APR_BASIS_POINTS = 31399; // 313.99% APR in basis points
         uint256 PRINCIPAL = 50_000 ether; // 50,000 USDT
         uint256 BASIS_POINTS_DENOMINATOR = 10000;
@@ -871,7 +871,7 @@ contract DoppiCoreTest is Test {
         
         DepositParams memory params = DepositParams({
             amount: PRINCIPAL,
-            strikeZone: 0,
+            strikeZone: 1,
             strikePrice: buyOffer.strikePrice,
             numDays: 1,
             apr: buyOffer.apr,
@@ -1345,10 +1345,10 @@ contract DoppiCoreTest is Test {
     function _depositUSDT() internal returns (DualAssetOffer memory) {
 
         // Deposit a position
-        DualAssetOffer memory buyOffer = impliedVol.getOffer(true, 1, 0);
+        DualAssetOffer memory buyOffer = impliedVol.getOffer(true, 1, 1);
         DepositParams memory params = DepositParams({
             amount: 50_000 ether,
-            strikeZone: 0,
+            strikeZone: 1,
             strikePrice: buyOffer.strikePrice,
             numDays: 1,
             apr: buyOffer.apr,

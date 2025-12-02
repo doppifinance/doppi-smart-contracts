@@ -207,10 +207,10 @@ contract Scenario2Test is Test {
         usdt.approve(address(doppiCore), 500000 ether);
         btc.approve(address(doppiCore), 1 ether);
         
-        DualAssetOffer memory buyOffer = impliedVol.getOffer(true, 1, 0);
+        DualAssetOffer memory buyOffer = impliedVol.getOffer(true, 1, 1);
         doppiCore.deposit_buy(DepositParams({
             amount: maxDeposit,
-            strikeZone: 0,
+            strikeZone: 1,
             strikePrice: buyOffer.strikePrice,
             numDays: 1,
             apr: buyOffer.apr,
@@ -220,7 +220,7 @@ contract Scenario2Test is Test {
         vm.expectRevert("ExceedsPoolCap()");
         doppiCore.deposit_buy(DepositParams({
             amount: depositAmount,
-            strikeZone: 0,
+            strikeZone: 1,
             strikePrice: buyOffer.strikePrice,
             numDays: 1,
             apr: buyOffer.apr,

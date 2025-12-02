@@ -282,10 +282,10 @@ contract DoppiOpportunityTest is Test {
 
     // internal function
     function depositUSDT() internal {
-        DualAssetOffer memory buyOffer = impliedVol.getOffer(true, 1, 0);
+        DualAssetOffer memory buyOffer = impliedVol.getOffer(true, 1, 1);
         DepositParams memory params = DepositParams({
             amount: 50_000 ether,
-            strikeZone: 0,
+            strikeZone: 1,
             strikePrice: buyOffer.strikePrice,
             numDays: 1,
             apr: buyOffer.apr,

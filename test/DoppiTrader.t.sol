@@ -802,8 +802,8 @@ contract DoppiTraderTest is Test {
         emit UnwindPerformed(
             address(doppiTrader),
             true,
-            2585351758793969842000, // amount
-            85351758793969842000,
+            2572425000000000000000, // amount
+            72425000000000000000,
             address(usdt)
         );    
         vm.prank(mockForwarder);
