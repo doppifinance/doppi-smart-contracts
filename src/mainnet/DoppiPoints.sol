@@ -8,11 +8,12 @@ import {IDoppiTrader} from "../Interface/IDoppiTrader.sol";
 // import "forge-std/console.sol";
 
 contract DoppiPoints is Ownable, Pausable {
-    // address public doppiCore;
+    
     address public doppiClaim;
     IDoppiTraderFactory public doppiTraderFactory;
     mapping(address => bool) public doppiCore;
-    
+    uint256 public totalVolume;
+
     struct ClaimedPoint {
         uint24 claimedMonthId;
         uint256 totalPointClaimed; 
@@ -25,7 +26,7 @@ contract DoppiPoints is Ownable, Pausable {
     
     uint32 public constant startTimestamp = 1735689600; // Jan 1, 2025
 
-    event TradeRecorded(address indexed trader, uint256 volume, uint256 points);
+    event TradeRecorded(address indexed trader, uint256 volume);
     event PointsReset(address indexed trader, uint256 points);
 
     constructor()
@@ -45,10 +46,11 @@ contract DoppiPoints is Ownable, Pausable {
         
         uint24 monthId = _currentMonthId();
         monthlyVolume[monthId][actualTrader] += volumeInUSDT;
+        totalVolume += volumeInUSDT;
 
         _ensureMonthId(monthId); // ensures uniqueness
 
-        emit TradeRecorded(actualTrader, volumeInUSDT, volumeInUSDT);
+        emit TradeRecorded(actualTrader, volumeInUSDT);
     }
 
     function resetPoint(address trader) external onlyDoppiClaim {

@@ -261,7 +261,7 @@ contract DoppiOffer is IDoppiOffer, Ownable {
     function _getStrikePrice(uint256 _price, uint8 _strikeZone, bool _isBuy) internal view returns (uint256) {
         uint256 priceGapWithDecimals = PRICE_GAP_PEROFFER * uint256(priceDecimal);
         _price = (_price / priceGapWithDecimals) * priceGapWithDecimals;
-        return _isBuy ? _price - (priceGapWithDecimals * _strikeZone) : _price + (priceGapWithDecimals * _strikeZone);
+        return _isBuy ? _price - (priceGapWithDecimals * (_strikeZone - 1)) : _price + (priceGapWithDecimals * _strikeZone);
     }
 
     modifier onlyAdmin() {
