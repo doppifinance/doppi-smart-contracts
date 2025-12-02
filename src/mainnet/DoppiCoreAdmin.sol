@@ -6,8 +6,10 @@ import {IDoppiTraderFactory} from "../Interface/IDoppiTraderFactory.sol";
 
 abstract contract DoppiCoreAdmin is Ownable, Pausable {
     
+    uint24 public treasury_fee; 
+    address public treasury;
     uint256 public minOrderA = 100 ether; 
-    uint256 public minOrderB = 0.002 ether; 
+    uint256 public minOrderB = 0.001 ether; 
     bool public emergencyMode;
     bool public publicOpen = true;
     address public s_forwarderAddress;
@@ -18,6 +20,11 @@ abstract contract DoppiCoreAdmin is Ownable, Pausable {
     IDoppiTraderFactory public doppiTraderFactory;
     
     // Configuration functions
+    function setTreasury(address _treasury, uint24 _treasury_fee) external onlyOwner {
+        treasury_fee = _treasury_fee;
+        treasury = _treasury;
+    }
+    
     function setMinOrder(uint256 _minOrderA, uint256 _minOrderB) external onlyOwner {
         minOrderA = _minOrderA;
         minOrderB = _minOrderB;
@@ -57,5 +64,9 @@ abstract contract DoppiCoreAdmin is Ownable, Pausable {
 
     function setUnPause() external onlyOwner {
         _unpause();
+    }
+
+    function getMinOrder() external view returns (uint256, uint256) {
+        return (minOrderA, minOrderB);
     }
 }

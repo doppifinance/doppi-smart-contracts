@@ -68,3 +68,10 @@ struct UndoStat {
     uint256 undo_assetA;
 }
 
+struct SettlementResult {
+    address profitToken;
+    address payoutToken;
+    address interestToken;
+    bool isProfit;
+    uint256 profitLoss;
+}

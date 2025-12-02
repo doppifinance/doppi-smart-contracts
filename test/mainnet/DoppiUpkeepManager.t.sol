@@ -15,12 +15,12 @@ import {MockOracle} from "../../src/test/MockOracle.sol";
 import {MockRegistryConsumer} from "../../src/test/MockRegistryConsumer.sol";
 import {DoppiOpportunity} from "../../src/mainnet/DoppiOpportunity.sol";
 import {Swapper} from "../../src/test/Swapper.sol";
-import {DoppiConfig} from "../../src/mainnet/DoppiConfig.sol";
 import {DoppiUpkeepManager} from "../../src/mainnet/DoppiUpkeepManager.sol";
 import "../../src/Interface/LinkTokenInterface.sol";
 import "../../src/Interface/IAutomationRegistrar.sol";
 import "../../src/Interface/IAutomationRegistryConsumer.sol";
-
+import {TestParamLib} from "../../src/Library/TestParamLib.sol";
+import "../../src/mainnet/DoppiLiquidityTypes.sol";
 
 contract DoppiUpkeepManagerTest is Test {
     DoppiTraderFactory doppiFactory;
@@ -34,12 +34,12 @@ contract DoppiUpkeepManagerTest is Test {
     MockOracle oracle;
     DoppiOpportunity doppiOpportunity;
     Swapper public swapper;
-    DoppiConfig doppiConfig;
     DoppiUpkeepManager doppiUpkeepManager;
     IAutomationRegistrar public registrar;
     IAutomationRegistryConsumer public registryConsumer;
     MockRegistryConsumer public mockRegistryConsumer;
-    
+    ConfigParam configLP;
+
     // Mainnet addresses for forking
     // address constant LINKTOKEN = address(0x404460C6A5EdE2D891e8297795264fDe62ADBB75)
     address constant LINK = address(0x404460C6A5EdE2D891e8297795264fDe62ADBB75);
@@ -72,25 +72,19 @@ contract DoppiUpkeepManagerTest is Test {
         usdt = IERC20(USDT);
         btc = IERC20(BTCB);
         link = LinkTokenInterface(LINK);
-        doppiConfig = new DoppiConfig();
-        doppiConfig.setRouter(PCSWAP_V3_ROUTER);
-        doppiConfig.setQuoter(PCSWAP_V3_QUOTER);
-        doppiConfig.setTreasury(treasury);
-        doppiConfig.setPancakeV3Pool(PCSWAP_V3_ROUTER); 
-        doppiConfig.setOracle(CHAINLINK_BTC_USD);
-        doppiConfig.setSlippage(500);
         
+        configLP = TestParamLib.get_configLP();
         impliedVol = _setupIV();
         doppiLP = _setupLP(address(usdt), address(btc));
 
-        doppiCore = new DoppiCore(address(usdt), address(btc), doppiLP, impliedVol);
+        doppiCore = new DoppiCore(address(usdt), address(btc), doppiLP, impliedVol, address(0));
         doppiOpportunity = new DoppiOpportunity(address(doppiCore), address(doppiLP));
         doppiRouter = new DoppiLiquidityRouter(IERC20(usdt), IERC20(btc), doppiLP);
         doppiFactory = new DoppiTraderFactory(IERC20(usdt), IERC20(btc), address(doppiCore), address(doppiLP), address(doppiRouter));
 
         doppiOpportunity.setForwarderAddress(forwarder);
-        doppiOpportunity.setDoppiConfig(doppiConfig);
         doppiCore.setForwarderAddress(forwarder);
+        doppiCore.setTreasury(treasury, 1000);
         doppiCore.setOpportunityBot(address(doppiOpportunity), true);
         doppiLP.setForwarderAddress(forwarder);
         doppiLP.setDoppiCore(address(doppiCore));
@@ -119,7 +113,7 @@ contract DoppiUpkeepManagerTest is Test {
             treasury
         );
         doppiUpkeepManager.setForwarderAddress(forwarder);
-        doppiConfig.setDoppiUpKeepManager(address(doppiUpkeepManager));
+        doppiFactory.setDoppiUpKeepManager(address(doppiUpkeepManager));
         vm.warp(vm.getBlockTimestamp() - 2592483);
         vm.stopPrank();
     }
@@ -455,7 +449,7 @@ contract DoppiUpkeepManagerTest is Test {
     function _setupLP(address _assetA, address _assetB) internal returns (DoppiLiquidity _doppiLP) {
         _doppiLP =
             new DoppiLiquidity("Doppi BTC-USDT LP", "BTCB-USDT", IERC20(_assetA), IERC20(_assetB));
-        _doppiLP.setDoppiConfig(doppiConfig); 
+        _doppiLP.setConfig(configLP);
         _doppiLP.approveRouter();
     }
     
@@ -471,9 +465,8 @@ contract DoppiUpkeepManagerTest is Test {
         int256 b_sell = -0.02447200000000008 * 1e27;
         int256 c_sell = 1485.8762857142906 * 1e27;
         BlackScholes blackScholes = new BlackScholes();
-        _impliedVol = new DoppiOffer(blackScholes, address(doppiConfig.chainLinkFeed()), 500);
+        _impliedVol = new DoppiOffer(blackScholes, configLP.chainLinkFeed, 500);
         _impliedVol.setRegression(86400, a_buy, b_buy, c_buy, a_sell, b_sell, c_sell);
-        doppiConfig.setDoppiOffer(address(_impliedVol)); 
     }
 
     

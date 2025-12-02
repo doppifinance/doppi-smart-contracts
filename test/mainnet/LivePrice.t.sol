@@ -5,17 +5,17 @@ import "forge-std/Test.sol";
 import {DALiquidityLib} from "../../src/Library/DALiquidityLib.sol";
 import {IUniswapV3Pool} from "@uniswap/v3-core/contracts/interfaces/IUniswapV3Pool.sol";
 import {DoppiLiquidity} from "../../src/mainnet/DoppiLiquidity.sol";
-import {DoppiConfig} from "../../src/mainnet/DoppiConfig.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import {AggregatorV3Interface} from "../../src/Interface/AggregatorV3Interface.sol";
+import {TestParamLib} from "../../src/Library/TestParamLib.sol";
+import "../../src/mainnet/DoppiLiquidityTypes.sol";
 
 contract LivePriceTest is Test {
     IERC20 usdt;
     IERC20 btc;
     DoppiLiquidity doppiLP;
-    DoppiConfig doppiConfig;
-    
+    ConfigParam configLP;
     
     // Mainnet addresses for forking
     address constant CAKE = address(0x0E09FaBB73Bd3Ade0a17ECC321fD13a19e81cE82);
@@ -41,13 +41,6 @@ contract LivePriceTest is Test {
         usdt = IERC20(USDT);
         btc = IERC20(BTCB);
         
-        doppiConfig = new DoppiConfig();
-        doppiConfig.setRouter(PCSWAP_V3_ROUTER);
-        doppiConfig.setQuoter(PCSWAP_V3_QUOTER);
-        doppiConfig.setPancakeV3Pool(PCSWAP_V3Pool); 
-        doppiConfig.setOracle(CHAINLINK_BTC_USD);
-        doppiConfig.setSlippage(500);
-
         doppiLP = _setupLP(address(usdt), address(btc));
         
         vm.stopPrank();
@@ -80,11 +73,15 @@ contract LivePriceTest is Test {
         address chainlinkcakeusdt = address(0xB6064eD41d4f67e353768aA239cA86f4F73665a1);
 
         vm.startPrank(owner);
-        doppiConfig.setPancakeV3Pool(cakeusdt); 
-        doppiConfig.setOracle(chainlinkcakeusdt);
+        DoppiLiquidity doppiLPCakeUSDT =
+            new DoppiLiquidity("Doppi CAKE-USDT LP", "CAKE-USDT", IERC20(address(usdt)), IERC20(address(CAKE)));
+        configLP = TestParamLib.get_configLP();
+        configLP.chainLinkFeed = chainlinkcakeusdt;
+        configLP.v3Pool = cakeusdt;
+        doppiLPCakeUSDT.setConfig(configLP);
+
         vm.stopPrank();
 
-        DoppiLiquidity doppiLPCakeUSDT = _setupLP(address(usdt), address(CAKE));
 
         uint256 pricePCS = DALiquidityLib.getTWAPPrice(cakeusdt, twapDuration);
         // console.log(pricePCS, "pricePCS");
@@ -105,7 +102,7 @@ contract LivePriceTest is Test {
     function _setupLP(address _assetA, address _assetB) internal returns (DoppiLiquidity _doppiLP) {
         _doppiLP =
             new DoppiLiquidity("Doppi BTC-USDT LP", "BTCB-USDT", IERC20(_assetA), IERC20(_assetB));
-        _doppiLP.setDoppiConfig(doppiConfig); 
-        // _doppiLP.approveRouter();
+        configLP = TestParamLib.get_configLP();
+        _doppiLP.setConfig(configLP);
     }
 }

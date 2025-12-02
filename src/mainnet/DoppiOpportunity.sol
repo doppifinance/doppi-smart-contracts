@@ -11,10 +11,10 @@ import {Pausable} from "@openzeppelin/contracts/utils/Pausable.sol";
 contract DoppiOpportunity is Ownable, Pausable, AutomationCompatibleInterface {
     DoppiCore public immutable doppiCore;
     IDoppiLiquidity public immutable doppiLP;
-    DoppiConfig public doppiConfig;
     address public s_forwarderAddress;
     uint16 public UPKEEPS_PER_CHECK = 5; // Process 5 upkeeps per check
-
+    uint32 public tolerance = 100;
+    
     event OppPerformed(bool isBuy, address indexed trader, uint256 price, uint256 amount, uint256 amountOut);
     event OppUnwindPerformed(bool isBuy, address indexed trader, uint256 price, uint256 swappedAmount, uint256 amountOut, uint256 profit, address profitToken);
     
@@ -23,12 +23,12 @@ contract DoppiOpportunity is Ownable, Pausable, AutomationCompatibleInterface {
         doppiLP = IDoppiLiquidity(_doppiLP);
     }
 
-    function setForwarderAddress(address forwarderAddress) external onlyOwner {
-        s_forwarderAddress = forwarderAddress;
+    function setTolerance(uint32 _tolerance) external onlyOwner {
+        tolerance = _tolerance;
     }
 
-    function setDoppiConfig(DoppiConfig _doppiConfig) external onlyOwner {
-        doppiConfig = _doppiConfig;
+    function setForwarderAddress(address forwarderAddress) external onlyOwner {
+        s_forwarderAddress = forwarderAddress;
     }
 
     function checkUpkeep(bytes calldata) external view override returns (bool upkeepNeeded, bytes memory performData) {
@@ -62,7 +62,7 @@ contract DoppiOpportunity is Ownable, Pausable, AutomationCompatibleInterface {
 
         uint256 currentPrice = doppiLP.getPrice();
         uint256 priceChance = price * 10000 / currentPrice;
-        if (priceChance > 10000 + doppiConfig.tolerance() || priceChance < 10000 - doppiConfig.tolerance()) {
+        if (priceChance > 10000 + tolerance || priceChance < 10000 - tolerance) {
             return;
         }        
         _opportunity_bot(price, buyIndexes, sellIndexes);
@@ -145,7 +145,7 @@ contract DoppiOpportunity is Ownable, Pausable, AutomationCompatibleInterface {
         for (uint256 j = 0; j < _indexes.length; ) {
             uint256 i = _indexes[j];
             if (i < _orders.length) {
-                uint256 bufferUnwind = _orders[i].strikePrice * doppiConfig.tolerance() / 10000;
+                uint256 bufferUnwind = _orders[i].strikePrice * tolerance / 10000;
                 uint256 buffer = _orders[i].strikePrice * oneDayMove / 10000;
                 if (_isNotTradedTriggered(_isBuy, _orders[i], price, buffer)) {
                     (uint256 amountOut, ) = doppiCore.opportunitySwap(_orders[i].owner, _orders[i].amount, price, i, _isBuy);

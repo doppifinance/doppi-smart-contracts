@@ -20,6 +20,7 @@ contract DoppiTraderFactory is Ownable, IDoppiTraderFactory {
     IERC20 public immutable assetA;
     IERC20 public immutable assetB;
 
+    address public doppiUpKeepManager;
     address public immutable doppiCore;
     address public immutable doppiLP;
     address public immutable doppiRouter;
@@ -58,6 +59,7 @@ contract DoppiTraderFactory is Ownable, IDoppiTraderFactory {
             doppiLP, 
             doppiRouter, 
             doppiCore, 
+            doppiUpKeepManager,
             _weights
         );
         
@@ -71,6 +73,10 @@ contract DoppiTraderFactory is Ownable, IDoppiTraderFactory {
         traderBotImplementation = newImplementation;
     }
 
+    function setDoppiUpKeepManager(address _doppiUpKeepManager) external onlyOwner {
+        doppiUpKeepManager = _doppiUpKeepManager;
+    }
+
     function traderBotId(address _addr) external view returns (uint256) {
         return botRegistry.getIdByBot(_addr);
     }
@@ -81,6 +87,10 @@ contract DoppiTraderFactory is Ownable, IDoppiTraderFactory {
 
     function getTraderBotByTrader(address _owner) external view returns (address[] memory) {
         return botRegistry.getBotsByTrader(_owner);
+    }
+
+    function getNextBotId() external view returns (uint32) {
+        return botRegistry.nextBotId;
     }
 
     function isTraderBot(address _botAddr) external view returns (bool) {

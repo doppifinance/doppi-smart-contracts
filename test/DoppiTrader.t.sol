@@ -16,15 +16,15 @@ import {MockOracle} from "../src/test/MockOracle.sol";
 import {MockDoppiUpKeepManager} from "../src/test/MockDoppiUpkeepManager.sol";
 import {DoppiOpportunity} from "../src/mainnet/DoppiOpportunity.sol";
 import {Swapper} from "../src/test/Swapper.sol";
-import {DoppiConfig} from "../src/mainnet/DoppiConfig.sol";
 import "../src/mainnet/DoppiCoreTypes.sol";
+import {TestParamLib} from "../src/Library/TestParamLib.sol";
+import "../src/mainnet/DoppiLiquidityTypes.sol";
 
 contract DoppiTraderTest is Test {
     DoppiTraderFactory doppiFactory;
     DoppiTrader doppiTrader;
     DoppiCore doppiCore;
     DoppiLiquidity doppiLP;
-    DoppiConfig doppiConfig;
     DoppiLiquidityRouter doppiRouter;
     BlackScholes blackScholes;
     DoppiOffer impliedVol;
@@ -35,6 +35,7 @@ contract DoppiTraderTest is Test {
     DoppiOpportunity opportunityBot;
     Swapper swapper;
     DoppiPoints doppiPoints;
+    ConfigParam configLP;
 
     address owner = address(0x1);
     address treasury = address(0x3);
@@ -68,39 +69,32 @@ contract DoppiTraderTest is Test {
 
         doppiPoints = new DoppiPoints();
 
-        // deploy doppiConfig
-        doppiConfig = new DoppiConfig();
-
         mockDoppiUpKeepManager = new MockDoppiUpKeepManager(mockForwarder);
 
         // Deploy Swapper that will act as both router and pool
         swapper = new Swapper(MockToken(usdt), MockToken(btc));
         swapper.setOracle(MockOracle(oracle));    
-        doppiConfig.setRouter(address(swapper));
-        doppiConfig.setQuoter(address(swapper));
-        doppiConfig.setTreasury(treasury);
-        doppiConfig.setOracle(address(oracle));
-        doppiConfig.setDoppiUpKeepManager(address(mockDoppiUpKeepManager));
-        doppiConfig.setDoppiPoints(address(doppiPoints)); 
-        doppiConfig.setDoppiOffer(address(impliedVol)); 
         
         doppiLP =
             new DoppiLiquidity("Dual Asset Liquidity Pool", "DALP", IERC20(usdt), IERC20(btc));
-        doppiLP.setDoppiConfig(doppiConfig);
+        
+        configLP = TestParamLib.get_configLP();
+        configLP.chainLinkFeed = address(oracle);
+        configLP.quoter = address(swapper);
+        configLP.router = address(swapper);
+        doppiLP.setConfig(configLP);
         doppiLP.approveRouter();
 
-        doppiCore = new DoppiCore(address(usdt), address(btc), doppiLP, impliedVol);
+        doppiCore = new DoppiCore(address(usdt), address(btc), doppiLP, impliedVol, address(doppiPoints));
         doppiPoints.setDoppiCore(address(doppiCore), true);
 
         opportunityBot = new DoppiOpportunity(address(doppiCore), address(doppiLP));
         doppiCore.setOpportunityBot(address(opportunityBot), true);
         doppiCore.setForwarderAddress(mockForwarder);
-        opportunityBot.setForwarderAddress(mockForwarder);
-        opportunityBot.setDoppiConfig(doppiConfig);
-
-        doppiLP.setDoppiCore(address(doppiCore));
-
+        doppiCore.setTreasury(treasury, 1000);
         
+        opportunityBot.setForwarderAddress(mockForwarder);
+        doppiLP.setDoppiCore(address(doppiCore));
 
         defaultweights.push(500);
         defaultweights.push(1000);
@@ -119,6 +113,7 @@ contract DoppiTraderTest is Test {
             new DoppiTraderFactory(IERC20(usdt), IERC20(btc), address(doppiCore), address(doppiLP), address(doppiRouter));
         doppiLP.setDoppiTraderFactory(address(doppiFactory));
         doppiCore.setDoppiTraderFactory(doppiFactory);
+        doppiFactory.setDoppiUpKeepManager(address(mockDoppiUpKeepManager));
 
         vm.prank(trader);
         uint32 id = doppiFactory.deployTraderBot(defaultweights);
@@ -146,9 +141,6 @@ contract DoppiTraderTest is Test {
         assertEq(address(doppiTrader.assetB()), address(btc));
         assertEq(address(doppiTrader.doppiLP()), address(doppiLP));
         assertEq(address(doppiTrader.doppiCore()), address(doppiCore));
-        assertEq(doppiTrader.doppiConfig().DEFAULT_DAYS(), 1);
-        assertEq(doppiTrader.minAssetAAmount(), doppiConfig.minimal_assetA());
-        assertEq(doppiTrader.minAssetBAmount(), doppiConfig.minimal_assetB());
     }
 
     function test_getTotalBalances() public {
@@ -632,9 +624,9 @@ contract DoppiTraderTest is Test {
 
     function test_ConfigResetWithMax6Orders() public {
         
-        doppiConfig.setMaxOrder(6);
         
         vm.startPrank(trader);
+        doppiTrader.setMaxOrder(6);
         // Set multiple configs at once
         uint8[] memory strikeZones = new uint8[](3);
         uint24[] memory weights = new uint24[](3);

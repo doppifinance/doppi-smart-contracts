@@ -114,7 +114,7 @@ contract DoppiPointsTest is Test {
 
     function testEventEmittedOnRecordTrade() public {
         vm.expectEmit(true, true, false, true);
-        emit DoppiPoints.TradeRecorded(trader1, 200, 200);
+        emit DoppiPoints.TradeRecorded(trader1, 200);
         vm.prank(mockDoppiCore);
         doppiPoints.recordTrade(trader1, 200);
         vm.stopPrank();

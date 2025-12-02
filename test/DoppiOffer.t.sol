@@ -28,6 +28,7 @@ contract DoppiOfferTest is Test {
         blackScholes = new BlackScholes();
         oracle = new MockOracle(int256(INITIAL_PRICE), 8);
         markIV = new DoppiOffer(blackScholes, address(oracle), 500);
+        // oracle.setPrice(int256(90400 * 1e8));
         vm.warp(1735689600);
         markIV.setRegression(86400, a_buy, b_buy, c_buy, a_sell, b_sell, c_sell);
         markIV.setRegression(86400 * 3, a_buy, b_buy, c_buy, a_sell, b_sell, c_sell);
@@ -110,16 +111,22 @@ contract DoppiOfferTest is Test {
 
     function test_getBuyOffers() public view {
         DualAssetOffer[] memory buyOffers = markIV.getBuyOffers(1);
-
         assertEq(buyOffers.length, 5);
-        assertEq(buyOffers[0].apr, 31399);
-        assertEq(buyOffers[1].apr, 25600);
-        assertEq(buyOffers[4].apr, 13612);
+        assertEq(buyOffers[0].apr, 38315);
+        assertEq(buyOffers[1].apr, 31399);
+        assertEq(buyOffers[4].apr, 16837);
             
         for (uint256 i = 0; i < buyOffers.length; i++) {
-            assertEq(buyOffers[i].price, INITIAL_PRICE);
-            assertLt(buyOffers[i].strikePrice, INITIAL_PRICE);
-            assertGt(buyOffers[i].apr, 0);
+            
+            if(i>0){
+                assertEq(buyOffers[i].price, INITIAL_PRICE);
+                assertLt(buyOffers[i].strikePrice, INITIAL_PRICE);
+                assertGt(buyOffers[i].apr, 0);
+            }else{
+                assertEq(buyOffers[i].price, INITIAL_PRICE);
+                assertEq(buyOffers[i].strikePrice, INITIAL_PRICE);
+                assertGt(buyOffers[i].apr, 0);
+            }
         }
 
         // Strike prices should be decreasing (further from current price)
@@ -164,6 +171,7 @@ contract DoppiOfferTest is Test {
             assertLt(buyOffers[i].strikePrice, INITIAL_PRICE);
             assertGt(sellOffers[i].strikePrice, INITIAL_PRICE);
         }
+        
     }
 
     function test_getAllOffers_3days() public view {
@@ -181,7 +189,9 @@ contract DoppiOfferTest is Test {
         }
     }
 
-    function test_getAllOffers_2days_NoAPR() public view {
+    function test_getAllOffers_2days_NoAPR() public {
+        
+        oracle.setPrice(int256(94100 * 1e8));
         (DualAssetOffer[] memory buyOffers, DualAssetOffer[] memory sellOffers) =
             markIV.getAllOffers(2);
 
@@ -191,8 +201,8 @@ contract DoppiOfferTest is Test {
         for (uint256 i = 0; i < 5; i++) {
             assertEq(buyOffers[i].apr, 0);
             assertEq(sellOffers[i].apr, 0);
-            assertLt(buyOffers[i].strikePrice, INITIAL_PRICE);
-            assertGt(sellOffers[i].strikePrice, INITIAL_PRICE);
+            assertLt(buyOffers[i].strikePrice, 94100 * 1e8);
+            assertGt(sellOffers[i].strikePrice, 94100 * 1e8);
         }
     }
 

@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.26;
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
-import {DoppiConfig} from "./DoppiConfig.sol";
 import {IDoppiCore} from "../Interface/IDoppiCore.sol";
 import {IDoppiLiquidity} from "../Interface/IDoppiLiquidity.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
@@ -18,7 +17,9 @@ abstract contract DoppiTraderAdminView is Ownable {
     address public validTrader;
     address public s_forwarderAddress;
     uint16 public traderDefaultDay;
-    DoppiConfig public doppiConfig;
+    uint24 public maxOrder;
+    uint32 public ratioLP;
+    uint32 public tolerance;
     
     function getTotalBalancesInLP() external view returns (uint256 totalAssetA, uint256 totalAssetB) {
         uint256 totalAssetLP = doppiLP.totalAssetsInAssetA();
@@ -95,12 +96,20 @@ abstract contract DoppiTraderAdminView is Ownable {
         traderDefaultDay = _day;
     }
 
+    function setMaxOrder(uint24 _maxOrder) external onlyTrader {
+        maxOrder = _maxOrder;
+    }
+
     function setForwarderAddress(address forwarderAddress) external onlyTrader {
         s_forwarderAddress = forwarderAddress;
     }
 
-    function setDoppiConfig(DoppiConfig _doppiConfig) external onlyOwner {
-        doppiConfig = _doppiConfig;
+    function setRatioLP(uint32 _ratioLP) external onlyOwner {
+        ratioLP = _ratioLP;
+    }
+
+    function setTolerance(uint32 _tolerance) external onlyOwner {
+        tolerance = _tolerance;
     }
 
     modifier onlyTrader() {

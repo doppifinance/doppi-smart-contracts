@@ -9,7 +9,7 @@ import {
     IUniswapV3Pool
 } from "@uniswap/v3-core/contracts/interfaces/IUniswapV3Pool.sol";
 import {TickMath} from "../Library/TickMath.sol";
-import "forge-std/console.sol";
+// import "forge-std/console.sol";
 
 library DALiquidityLib {
     using SafeCast for int256;
@@ -23,11 +23,9 @@ library DALiquidityLib {
         uint32 maxDelay
     ) public view returns (uint256 rate) {
         rate = getPrice(chainLinkFeed, maxDelay);
-        // console.log(rate, maxDelay);
         if (rate == 0) {
             rate = getTWAPPrice(_v3Pool, twapDuration);
         }
-        // console.log(rate, "twap");
     }
 
     function getPrice(
@@ -37,7 +35,7 @@ library DALiquidityLib {
         (
             uint80 roundId,
             int256 price,
-            uint256 startedAt,
+            ,
             uint256 updatedAt,
             uint80 answeredInRound
         ) = chainLinkFeed.latestRoundData();
