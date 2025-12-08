@@ -75,8 +75,6 @@ contract DoppiOpportunityTest is Test {
         doppiRouter = new DoppiLiquidityRouter(IERC20(usdt), IERC20(btc), doppiLP);
         doppiLP.setEntryPoint(address(doppiRouter.entryPointA()), true);
         doppiLP.setEntryPoint(address(doppiRouter.entryPointB()), true);
-        doppiLP.approveEntryPoint(address(doppiRouter.entryPointA()), address(usdt));
-        doppiLP.approveEntryPoint(address(doppiRouter.entryPointB()), address(btc));
         
         doppiCore = new DoppiCore(address(usdt), address(btc), doppiLP, impliedVol, address(0));
         

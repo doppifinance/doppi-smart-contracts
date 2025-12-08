@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.26;
 
+import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import {IERC20, ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
@@ -15,9 +16,10 @@ import {AutomationCompatibleInterface} from "../Interface/AutomationCompatibleIn
 import {Pausable} from "@openzeppelin/contracts/utils/Pausable.sol";
 import {AggregatorV3Interface} from "../Interface/AggregatorV3Interface.sol";
 import "./DoppiLiquidityTypes.sol";
-// import "forge-std/console.sol";
+import "./DoppiCoreTypes.sol";
+import "forge-std/console.sol";
 
-contract DoppiLiquidity is ERC20, Ownable, Pausable, IDoppiLiquidity, AutomationCompatibleInterface {
+contract DoppiLiquidity is ERC20, Ownable, Pausable, IDoppiLiquidity, AutomationCompatibleInterface, ReentrancyGuard {
     using SafeERC20 for IERC20;
     using Math for uint256;
 
@@ -58,34 +60,75 @@ contract DoppiLiquidity is ERC20, Ownable, Pausable, IDoppiLiquidity, Automation
         assetB = _assetB;
     }
 
-    function settle(uint256 _amountIn, uint256 _price, bool _isBuy) external onlyDoppiCore returns (uint256) {
-        return _swap(_amountIn, _price, _isBuy, 0, true);
+    function interestUnwindHedge(
+        address _interestToken,
+        uint256 interest,
+        uint256 swappedHedgeAmount,
+        uint256 price,
+        bool isBuy
+    ) external nonReentrant onlyDoppiCore returns (uint256 hedgeOut, uint256 hedgeTradedPrice) {
+        
+        IERC20 interestToken = IERC20(_interestToken);
+        uint256 interestbal = interestToken.balanceOf(address(this));
+        if(interestbal > interest){
+            interestToken.safeTransfer(msg.sender, interest);
+        }else{
+            // swap interest in dex 
+            uint256 diff = interest - interestbal;
+            address assetIn = _interestToken == address(assetA) ? address(assetB) : address(assetA);
+            uint256 amountInInterest = isBuy
+                ? (diff * config.decimals) / price
+                : (diff * price) / config.decimals;
+
+            _swapExactOutputV3(diff, assetIn, address(interestToken), address(this), amountInInterest); 
+            uint256 balInt = interestToken.balanceOf(address(this));
+            uint256 interestTosend = balInt > interest ? interest : balInt;
+            interestToken.safeTransfer(msg.sender, interestTosend);
+        }   
+        // after interest sent, unwind hedge in doppilp
+        if(swappedHedgeAmount > 0){
+            (hedgeOut, hedgeTradedPrice) = _hedgeSwap(swappedHedgeAmount, price, isBuy);
+        }
     }
 
-    function swap(uint256 _amountIn, uint256 _price, bool _isBuy) external onlyDoppiCore returns (uint256) {
+    function settle(uint256 _amountIn, uint256 _payout, uint256 _price, bool _isBuy) external nonReentrant onlyDoppiCore returns (uint256) {
+        IERC20 assetIn = _isBuy ? assetA : assetB;
+        IERC20 assetOut = _isBuy ? assetB : assetA;
+
+        assetIn.safeTransferFrom(msg.sender, address(this), _amountIn);
+        uint256 balance = assetOut.balanceOf(address(this));
+        bool isDEX = false;
+        uint256 tradedPrice = _price;
+        if(_payout > balance){
+            isDEX = true;
+            uint256 diff = _payout - balance;
+            uint256 newAmountIn = _isBuy ? (diff * _price) / config.decimals : (diff * config.decimals) / _price;
+            uint256 actualAmountIn = _swapExactOutputV3(diff, address(assetIn), address(assetOut), address(this), newAmountIn); 
+            assetOut.safeTransfer(msg.sender, _payout);
+            tradedPrice = _isBuy
+                ? (actualAmountIn * config.decimals) / diff 
+                : (diff * config.decimals) / actualAmountIn;
+        } else {
+            assetOut.safeTransfer(msg.sender, _payout);
+            tradedPrice = _recordPendingSwap(_isBuy, _payout, _price);
+        }
+
+        emit Swapped(msg.sender, address(assetIn), address(assetOut), _amountIn, _payout, tradedPrice, isDEX);
+        return _payout;
+    }
+
+    function swap(uint256 _amountIn, uint256 _price, bool _isBuy) external nonReentrant onlyDoppiCore returns (uint256) {
         uint256 fee = _amountIn * config.liquidityFee / 1_000_000;
         return _swap(_amountIn, _price, _isBuy, fee, false);
     }
 
     function hedgeSwap(uint256 _amountIn, uint256 _price, bool _isBuy)
         external
+        nonReentrant
         onlyDoppiCore
         returns (uint256 amountOut, uint256 tradedPrice)
     {
-        uint256 bal = (_isBuy ? assetA : assetB).balanceOf(address(this));
-        _amountIn = bal < _amountIn ? bal : _amountIn;
-        if(_amountIn == 0) return (0, 0);
-        if (_isBuy) {  
-            amountOut = _swapPancake(_amountIn, _amountIn * config.decimals / _price, true);
-            tradedPrice = _amountIn * config.decimals / amountOut;
-        } else {
-            amountOut = _swapPancake(_amountIn, _amountIn * _price / config.decimals, false);
-            tradedPrice = amountOut * config.decimals / _amountIn;
-        }
-    }
-
-    function transfer(IERC20 token, uint256 amount, address recipient) external onlyDoppiCore {
-        token.safeTransfer(recipient, amount);
+        return _hedgeSwap(_amountIn, _price, _isBuy);
     }
 
     function assetRatio() external view returns (uint256 ratioA, uint256 ratioB) {
@@ -156,6 +199,12 @@ contract DoppiLiquidity is ERC20, Ownable, Pausable, IDoppiLiquidity, Automation
     }
 
     function setConfig(ConfigParam memory _config) external onlyOwner {
+
+        require(_config.slippage <= 1000, "Slippage too high"); // Max 10%
+        require(_config.maxDepositPercentage <= 50000, "Max deposit too high"); // Max 5x of LP capacity
+        require(_config.swapMargin <= 20000, "Swap margin too high"); // Max 2%
+        require(_config.liquidityFee <= 5000, "liquidity fee too high"); // Max 0.5%
+        
         config.priceDecimals = _config.priceDecimals;
         config.decimals = 10 ** config.priceDecimals;
         config.chainLinkFeed = AggregatorV3Interface(_config.chainLinkFeed);
@@ -177,6 +226,10 @@ contract DoppiLiquidity is ERC20, Ownable, Pausable, IDoppiLiquidity, Automation
 
     function setEntryPoint(address entryPoint, bool isValid) external onlyOwner {
         validEntryPoints[entryPoint] = isValid;
+         if (isValid) {
+            assetA.approve(entryPoint, type(uint256).max);
+            assetB.approve(entryPoint, type(uint256).max);
+        }
     }
 
     function setPause() external onlyOwner {
@@ -185,11 +238,6 @@ contract DoppiLiquidity is ERC20, Ownable, Pausable, IDoppiLiquidity, Automation
 
     function setUnPause() external onlyOwner {
         _unpause();
-    }
-
-    function approveEntryPoint(address entryPoint, address token) external onlyOwner {
-        require(validEntryPoints[entryPoint], "Invalid entry");
-        IERC20(token).approve(entryPoint, type(uint256).max);
     }
 
     function approveRouter() external onlyOwner {
@@ -287,6 +335,39 @@ contract DoppiLiquidity is ERC20, Ownable, Pausable, IDoppiLiquidity, Automation
         return false;
     }
 
+    function _hedgeSwap(uint256 _amountIn, uint256 _price, bool _isBuy) internal returns (uint256 amountOut, uint256 tradedPrice) {
+    
+        uint256 bal = (_isBuy ? assetA : assetB).balanceOf(address(this));
+        _amountIn = bal < _amountIn ? bal : _amountIn;
+        if(_amountIn == 0) return (0, 0);
+        if (_isBuy) {  
+            amountOut = _swapPancake(_amountIn, _amountIn * config.decimals / _price, true);
+            tradedPrice = _amountIn * config.decimals / amountOut;
+        } else {
+            amountOut = _swapPancake(_amountIn, _amountIn * _price / config.decimals, false);
+            tradedPrice = amountOut * config.decimals / _amountIn;
+        }
+    }
+    
+
+    function _recordPendingSwap(bool isBuy, uint256 amount, uint256 price) internal returns (uint256 targetPrice) {
+        uint256 swapMargin = config.swapMargin;
+        uint256 base = 1_000_000;
+        targetPrice = isBuy
+            ? (price * (base - swapMargin)) / base
+            : (price * (base + swapMargin)) / base;
+        
+        if (isBuy) {
+            (bool exists, uint256 index) = DALiquidityLib.find(toBuyPrices, targetPrice);
+            amountToBuy[targetPrice] += amount;
+            if (!exists) DALiquidityLib.sortedInsert(toBuyPrices, index, targetPrice);
+        } else {
+            (bool exists, uint256 index) = DALiquidityLib.find(toSellPrices, targetPrice);
+            amountToSell[targetPrice] += amount;
+            if (!exists) DALiquidityLib.sortedInsert(toSellPrices, index, targetPrice);
+        }
+    }
+
     function _canSwapPancake(uint256 amountIn, uint256 amountOut, bool isBuy) internal view returns (bool) {
         if (amountIn == 0) return false;
         
@@ -342,9 +423,7 @@ contract DoppiLiquidity is ERC20, Ownable, Pausable, IDoppiLiquidity, Automation
         
         uint256[] memory tempIndexes = new uint256[](UPKEEPS_PER_CHECK);
         uint256 count = 0;
-        totalAmount = 0;
-        totalAmountOut = 0;
-        
+        uint256 decimals = config.decimals;
         for (uint256 i = pricesLength; i > 0 && count < UPKEEPS_PER_CHECK; ) {
             uint256 idx = i - 1;
             uint256 price = priceArray[idx];
@@ -358,9 +437,9 @@ contract DoppiLiquidity is ERC20, Ownable, Pausable, IDoppiLiquidity, Automation
                 totalAmount += amount;
                 
                 if (isBuy) {
-                    totalAmountOut += amount * config.decimals / currentPrice;
+                    totalAmountOut += amount * decimals / currentPrice;
                 } else {
-                    totalAmountOut += amount * currentPrice / config.decimals;
+                    totalAmountOut += amount * currentPrice / decimals;
                 }
                 
                 tempIndexes[count] = idx;
@@ -387,7 +466,6 @@ contract DoppiLiquidity is ERC20, Ownable, Pausable, IDoppiLiquidity, Automation
             tokenOut: _toToken,
             fee: config.poolFee,
             recipient: _recipient,
-            // deadline: block.timestamp + 1200, 
             amountOut: _amountOutAssetB,
             amountInMaximum: amountIn.mulDiv(10000 + config.slippage, 10000),
             sqrtPriceLimitX96: 0 // no price limit

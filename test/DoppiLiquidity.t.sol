@@ -77,8 +77,6 @@ contract DoppiLiquidityTest is Test {
         // Set router entry points as valid entry points in liquidity contract
         doppiLP.setEntryPoint(address(router.entryPointA()), true);
         doppiLP.setEntryPoint(address(router.entryPointB()), true);
-        doppiLP.approveEntryPoint(address(router.entryPointA()), address(usdt));
-        doppiLP.approveEntryPoint(address(router.entryPointB()), address(btc));
 
         // Mint tokens to user
         usdt.mint(user, USDT_DEPOSIT * 2); // Extra for multiple tests

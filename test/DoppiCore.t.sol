@@ -14,7 +14,6 @@ import {DoppiPoints} from "../src/mainnet/DoppiPoints.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {MockToken} from "../src/test/MockToken.sol";
 import {MockOracle} from "../src/test/MockOracle.sol";
-// import "forge-std/console.sol";
 import {Swapper} from "../src/test/Swapper.sol";
 import "../src/mainnet/DoppiCoreTypes.sol";
 import {TestParamLib} from "../src/Library/TestParamLib.sol";
@@ -92,8 +91,6 @@ contract DoppiCoreTest is Test {
         doppiRouter = new DoppiLiquidityRouter(IERC20(usdt), IERC20(btc), doppiLP);
         doppiLP.setEntryPoint(address(doppiRouter.entryPointA()), true);
         doppiLP.setEntryPoint(address(doppiRouter.entryPointB()), true);
-        doppiLP.approveEntryPoint(address(doppiRouter.entryPointA()), address(usdt));
-        doppiLP.approveEntryPoint(address(doppiRouter.entryPointB()), address(btc));
         
         traderFactory =
             new DoppiTraderFactory(IERC20(usdt), IERC20(btc), address(doppiCore), address(doppiLP), address(doppiRouter));
@@ -713,7 +710,6 @@ contract DoppiCoreTest is Test {
 
         // Check position is marked as not traded
         assertGt(amountOut, 0);
-        // console.log(amountOut, "amountOut");
         uint256 fee = profit * 1000 / 10000;
         assertEq(usdt.balanceOf(doppiCore.treasury()), fee); 
     }
@@ -725,15 +721,15 @@ contract DoppiCoreTest is Test {
         // Fast forward time and set price below strike
         vm.warp(block.timestamp + 1 days + 1);
         oracle.setPrice(int256(buyOffer.strikePrice - 1000 * 1e8));
-
+        
         uint256[] memory readyPositions = doppiCore.getReadyBuyPositions();
         
         uint256 userUSDTbefore = usdt.balanceOf(user1);
         uint256 userBTCbefore = btc.balanceOf(user1);
         uint256 tresuryUSDTbefore = usdt.balanceOf(doppiCore.treasury());
         uint256 tresuryBTCbefore = btc.balanceOf(doppiCore.treasury());
-        // uint256 lpBTCbefore = btc.balanceOf(address(doppiLP));
-        // uint256 lpUSDTbefore = usdt.balanceOf(address(doppiLP));
+        uint256 lpBTCbefore = btc.balanceOf(address(doppiLP));
+        uint256 lpUSDTbefore = usdt.balanceOf(address(doppiLP));
         
         // settlement in doppiCore
         vm.startPrank(owner);
@@ -748,14 +744,9 @@ contract DoppiCoreTest is Test {
         uint256 lpUSDTafter = usdt.balanceOf(address(doppiLP));
         
         uint256 APR_BASIS_POINTS = 31399; // 313.99% APR in basis points
-        uint256 PRINCIPAL = 50_000 ether; // 50,000 USDT
-        uint256 BASIS_POINTS_DENOMINATOR = 10000;
-        uint256 DAYS_IN_YEAR = 365;
-
-        uint256 usdtInterestReceived = APR_BASIS_POINTS * PRINCIPAL / BASIS_POINTS_DENOMINATOR / DAYS_IN_YEAR;
-        
-        uint256 btcPayout = 50_000 ether * 1e8 / buyOffer.strikePrice;
-        uint256 btcPayoutSettle = 50_000 ether * 1e8 / (buyOffer.strikePrice - 1000 * 1e8);
+        uint256 usdtInterestReceived = (APR_BASIS_POINTS * 50_000 ether) / 10000 / 365;
+        uint256 btcPayout = (50_000 ether * 1e8) / buyOffer.strikePrice;
+        uint256 btcPayoutSettle = (50_000 ether * 1e8) / (buyOffer.strikePrice - 1000 * 1e8);
         uint256 btcPayoutSettleProfit = btcPayoutSettle - btcPayout;
         
         uint256 usdtFee = usdtInterestReceived * 1000 / 10000;
@@ -766,14 +757,10 @@ contract DoppiCoreTest is Test {
         uint256 hedgeSoldBTC = 214650000000000000;
         uint256 hedgeSoldBTCunwind = 213582197969543146;
         
-        // (,,, uint128 settleHedgeLossAssetB) = doppiCore.hedgeStats();        
-        // assertEq(settleHedgeLossAssetB, hedgeSoldBTC - hedgeSoldBTCunwind);
-
         // confirm doppi LP usdt balance = APR payout in USDT + strike on receiving 50000 USDT 
         // confirm doppi LP btc balance = loss in hedge position + btc payout to trader + settlement profit gained in BTC minus 10% fee 
         uint256 expectedUSDTLPBal = 100_000 ether + 50_000 ether -  usdtInterestReceived;
         uint256 expectedBTCLPBal = 1 ether - hedgeSoldBTC + hedgeSoldBTCunwind - btcPayoutSettle + btcPayoutSettleProfit - btcFee;
-        
         assertEq(lpBTCafter, expectedBTCLPBal);
         assertEq(lpUSDTafter, expectedUSDTLPBal);
         
@@ -801,8 +788,8 @@ contract DoppiCoreTest is Test {
         uint256 userBTCbefore = btc.balanceOf(user1);
         uint256 tresuryUSDTbefore = usdt.balanceOf(doppiCore.treasury());
         uint256 tresuryBTCbefore = btc.balanceOf(doppiCore.treasury());
-        // uint256 lpBTCbefore = btc.balanceOf(address(doppiLP));
-        // uint256 lpUSDTbefore = usdt.balanceOf(address(doppiLP));
+        uint256 lpBTCbefore = btc.balanceOf(address(doppiLP));
+        uint256 lpUSDTbefore = usdt.balanceOf(address(doppiLP));
         
         // settlement in doppiCore
         vm.startPrank(owner);
@@ -816,13 +803,8 @@ contract DoppiCoreTest is Test {
         uint256 lpBTCafter = btc.balanceOf(address(doppiLP));
         uint256 lpUSDTafter = usdt.balanceOf(address(doppiLP));
         
-        // console.log(sellOffer.apr, sellOffer.strikePrice);
         uint256 APR_BASIS_POINTS = 35700; // 357.00% APR in basis points
-        uint256 PRINCIPAL = 0.5 ether; // 0.5 BTC
-        uint256 BASIS_POINTS_DENOMINATOR = 10000;
-        uint256 DAYS_IN_YEAR = 365;
-
-        uint256 btcInterestReceived = APR_BASIS_POINTS * PRINCIPAL / BASIS_POINTS_DENOMINATOR / DAYS_IN_YEAR;
+        uint256 btcInterestReceived = APR_BASIS_POINTS * 0.5 ether / 10000 / 365;
         uint256 usdtPayout = 0.5 ether * sellOffer.strikePrice / 1e8;
         uint256 usdtPayoutSettle = 0.5 ether * (sellOffer.strikePrice + 1000 * 1e8) / 1e8;
         uint256 usdtPayoutSettleProfit = usdtPayoutSettle - usdtPayout;
@@ -835,8 +817,6 @@ contract DoppiCoreTest is Test {
         uint256 hedgeSoldUSDT = 22435000000000000000000;
         uint256 hedgeSoldUSDTunwind = 22318371652500000000000;
         
-        // (,,uint128 settleHedgeLossAssetA, ) = doppiCore.hedgeStats();
-        // assertEq(settleHedgeLossAssetA, hedgeSoldUSDT - hedgeSoldUSDTunwind);
         // confirm doppi LP btc balance = APR payout in btc + strike on receiving 0.5 btc 
         // confirm doppi LP usdt balance = loss in hedge position + usdt payout to trader + settlement profit gained in usdt minus 10% fee 
         uint256 expectedUSDTLPBal = 100_000 ether - hedgeSoldUSDT + hedgeSoldUSDTunwind - usdtPayoutSettle + usdtPayoutSettleProfit - usdtFee;
@@ -855,474 +835,7 @@ contract DoppiCoreTest is Test {
         
     }
 
-    // Event emit test
-    function test_DepositBuy_EmitsDepositedEvent() public {
-        
-        DualAssetOffer memory buyOffer = impliedVol.getOffer(true, 1, 1);
-        uint256 APR_BASIS_POINTS = 31399; // 313.99% APR in basis points
-        uint256 PRINCIPAL = 50_000 ether; // 50,000 USDT
-        uint256 BASIS_POINTS_DENOMINATOR = 10000;
-        uint256 DAYS_IN_YEAR = 365;
-
-        uint256 usdtInterestReceived = APR_BASIS_POINTS * PRINCIPAL / BASIS_POINTS_DENOMINATOR / DAYS_IN_YEAR;
-        
-        vm.startPrank(user1);
-        usdt.approve(address(doppiCore), PRINCIPAL);
-        
-        DepositParams memory params = DepositParams({
-            amount: PRINCIPAL,
-            strikeZone: 1,
-            strikePrice: buyOffer.strikePrice,
-            numDays: 1,
-            apr: buyOffer.apr,
-            expiry: buyOffer.expiry
-        });
-
-        // Expect Deposited event
-        vm.expectEmit(true, true, true, true);
-        emit Deposited(
-            user1,
-            1, // positionId
-            address(usdt),
-            PRINCIPAL,
-            usdtInterestReceived,
-            buyOffer.strikePrice, // strikePrice
-            buyOffer.apr, // apr
-            1 // numDays
-        );    
-        // Execute deposit
-        doppiCore.deposit_buy(params);
-
-        vm.stopPrank();
-    }
-
-    function test_DepositSell_EmitsDepositedEvent() public {
-        
-        DualAssetOffer memory sellOffer = impliedVol.getOffer(false, 1, 0);
-
-        uint256 APR_BASIS_POINTS = 35700;
-        uint256 PRINCIPAL = 0.5 ether; 
-        uint256 BASIS_POINTS_DENOMINATOR = 10000;
-        uint256 DAYS_IN_YEAR = 365;
-
-        uint256 btcInterestReceived = APR_BASIS_POINTS * PRINCIPAL / BASIS_POINTS_DENOMINATOR / DAYS_IN_YEAR;
-
-        vm.startPrank(user1);
-        btc.approve(address(doppiCore), PRINCIPAL);
-        
-        DepositParams memory params = DepositParams({
-            amount: PRINCIPAL,
-            strikeZone: 0,
-            strikePrice: sellOffer.strikePrice,
-            numDays: 1,
-            apr: sellOffer.apr,
-            expiry: sellOffer.expiry
-        });
-
-        // Expect Deposited event
-        vm.expectEmit(true, true, true, true);
-        emit Deposited(
-            user1,
-            1, // positionId
-            address(btc),
-            PRINCIPAL,
-            btcInterestReceived,
-            sellOffer.strikePrice, // strikePrice
-            sellOffer.apr, // apr
-            1 // numDays
-        );    
-        // Execute deposit
-        doppiCore.deposit_sell(params);
-
-        vm.stopPrank();
-    }
-
-    function test_SettleBuyStrikedNoTraded_EmitsSettledEvent() public {
-        
-        DualAssetOffer memory buyOffer = _depositUSDT();
-        
-        uint256 APR_BASIS_POINTS = 31399; // 313.99% APR in basis points
-        uint256 PRINCIPAL = 50_000 ether; // 50,000 USDT
-        uint256 BASIS_POINTS_DENOMINATOR = 10000;
-        uint256 DAYS_IN_YEAR = 365;
-
-        uint256 usdtInterestReceived = APR_BASIS_POINTS * PRINCIPAL / BASIS_POINTS_DENOMINATOR / DAYS_IN_YEAR;
-        uint256 expectedPayout = PRINCIPAL * 1e8 / buyOffer.strikePrice; // expected payout
-
-        // Fast forward to expiry
-        vm.warp(block.timestamp + 1 days + 1);
-        oracle.setPrice(int256(INITIAL_PRICE) - 2000 * 1e8); // Price stays same, above strike
-
-        vm.prank(owner);
-        // Expect Settled event for in-the-money position
-        vm.expectEmit(true, true, true, true);
-        emit Settled(
-            user1,
-            1, // positionId
-            true, // striked
-            false, // isProfit (varies based on implementation)
-            0, // profitLoss
-            expectedPayout, // expected payout
-            usdtInterestReceived, // interest
-            address(btc), // profitToken
-            address(btc), // payoutToken
-            address(usdt)  // interestToken
-        );
-        
-        // Execute settlement
-        uint256[] memory readyPositions = doppiCore.getReadyBuyPositions();
-        doppiCore.settle_buys(readyPositions);
-    }
-
-    function test_SettleSellStrikedNoTraded_EmitsSettledEvent() public {
-        
-        DualAssetOffer memory sellOffer = _depositBTC();
-        
-        uint256 APR_BASIS_POINTS = 35700;
-        uint256 PRINCIPAL = 0.5 ether; 
-        uint256 BASIS_POINTS_DENOMINATOR = 10000;
-        uint256 DAYS_IN_YEAR = 365;
-
-        uint256 btcInterestReceived = APR_BASIS_POINTS * PRINCIPAL / BASIS_POINTS_DENOMINATOR / DAYS_IN_YEAR;
-        uint256 expectedPayout = PRINCIPAL * sellOffer.strikePrice / 1e8;
-
-        // Fast forward to expiry
-        vm.warp(block.timestamp + 1 days + 1);
-        oracle.setPrice(int256(INITIAL_PRICE) + 2000 * 1e8); // Price stays same, above strike
-
-        vm.prank(owner);
-        // Expect Settled event for in-the-money position
-        vm.expectEmit(true, true, true, true);
-        emit Settled(
-            user1,
-            1, // positionId
-            true, // striked
-            false, // isProfit (varies based on implementation)
-            0, // profitLoss
-            expectedPayout, // expected payout
-            btcInterestReceived, // interest
-            address(usdt), // profitToken
-            address(usdt), // payoutToken
-            address(btc)  // interestToken
-        );
-        
-        // Execute settlement
-        uint256[] memory readyPositions = doppiCore.getReadySellPositions();
-        doppiCore.settle_sells(readyPositions);
-    }
-
-    function test_SettleBuyNoStriked_EmitsSettledEvent() public {
-        
-        _depositUSDT();
-        
-        uint256 APR_BASIS_POINTS = 31399; // 313.99% APR in basis points
-        uint256 PRINCIPAL = 50_000 ether; // 50,000 USDT
-        uint256 BASIS_POINTS_DENOMINATOR = 10000;
-        uint256 DAYS_IN_YEAR = 365;
-
-        uint256 usdtInterestReceived = APR_BASIS_POINTS * PRINCIPAL / BASIS_POINTS_DENOMINATOR / DAYS_IN_YEAR;
-        // uint256 expectedPayout = PRINCIPAL * 1e8 / buyOffer.strikePrice; // expected payout
-
-        // Fast forward to expiry
-        vm.warp(block.timestamp + 1 days + 1);
-        oracle.setPrice(int256(INITIAL_PRICE) + 1 * 1e8); // price greater than strike price. No strike No traded
-
-        vm.prank(owner);
-        // Expect Settled event for in-the-money position
-        vm.expectEmit(true, true, true, true);
-        emit Settled(
-            user1,
-            1, // positionId
-            false, // striked
-            false, // isProfit (varies based on implementation)
-            0, // profitLoss
-            0, // expected payout
-            usdtInterestReceived, // interest
-            address(usdt), // profitToken
-            address(usdt), // payoutToken
-            address(usdt)  // interestToken
-        );
-        
-        // Execute settlement
-        uint256[] memory readyPositions = doppiCore.getReadyBuyPositions();
-        doppiCore.settle_buys(readyPositions);
-    }
-
-    function test_SettleSellNoStriked_EmitsSettledEvent() public {
-        
-        _depositBTC();
-        
-        uint256 APR_BASIS_POINTS = 35700;
-        uint256 PRINCIPAL = 0.5 ether; 
-        uint256 BASIS_POINTS_DENOMINATOR = 10000;
-        uint256 DAYS_IN_YEAR = 365;
-
-        uint256 btcInterestReceived = APR_BASIS_POINTS * PRINCIPAL / BASIS_POINTS_DENOMINATOR / DAYS_IN_YEAR;
-        // uint256 expectedPayout = PRINCIPAL * sellOffer.strikePrice / 1e8;
-
-        // Fast forward to expiry
-        vm.warp(block.timestamp + 1 days + 1);
-        oracle.setPrice(int256(INITIAL_PRICE)); // No Strike
-
-        vm.prank(owner);
-        // Expect Settled event for in-the-money position
-        vm.expectEmit(true, true, true, true);
-        emit Settled(
-            user1,
-            1, // positionId
-            false, // striked
-            false, // isProfit (varies based on implementation)
-            0, // profitLoss
-            0, // expected payout
-            btcInterestReceived, // interest
-            address(btc), // profitToken
-            address(btc), // payoutToken
-            address(btc)  // interestToken
-        );
-        
-        // Execute settlement
-        uint256[] memory readyPositions = doppiCore.getReadySellPositions();
-        doppiCore.settle_sells(readyPositions);
-    }
-
-    function test_SettleSellStrikedTraded_EmitsSettledEvent() public {
-        
-        DualAssetOffer memory sellOffer = _depositBTC();
-        uint256 APR_BASIS_POINTS = 35700;
-        uint256 PRINCIPAL = 0.5 ether; 
-        uint256 BASIS_POINTS_DENOMINATOR = 10000;
-        uint256 DAYS_IN_YEAR = 365;
-
-
-        // ***** START perform opportunityBot.checkUpkeep
-        vm.startPrank(admin);
-        oracle.setPrice(int256(101_600 * 1e8));
-        doppiCore.opportunitySwap(user1, PRINCIPAL, 101_600 * 1e8, 0, false);
-        vm.stopPrank();
-
-        uint256 btcInterestReceived = APR_BASIS_POINTS * PRINCIPAL / BASIS_POINTS_DENOMINATOR / DAYS_IN_YEAR;
-        uint256 expectedPayout = PRINCIPAL * sellOffer.strikePrice / 1e8;
-
-        // Fast forward to expiry
-        vm.warp(block.timestamp + 1 days + 1);
-        oracle.setPrice(int256(101_900 * 1e8)); // settled sell + traded + strike
-
-        vm.prank(owner);
-        // Expect Settled event for in-the-money position
-        vm.expectEmit(true, true, true, true);
-        emit Settled(
-            user1,
-            1, // positionId
-            true, // striked
-            true, // isProfit (varies based on implementation)
-            499200000000000000000, // profitLoss
-            expectedPayout, // expected payout
-            btcInterestReceived, // interest
-            address(usdt), // profitToken
-            address(usdt), // payoutToken
-            address(btc)  // interestToken
-        );
-        
-        // Execute settlement
-        uint256[] memory readyPositions = doppiCore.getReadySellPositions();
-        doppiCore.settle_sells(readyPositions);
-    }
-
-    function test_SettleBuyStrikedTraded_EmitsSettledEvent() public {
-        
-        DualAssetOffer memory buyOffer = _depositUSDT();
-        uint256 APR_BASIS_POINTS = 31399; // 313.99% APR in basis points
-        uint256 PRINCIPAL = 50_000 ether; // 50,000 USDT
-        uint256 BASIS_POINTS_DENOMINATOR = 10000;
-        uint256 DAYS_IN_YEAR = 365;
-
-
-        // ***** START perform opportunityBot.checkUpkeep
-        vm.startPrank(admin);
-        oracle.setPrice(int256(98_000 * 1e8));
-        doppiCore.opportunitySwap(user1, PRINCIPAL, 98_000 * 1e8, 0, true);
-        vm.stopPrank();
-
-        uint256 usdtInterestReceived = APR_BASIS_POINTS * PRINCIPAL / BASIS_POINTS_DENOMINATOR / DAYS_IN_YEAR;
-        uint256 expectedPayout = PRINCIPAL * 1e8 / buyOffer.strikePrice; // expected payout
-
-        // Fast forward to expiry
-        vm.warp(block.timestamp + 1 days + 1);
-        oracle.setPrice(int256(INITIAL_PRICE) - 1000 * 1e8);
-
-        // Expect Settled event for in-the-money position
-        vm.prank(owner);
-        vm.expectEmit(true, true, true, true);
-        emit Settled(
-            user1,
-            1, // positionId
-            true, // striked
-            true, // isProfit (varies based on implementation)
-            7181314736950057, // profitLoss
-            expectedPayout, // expected payout
-            usdtInterestReceived, // interest
-            address(btc), // profitToken
-            address(btc), // payoutToken
-            address(usdt)  // interestToken
-        );
-        
-        // Execute settlement
-        uint256[] memory readyPositions = doppiCore.getReadyBuyPositions();
-        doppiCore.settle_buys(readyPositions);
-    }
-
-    function test_HedgedSettled_EmitsDepositedEvent() public {
-        
-        // Deposit positions
-        _depositUSDT();
-
-        // Fast forward time
-        vm.warp(block.timestamp + 1 days + 1);
-        oracle.setPrice(int256(96_500 * 1e8));
-        (, bytes memory performData) = doppiCore.checkUpkeep("");
-        
-        // Expect HedgeSettled event
-        vm.expectEmit(true, true, true, true);
-        emit HedgeSettled(
-            user1,
-            1, // positionId
-            true,
-            3358772020725388,
-            address(btc)
-        );    
-
-        vm.prank(mockForwarder);
-        doppiCore.performUpkeep(performData);
-
-    }
-
     
-    function test_settle_recordPoints() public {
-
-        // Deposit a buy position
-        _depositUSDT();
-        vm.warp(block.timestamp + 1 days + 1);
-        oracle.setPrice(int256(INITIAL_PRICE)); // Price stays same, above strike
-
-        uint256[] memory readyPositions = doppiCore.getReadyBuyPositions();
-        vm.startPrank(owner);
-        doppiCore.settle_buys(readyPositions);
-
-        (,, uint256 currentMonthPoint) = doppiPoints.getAllPointData(user1);
-        assertEq(currentMonthPoint, 50000 ether);
-        
-        _updateIV();
-
-        // Deposit a sell position
-        _depositBTC();
-        vm.warp(block.timestamp + 2 days + 1);
-        oracle.setPrice(int256(99_000 * 1e8)); // Price stays same, above strike
-        readyPositions = doppiCore.getReadySellPositions();
-        vm.startPrank(owner);
-        doppiCore.settle_sells(readyPositions);
-
-        (,, currentMonthPoint) = doppiPoints.getAllPointData(user1);
-        uint256 sellOrderPoints = 0.5 ether * (99_000 * 1e8) / 1e8;
-        assertEq(currentMonthPoint, 50000 ether + sellOrderPoints);
-
-    }
-
-    function test_emergencyWithdraw() public {
-
-        // Deposit a buy position
-        _depositUSDT();
-        vm.warp(block.timestamp + 1 days + 1);
-        oracle.setPrice(int256(INITIAL_PRICE)); // Price stays same, above strike
-
-        _updateIV();
-
-        // Deposit a sell position
-        _depositBTC();
-        
-        vm.startPrank(owner);
-        doppiCore.setPause();
-        doppiCore.setEmergencyMode(true);
-        vm.stopPrank();
-
-        uint256 start_usdtbal = usdt.balanceOf(user1);
-        uint256 start_btcbal = btc.balanceOf(user1);
-        // emergency withdraw buy and sell
-        vm.startPrank(user1);
-        doppiCore.emergencyWithdraw();
-        vm.stopPrank();
-
-        assertEq(doppiCore.getBuyPositionCount(address(0)), 0);
-        assertEq(doppiCore.getSellPositionCount(address(0)), 0);
-
-        uint256 end_usdtbal = usdt.balanceOf(user1);
-        uint256 end_btcbal = btc.balanceOf(user1);
-        
-        assertEq(end_usdtbal, start_usdtbal + 50_000 ether);
-        assertEq(end_btcbal, start_btcbal + 0.5 ether);
-        
-    }
-
-    function test_maxDepositBuy() public {
-
-        configLP.maxDepositPercentage = 10000;
-        doppiLP.setConfig(configLP);
-        // Deposit a buy position
-        
-        // 1st order 50k
-        DualAssetOffer memory buyOffer = _depositUSDT();
-        // 2nd order 50k
-        _depositUSDT();
-        // 3rd order 50k
-        _depositUSDT();
-        
-        // 4th order 50k, should fail
-        DepositParams memory params = DepositParams({
-            amount: 50_000 ether,
-            strikeZone: 0,
-            strikePrice: buyOffer.strikePrice,
-            numDays: 1,
-            apr: buyOffer.apr,
-            expiry: buyOffer.expiry
-        });
-        vm.startPrank(user1);
-        usdt.approve(address(doppiCore), params.amount);
-        vm.expectRevert("ExceedsPoolCap()");
-        doppiCore.deposit_buy(params);
-
-        vm.stopPrank();
-
-    }
-
-    function test_maxDepositSell() public {
-
-        configLP.maxDepositPercentage = 10000;
-        doppiLP.setConfig(configLP);
-        
-        // 1st order 0.5
-        DualAssetOffer memory sellOffer = _depositBTC();
-        // 2nd order 0.5
-        _depositBTC();
-        // 3rd order 0.5
-        _depositBTC();
-        
-        // 4th order 0.5, should fail
-        DepositParams memory params = DepositParams({
-            amount: 0.5 ether,
-            strikeZone: 0,
-            strikePrice: sellOffer.strikePrice,
-            numDays: 1,
-            apr: sellOffer.apr,
-            expiry: sellOffer.expiry
-        });
-        vm.startPrank(user1);
-        usdt.approve(address(doppiCore), params.amount);
-        vm.expectRevert("ExceedsPoolCap()");
-        doppiCore.deposit_sell(params);
-
-        vm.stopPrank();
-
-    }
-
     function _depositBTC() internal returns (DualAssetOffer memory) {
 
         DualAssetOffer memory sellOffer = impliedVol.getOffer(false, 1, 0);

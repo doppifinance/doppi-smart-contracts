@@ -119,14 +119,10 @@ contract DeployDoppiAll is Script {
         ) internal {
         
         console.log("Setting DoppiLiquidity Properties...");
-        // _doppiLP.setForwarderAddress(forwarder);
         _doppiLP.setDoppiCore(_doppiCore);
         _doppiLP.setEntryPoint(address(_doppiRouter.entryPointA()), true);
         _doppiLP.setEntryPoint(address(_doppiRouter.entryPointB()), true);
-        _doppiLP.approveEntryPoint(address(_doppiRouter.entryPointA()), USDT);
-        _doppiLP.approveEntryPoint(address(_doppiRouter.entryPointB()), BTC);
         _doppiLP.setDoppiTraderFactory(_doppiFactory);
-        // doppiCore.setDoppiTraderFactory(doppiFactory);
     }
 
     function _deployDoppiCore(DoppiLiquidity _doppiLP, DoppiOffer _impliedVol, DoppiPoints _doppiPoints) internal returns (DoppiCore) {

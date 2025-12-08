@@ -29,6 +29,7 @@ struct DualAssetPosition {
     uint256 hedgeAmountInHedgeToken;
     uint256 swappedHedgeAmount;
     uint256 hedgePrice;
+    uint256 payout;
 }
 
 struct KeyPosition {

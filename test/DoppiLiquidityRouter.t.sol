@@ -63,8 +63,6 @@ contract DoppiLiquidityRouterTest is Test {
         doppiLP.approveRouter();
         doppiLP.setEntryPoint(address(router.entryPointA()), true);
         doppiLP.setEntryPoint(address(router.entryPointB()), true);
-        doppiLP.approveEntryPoint(address(router.entryPointA()), address(usdt));
-        doppiLP.approveEntryPoint(address(router.entryPointB()), address(btc));
 
         // Approve router for tokens
         usdt.approve(address(router), type(uint256).max);
