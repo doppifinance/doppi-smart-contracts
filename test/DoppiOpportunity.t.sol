@@ -113,7 +113,7 @@ contract DoppiOpportunityTest is Test {
         assertGt(performData.length, 0);
         vm.prank(mockForwarder);
         doppiOpportunity.performUpkeep(performData);
-        DualAssetPosition memory pos = doppiCore.get_buy(user1, 1);
+        DualAssetPosition memory pos = doppiCore.get_buy(1);
         assertEq(pos.isTraded, true);
     }
 
@@ -126,7 +126,7 @@ contract DoppiOpportunityTest is Test {
         assertGt(performData.length, 0);
         vm.prank(mockForwarder);
         doppiOpportunity.performUpkeep(performData);
-        DualAssetPosition memory pos = doppiCore.get_sell(user2, 1);
+        DualAssetPosition memory pos = doppiCore.get_sell(1);
         assertEq(pos.isTraded, true);
     }
 
@@ -136,7 +136,7 @@ contract DoppiOpportunityTest is Test {
         (bool upkeepNeeded, bytes memory performData) = doppiOpportunity.checkUpkeep("");
         vm.prank(mockForwarder);
         doppiOpportunity.performUpkeep(performData);
-        DualAssetPosition memory pos = doppiCore.get_sell(user2, 1);
+        DualAssetPosition memory pos = doppiCore.get_sell(1);
         assertEq(pos.isTraded, true);
 
         // unwind for profit opportunity
@@ -155,7 +155,7 @@ contract DoppiOpportunityTest is Test {
         );
         vm.prank(mockForwarder);
         doppiOpportunity.performUpkeep(performData);
-        pos = doppiCore.get_sell(user2, 1); // refresh position
+        pos = doppiCore.get_sell(1); // refresh position
         assertEq(pos.isTraded, false); // unwind successfully
     }
 
@@ -165,7 +165,7 @@ contract DoppiOpportunityTest is Test {
         (bool upkeepNeeded, bytes memory performData) = doppiOpportunity.checkUpkeep("");
         vm.prank(mockForwarder);
         doppiOpportunity.performUpkeep(performData);
-        DualAssetPosition memory pos = doppiCore.get_buy(user1, 1);
+        DualAssetPosition memory pos = doppiCore.get_buy(1);
         assertEq(pos.isTraded, true);
 
         // unwind for profit opportunity
@@ -184,7 +184,7 @@ contract DoppiOpportunityTest is Test {
 
         vm.prank(mockForwarder);
         doppiOpportunity.performUpkeep(performData);
-        pos = doppiCore.get_sell(user1, 1); // refresh position
+        pos = doppiCore.get_sell(1); // refresh position
         assertEq(pos.isTraded, false); // unwind successfully
     }
 
@@ -254,8 +254,8 @@ contract DoppiOpportunityTest is Test {
         doppiOpportunity.performUpkeep(performData);
         vm.stopPrank();
 
-        DualAssetPosition memory pos2 = doppiCore.get_buy(user1, 1);
-        DualAssetPosition memory pos3 = doppiCore.get_buy(user1, 2);
+        DualAssetPosition memory pos2 = doppiCore.get_buy(1);
+        DualAssetPosition memory pos3 = doppiCore.get_buy(2);
         assertTrue(pos2.isTraded);
         assertTrue(pos3.isTraded);
         
@@ -269,7 +269,7 @@ contract DoppiOpportunityTest is Test {
         doppiOpportunity.performUpkeep(performData);
         vm.stopPrank();
         
-        DualAssetPosition memory pos1 = doppiCore.get_buy(user1, 3);
+        DualAssetPosition memory pos1 = doppiCore.get_buy(3);
         assertTrue(pos1.isTraded);
         
         // third checkUpkeep no more opportunity

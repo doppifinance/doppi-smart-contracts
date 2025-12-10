@@ -168,7 +168,7 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
         length = length > CHECKUPKEEPS_PER_ROUND ? CHECKUPKEEPS_PER_ROUND : length;
 
         for (uint256 i = 0; i < length; ) {
-            if (positions_buy[buyPositionKeys[i].owner][buyPositionKeys[i].positionId].expiryTimestamp <= block.timestamp) {
+            if (positions_buy[buyPositionKeys[i].positionId].expiryTimestamp <= block.timestamp) {
                 count++;
             }
             unchecked { ++i; }
@@ -178,7 +178,7 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
         uint256 idx = 0;
         for (uint256 i = length; i > 0; ) {
             uint256 index = i - 1;
-            if (positions_buy[buyPositionKeys[index].owner][buyPositionKeys[index].positionId].expiryTimestamp <= block.timestamp) {
+            if (positions_buy[buyPositionKeys[index].positionId].expiryTimestamp <= block.timestamp) {
                 readyIndexes[idx] = index;
                 idx++;
             }
@@ -192,7 +192,7 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
         uint256 length = sellPositionKeys.length;
         length = length > CHECKUPKEEPS_PER_ROUND ? CHECKUPKEEPS_PER_ROUND : length;
         for (uint256 i = 0; i < length; ) {
-            if (positions_sell[sellPositionKeys[i].owner][sellPositionKeys[i].positionId].expiryTimestamp <= block.timestamp) {
+            if (positions_sell[sellPositionKeys[i].positionId].expiryTimestamp <= block.timestamp) {
                 count++;
             }
             unchecked { ++i; }
@@ -202,7 +202,7 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
         uint256 idx = 0;
         for (uint256 i = length; i > 0; ) {
             uint256 index = i - 1;
-            if (positions_sell[sellPositionKeys[index].owner][sellPositionKeys[index].positionId].expiryTimestamp <= block.timestamp) {
+            if (positions_sell[sellPositionKeys[index].positionId].expiryTimestamp <= block.timestamp) {
                 readyIndexes[idx] = index;
                 idx++;
             }
@@ -269,7 +269,7 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
                 KeyPosition memory keyPos = sellPositionKeys[index];
             
                 if (keyPos.owner == msg.sender) {
-                    DualAssetPosition storage pos = positions_sell[keyPos.owner][keyPos.positionId];
+                    DualAssetPosition storage pos = positions_sell[keyPos.positionId];
                     
                     if (pos.amount > 0) {
                         uint256 amountToReturn = pos.amount;
@@ -296,7 +296,7 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
                 KeyPosition memory keyPos = buyPositionKeys[index];
             
                 if (keyPos.owner == msg.sender) {
-                    DualAssetPosition storage pos = positions_buy[keyPos.owner][keyPos.positionId];
+                    DualAssetPosition storage pos = positions_buy[keyPos.positionId];
                     
                     if (pos.amount > 0) {
                         uint256 amountToReturn = pos.amount;
@@ -392,24 +392,31 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
         uint256[] memory indexes,
         uint256 settlementPrice
     ) internal returns (uint256[] memory toProcessIndexes) {
-
         uint256 totalUpkeeps = indexes.length;
-        if(totalUpkeeps < UPKEEPS_PER_CHECK){
+        
+        // Early return - avoid any processing
+        if (totalUpkeeps <= UPKEEPS_PER_CHECK) {
             return indexes;
         }
-        uint256 count = totalUpkeeps > UPKEEPS_PER_CHECK ? UPKEEPS_PER_CHECK : totalUpkeeps;
-        toProcessIndexes = new uint256[](count);
-        for (uint256 i = 0; i < count;) {
+        
+        // Only create ONE new array for processing
+        toProcessIndexes = new uint256[](UPKEEPS_PER_CHECK);
+        
+        // Single loop to fill processing array
+        for (uint256 i = 0; i < UPKEEPS_PER_CHECK; ) {
             toProcessIndexes[i] = indexes[i];
             unchecked { ++i;}
         }
-        uint256 remaining = totalUpkeeps - count;
         
+        // Create remaining array directly
+        uint256 remaining = totalUpkeeps - UPKEEPS_PER_CHECK;
         uint256[] memory remainIndexes = new uint256[](remaining);
+        
         for (uint256 i = 0; i < remaining; ) {
-            remainIndexes[i] = indexes[count + i];
+            remainIndexes[i] = indexes[UPKEEPS_PER_CHECK + i];
             unchecked { ++i;}
         }
+        
         PendingSettlement storage pendingSettle = isBuy ? pendingSettlementBuy : pendingSettlementSell;
         pendingSettle.indexes = remainIndexes;
         pendingSettle.settlementPrice = settlementPrice;
@@ -439,7 +446,7 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
         uint256 interest = (amount * _buyOffer.apr) / BASIS_POINTS;
         interest = (interest * duration) / SECONDS_PER_YEAR;
         uint256 payout = (amount * priceDecimal) / _buyOffer.strikePrice;
-        positions_buy[sender][positionId] = DualAssetPosition(
+        positions_buy[positionId] = DualAssetPosition(
             amount,
             _buyOffer.price,
             _buyOffer.strikePrice,
@@ -489,7 +496,7 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
         uint256 interest = (amount * _sellOffer.apr) / BASIS_POINTS;
         interest = (interest * duration) / SECONDS_PER_YEAR;
         uint256 payout = (amount * _sellOffer.strikePrice) / priceDecimal;
-        positions_sell[sender][positionId] = DualAssetPosition(
+        positions_sell[positionId] = DualAssetPosition(
             amount,
             _sellOffer.price,
             _sellOffer.strikePrice,
@@ -516,8 +523,8 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
     ) internal {
         
         DualAssetPosition memory p = isBuy
-            ? positions_buy[position.owner][position.positionId]
-            : positions_sell[position.owner][position.positionId];
+            ? positions_buy[position.positionId]
+            : positions_sell[position.positionId];
 
         if(p.expiryTimestamp > block.timestamp) revert NotExpired();
 
@@ -586,9 +593,9 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
     function _removePosition(uint256 index, KeyPosition memory _pos, bool isBuy) internal {
         // Delete from storage mapping
         if (isBuy) {
-            delete positions_buy[_pos.owner][_pos.positionId];
+            delete positions_buy[_pos.positionId];
         } else {
-            delete positions_sell[_pos.owner][_pos.positionId];
+            delete positions_sell[_pos.positionId];
         }
         
         // Get the correct array
@@ -714,12 +721,11 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
         require(length > 0, "empty array");
         require(_isDescending(_indexes), "not descending");
         
+        uint256 poslength = isBuy ? buyPositionKeys.length : sellPositionKeys.length;
         for (uint256 i = 0; i < length; ) {
             uint256 idx = _indexes[i];
-            KeyPosition[] storage positionKeys = isBuy ? buyPositionKeys : sellPositionKeys;
-            require(idx < positionKeys.length, "index out of bounds");
-            
-            KeyPosition memory pos = positionKeys[idx];
+            require(idx < poslength, "index out of bounds");
+            KeyPosition memory pos = isBuy ? buyPositionKeys[idx] : sellPositionKeys[idx];
             _settlePosition(pos, isBuy, _settlePrice);
             isBuy ? _removePosition(idx, pos, true) : _removePosition(idx, pos, false);
 
@@ -739,8 +745,8 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
         for (uint256 i = 0; i < length && count < UPKEEPS_PER_CHECK; ) {
 
             DualAssetPosition memory p = _isBuy
-                ? positions_buy[buyPositionKeys[i].owner][buyPositionKeys[i].positionId]
-                : positions_sell[sellPositionKeys[i].owner][sellPositionKeys[i].positionId];
+                ? positions_buy[buyPositionKeys[i].positionId]
+                : positions_sell[sellPositionKeys[i].positionId];
 
             uint256 buffer = p.strikePrice * oneDayMove / 10000;
             
@@ -784,8 +790,8 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
             if (i < length) {
                 
                 DualAssetPosition storage p = _isBuy
-                    ? positions_buy[buyPositionKeys[i].owner][buyPositionKeys[i].positionId]
-                    : positions_sell[sellPositionKeys[i].owner][sellPositionKeys[i].positionId];
+                    ? positions_buy[buyPositionKeys[i].positionId]
+                    : positions_sell[sellPositionKeys[i].positionId];
                 
                 uint256 bufferUnwind = p.strikePrice * tolerance / 10000;
                 uint256 buffer = p.strikePrice * oneDayMove / 10000;

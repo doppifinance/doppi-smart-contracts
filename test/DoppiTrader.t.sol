@@ -350,7 +350,7 @@ contract DoppiTraderTest is Test {
         vm.prank(mockForwarder);
         opportunityBot.performUpkeep(performData);
         
-        DualAssetPosition memory pos = doppiCore.get_sell(address(doppiTrader), 6);
+        DualAssetPosition memory pos = doppiCore.get_sell(6);
         assertEq(pos.isTraded, true);
 
         // // ***** END 
@@ -388,7 +388,7 @@ contract DoppiTraderTest is Test {
         opportunityBot.performUpkeep(performData);
         
 
-        DualAssetPosition memory pos = doppiCore.get_sell(address(doppiTrader), 6);
+        DualAssetPosition memory pos = doppiCore.get_sell(6);
         assertEq(pos.isTraded, true);
 
         // ***** END 

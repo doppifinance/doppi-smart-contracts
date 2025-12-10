@@ -15,8 +15,8 @@ abstract contract DoppiCoreView {
     
     KeyPosition[] public buyPositionKeys;
     KeyPosition[] public sellPositionKeys;
-    mapping(address => mapping(uint64 => DualAssetPosition)) public positions_buy; 
-    mapping(address => mapping(uint64 => DualAssetPosition)) public positions_sell; 
+    mapping(uint64 => DualAssetPosition) public positions_buy; 
+    mapping(uint64 => DualAssetPosition) public positions_sell; 
     
     
     // View functions for positions
@@ -35,7 +35,7 @@ abstract contract DoppiCoreView {
         count = 0;
         for (uint256 i = 0; i < length; ) {
             if (buyPositionKeys[i].owner == _owner) {
-                result[count] = positions_buy[buyPositionKeys[i].owner][buyPositionKeys[i].positionId];
+                result[count] = positions_buy[buyPositionKeys[i].positionId];
                 count++;
             }
             unchecked { ++i; }
@@ -57,7 +57,7 @@ abstract contract DoppiCoreView {
         count = 0;
         for (uint256 i = 0; i < length; ) {
             if (sellPositionKeys[i].owner == _owner) {
-                result[count] = positions_sell[sellPositionKeys[i].owner][sellPositionKeys[i].positionId];
+                result[count] = positions_sell[sellPositionKeys[i].positionId];
                 count++;
             }
             unchecked { ++i; }
@@ -69,7 +69,7 @@ abstract contract DoppiCoreView {
         uint256 length = buyPositionKeys.length;
         DualAssetPosition[] memory result = new DualAssetPosition[](length);
         for (uint256 i = 0; i < length; ) {
-            result[i] = positions_buy[buyPositionKeys[i].owner][buyPositionKeys[i].positionId];
+            result[i] = positions_buy[buyPositionKeys[i].positionId];
             unchecked { ++i; }
         }
         return result;
@@ -79,18 +79,18 @@ abstract contract DoppiCoreView {
         uint256 length = sellPositionKeys.length;
         DualAssetPosition[] memory result = new DualAssetPosition[](length);
         for (uint256 i = 0; i < length; ) {
-            result[i] = positions_sell[sellPositionKeys[i].owner][sellPositionKeys[i].positionId];
+            result[i] = positions_sell[sellPositionKeys[i].positionId];
             unchecked { ++i; }
         }
         return result;
     }
 
-    function get_buy(address _owner, uint32 _positionId) external view returns (DualAssetPosition memory) {
-        return positions_buy[_owner][_positionId];
+    function get_buy(uint32 _positionId) external view returns (DualAssetPosition memory) {
+        return positions_buy[_positionId];
     }
 
-    function get_sell(address _owner, uint32 _positionId) external view returns (DualAssetPosition memory) {
-        return positions_sell[_owner][_positionId];
+    function get_sell(uint32 _positionId) external view returns (DualAssetPosition memory) {
+        return positions_sell[_positionId];
     }
 
     function getBuyPositionCount(address _owner) external view returns (uint256) {
