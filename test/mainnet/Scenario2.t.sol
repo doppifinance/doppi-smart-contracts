@@ -58,7 +58,7 @@ contract Scenario2Test is Test {
     address constant CHAINLINK_LINK_USD = address(0xca236E327F629f9Fc2c30A4E95775EbF0B89fac8);
     address constant LINK_PEGGED_SWAP = address(0x1FCc3B22955e76Ca48bF025f1A6993685975Bb9e);
     address constant PCSWAP_V3_ROUTER = address(0x13f4EA83D0bd40E75C8222255bc855a974568Dd4);
-    // address constant PCSWAP_V3_QUOTER = address(0xB048Bbc1Ee6b733FFfCFb9e9CeF7375518e25997);
+    address constant PCSWAP_V3_QUOTER = address(0xB048Bbc1Ee6b733FFfCFb9e9CeF7375518e25997);
     address constant PCSWAP_V3Pool = address(0x46Cf1cF8c69595804ba91dFdd8d6b960c9B0a7C4);
     address constant CHAINLINK_RegistryConsumer = address(0xDc21E279934fF6721CaDfDD112DAfb3261f09A2C);
     address constant CHAINLINK_Registrar = address(0xf671F60bCC964B309D22424886FF202807381B32);
@@ -116,6 +116,8 @@ contract Scenario2Test is Test {
         _setDoppiCoreProperties(doppiCore, doppiFactory, address(doppiOpportunity));
 
         doppiPoints.setDoppiTraderFactory(address(doppiFactory));
+
+        doppiOpportunity.setForwarderAddress(forwarder);
         
         _setupIV(impliedVol);
         
@@ -402,6 +404,112 @@ contract Scenario2Test is Test {
         _doppiCoreCheckUpkeep_performUpkeep();
     }
 
+    function test_Scenario_CheckUpKeep_GasMax() public {
+        
+        uint256 depositLPAmount = 10_000_000 ether;
+        uint256 depositBTCAmount = 10.0000 ether;
+
+        deal(USDT, trader, 10_000_000 ether);            
+            
+        vm.startPrank(trader);            
+        usdt.approve(address(doppiRouter), depositLPAmount);        
+        doppiRouter.deposit(address(usdt), depositLPAmount);
+        vm.stopPrank();
+
+        int256 startPrice = int256(9142000000000);
+        _manipulateRealChainlink(startPrice, address(oracle));
+
+        DualAssetOffer memory buyOffer = impliedVol.getOffer(true, 1, 1);
+        uint256 depositUSDT = 10_000 ether;
+        for (uint256 i = 0; i < 1000; i++) {
+            address l1 = address(uint160(0x110 + i));
+            vm.startPrank(l1);
+            deal(USDT, l1, 100_000 ether);  
+            // console.log(i, l1);          
+            usdt.approve(address(doppiCore), depositUSDT);
+            doppiCore.deposit_buy(DepositParams({
+                amount: depositUSDT,
+                strikeZone: 1,
+                strikePrice: buyOffer.strikePrice,
+                numDays: 1,
+                apr: buyOffer.apr,
+                expiry: buyOffer.expiry
+            }));
+            vm.stopPrank();
+        }
+        // Verify active
+        assertTrue(doppiCore.get_positions_buy().length > 0);
+        // assertEq(doppiCore.get_positions_buy().length, 100);
+
+        int256 newPrice = int256(9152000000000);
+        _manipulateRealChainlink(newPrice, address(oracle));
+
+        // 1 day fast forward and settle
+        _doppiCoreCheckUpkeep_performUpkeep();
+        _doppiCoreCheckUpkeep_performUpkeep_cache();
+        _doppiCoreCheckUpkeep_performUpkeep_cache();
+        _doppiCoreCheckUpkeep_performUpkeep_cache();
+        _doppiCoreCheckUpkeep_performUpkeep_cache();
+
+        // (bool upkeepNeeded, bytes memory performData) = doppiCore.checkUpkeep("");
+        // assertFalse(upkeepNeeded);
+    }
+
+    function test_Scenario_CheckUpKeep_DoppiOpportunity_GasMax() public {
+        
+        uint256 depositLPAmount = 10_000_000 ether;
+        uint256 depositBTCAmount = 10.0000 ether;
+
+        deal(USDT, trader, depositLPAmount);            
+        deal(BTC, trader, depositBTCAmount);            
+            
+        vm.startPrank(trader);            
+        usdt.approve(address(doppiRouter), depositLPAmount);        
+        btc.approve(address(doppiRouter), depositBTCAmount);        
+        doppiRouter.deposit(address(usdt), depositLPAmount);
+        // doppiRouter.deposit(address(btc), depositBTCAmount);
+        vm.stopPrank();
+
+        DualAssetOffer memory buyOffer = impliedVol.getOffer(true, 1, 1);
+        uint256 depositUSDT = 10_000 ether;
+        for (uint256 i = 0; i < 1000; i++) {
+            address l1 = address(uint160(0x110 + i));
+            vm.startPrank(l1);
+            deal(USDT, l1, 100_000 ether);  
+            // console.log(i, l1);          
+            usdt.approve(address(doppiCore), depositUSDT);
+            doppiCore.deposit_buy(DepositParams({
+                amount: depositUSDT,
+                strikeZone: 1,
+                strikePrice: buyOffer.strikePrice,
+                numDays: 1,
+                apr: buyOffer.apr,
+                expiry: buyOffer.expiry
+            }));
+            vm.stopPrank();
+        }
+
+        // int256 startPrice = int256(9052000000000);
+        int256 startPrice = int256(8542000000000);
+        _manipulateRealChainlink(startPrice, address(oracle));
+        
+        uint256 gasBefore = gasleft();
+        (bool upkeepNeeded, bytes memory performData) = doppiOpportunity.checkUpkeep("");
+        uint256 gasUsed = gasBefore - gasleft();
+        console.log(gasUsed, "gasUsed in doppiOpportunity.checkUpkeep");
+        // assertLt(gasUsed, 1_000_000, "Gas usage too high");
+
+        vm.prank(forwarder);
+        gasBefore = gasleft();
+        doppiOpportunity.performUpkeep(performData);
+        gasUsed = gasBefore - gasleft();
+        console.log(gasUsed, "gasUsed in doppiOpportunity.performUpkeep");
+        // assertLt(gasUsed, 4_000_000, "Gas usage too high");
+        vm.stopPrank();
+        
+    }
+
+
     function _depositBTC(uint256 amount) internal returns (DualAssetOffer memory) {
 
         DualAssetOffer memory sellOffer = impliedVol.getOffer(false, 1, 0);
@@ -480,7 +588,7 @@ contract Scenario2Test is Test {
         console.log("Deploying DoppiOpportunity...");
         DoppiOpportunity _doppiOpportunity = new DoppiOpportunity(_doppiCore, _doppiLP);
         console.log("DoppiOpportunity deployed at:", address(_doppiOpportunity));
-        // doppiOpportunity.setForwarderAddress(forwarder);
+        
         return _doppiOpportunity;
     }
 
@@ -489,7 +597,7 @@ contract Scenario2Test is Test {
         console.log("Deploying DoppiLiquidity...");
         DoppiLiquidity _doppiLP = new DoppiLiquidity("Doppi BTC-USDT LP", "BTCB-USDT", IERC20(USDT), IERC20(BTC));
         console.log("DoppiLiquidity deployed at:", address(_doppiLP));
-        configLP = TestParamLib.get_configLP();
+        configLP = _getConfigLP();
         _doppiLP.setConfig(configLP); 
         _doppiLP.approveRouter();
         return _doppiLP;
@@ -574,10 +682,33 @@ contract Scenario2Test is Test {
     function _doppiCoreCheckUpkeep_performUpkeep() internal {
 
         vm.warp(block.timestamp + 1 days + 1);
+        uint256 gasBefore = gasleft();
         (bool upkeepNeeded, bytes memory performData) = doppiCore.checkUpkeep("");
+        uint256 gasUsed = gasBefore - gasleft();
+        console.log(gasUsed, "gasUsed in doppiCore.checkUpkeep");
         assertTrue(upkeepNeeded);
+        
         vm.prank(forwarder);
+        gasBefore = gasleft();
         doppiCore.performUpkeep(performData);  
+        gasUsed = gasBefore - gasleft();
+        console.log(gasUsed, "gasUsed in doppiCore.performUpkeep");
+        vm.stopPrank();
+    }
+
+    function _doppiCoreCheckUpkeep_performUpkeep_cache() internal {
+
+        uint256 gasBefore = gasleft();
+        (bool upkeepNeeded, bytes memory performData) = doppiCore.checkUpkeep("");
+        uint256 gasUsed = gasBefore - gasleft();
+        console.log(gasUsed, "gasUsed in doppiCore.checkUpkeep cache");
+        assertTrue(upkeepNeeded);
+        
+        vm.prank(forwarder);
+        gasBefore = gasleft();
+        doppiCore.performUpkeep(performData);  
+        gasUsed = gasBefore - gasleft();
+        console.log(gasUsed, "gasUsed in doppiCore.performUpkeep cache");
         vm.stopPrank();
     }
 
@@ -603,7 +734,8 @@ contract Scenario2Test is Test {
         MockOracle(_oracle).setPrice(newPrice);
         vm.stopPrank();
         // console.log(doppiLP.owner(), "doppiLP.owner()");
-        configLP = TestParamLib.get_configLP();
+        // configLP = TestParamLib.get_configLP();
+        configLP = _getConfigLP();
         configLP.chainLinkFeed = _oracle;
         vm.prank(doppiLP.owner());
         doppiLP.setConfig(configLP); 
@@ -612,5 +744,24 @@ contract Scenario2Test is Test {
         impliedVol.setOracle(_oracle);
         vm.stopPrank();
 
+    }
+
+    function _getConfigLP() internal returns (ConfigParam memory _configLP)  {
+
+        _configLP = ConfigParam({
+			chainLinkFeed : CHAINLINK_BTC_USD,
+			router : PCSWAP_V3_ROUTER,
+			quoter: PCSWAP_V3_QUOTER,
+			poolFee: 500,  
+			slippage: 1000,
+			liquidityFee: 1000,
+			swapMargin: 5000,
+			priceDecimals: 8,
+			decimals: 10 ** 8,
+			v3Pool: PCSWAP_V3Pool,
+			twapDuration: 3600,
+			maxDepositPercentage: 20000,
+			maxDelay: 2 minutes
+		});
     }
 }

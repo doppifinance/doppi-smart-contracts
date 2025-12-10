@@ -14,12 +14,18 @@ abstract contract DoppiCoreAdmin is Ownable, Pausable {
     bool public publicOpen = true;
     address public s_forwarderAddress;
     uint16 public UPKEEPS_PER_CHECK = 20; 
+    uint16 public CHECKUPKEEPS_PER_ROUND = 100; 
+    uint32 public tolerance = 100;
     mapping(address => bool) public opportunityBots;
     uint16 public aprToleranceBP = 0; // 1% default, configurable by owner
     
     IDoppiTraderFactory public doppiTraderFactory;
     
     // Configuration functions
+    function setTolerance(uint32 _tolerance) external onlyOwner {
+        tolerance = _tolerance;
+    }
+    
     function setTreasury(address _treasury, uint24 _treasury_fee) external onlyOwner {
         treasury_fee = _treasury_fee;
         treasury = _treasury;
@@ -36,6 +42,10 @@ abstract contract DoppiCoreAdmin is Ownable, Pausable {
 
     function setUpkeeps_per_check(uint16 _percheck) external onlyOwner {
         UPKEEPS_PER_CHECK = _percheck;
+    }
+
+    function setCheckUpkeeps_per_round(uint16 _perRound) external onlyOwner {
+        CHECKUPKEEPS_PER_ROUND = _perRound;
     }
 
     function setDoppiTraderFactory(IDoppiTraderFactory _traderFactory) external onlyOwner {

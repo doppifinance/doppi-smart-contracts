@@ -17,7 +17,7 @@ import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {DoppiPoints} from "./DoppiPoints.sol";
-import "forge-std/console.sol";
+// import "forge-std/console.sol";
 
 contract DoppiReferral is Ownable {
     using SafeERC20 for IERC20;
@@ -83,7 +83,6 @@ contract DoppiReferral is Ownable {
         referralCodeToAddress[code] = msg.sender;
         addressToReferralCode[msg.sender] = code;
 
-        // console.log(block.number, _currentMonthId(), "_currentMonthId()");
         referrals[msg.sender] = ReferralInfo({
             claimedMonthId: _currentMonthId() - 1,
             claimedLevel1: 0,

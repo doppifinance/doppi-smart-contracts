@@ -331,47 +331,7 @@ contract DoppiCoreTest is Test {
         assertGt(btc.balanceOf(user1), initialBtcBalance);
         assertEq(doppiCore.getSellPositionCount(address(0)), 0);
     }
-
-    function test_opportunitySwap() public {
-        // Deposit a buy position
-        _depositUSDT();
-
-        vm.startPrank(admin);
-        (uint256 amountOut, ) = doppiCore.opportunitySwap(user1, 25_000 ether, INITIAL_PRICE, 0, true);
-        vm.stopPrank();
-
-        assertGt(amountOut, 0);
-
-        // Check position is marked as traded
-        DualAssetPosition memory position = doppiCore.get_buy(user1, 1);
-        assertTrue(position.isTraded);
-        assertEq(position.swappedAmount, amountOut);
-    }
-
-    function test_opportunityUnwind() public {
-        // First setup a position and trade it
-        _depositUSDT();
-
-        oracle.setPrice(int256(98_000 * 1e8));
-        // Admin swaps first
-        vm.startPrank(admin);
-        (uint256 swappedAmount,) = doppiCore.opportunitySwap(user1, 50_000 ether, 98_000 * 1e8, 0, true);
-        vm.stopPrank();
-
-        oracle.setPrice(int256(102_000 * 1e8));
-        // Then admin unwinds
-        vm.startPrank(admin);
-        (uint256 amountOut,) = doppiCore.opportunityUnwind(user1, swappedAmount, 102_000 * 1e8, 0, false);
-        vm.stopPrank();
-
-        assertGt(amountOut, 0);
-
-        // Check position is marked as not traded
-        DualAssetPosition memory position = doppiCore.get_buy(user1, 1);
-        assertFalse(position.isTraded);
-        assertEq(position.swappedAmount, 0);
-    }
-
+    
     function test_checkUpkeep() public {
         // No positions initially
         (bool upkeepNeeded, bytes memory performData) = doppiCore.checkUpkeep("");
@@ -692,28 +652,6 @@ contract DoppiCoreTest is Test {
         assertEq(usdt.balanceOf(doppiCore.treasury()), 43012328767123287671); // 50000 * 313.99% / 365 * 10%
     }
 
-    function test_opportunity_profit_fee() public {
-        // First setup a position and trade it
-        _depositUSDT();
-
-        oracle.setPrice(int256(98_000 * 1e8));
-        // Admin swaps first
-        vm.startPrank(admin);
-        (uint256 swappedAmount,) = doppiCore.opportunitySwap(user1, 50_000 ether, 98_000 * 1e8, 0, true);
-        vm.stopPrank();
-
-        oracle.setPrice(int256(102_000 * 1e8));
-        // Then admin unwinds
-        vm.startPrank(admin);
-        (uint256 amountOut, uint256 profit) = doppiCore.opportunityUnwind(user1, swappedAmount, 102_000 * 1e8, 0, false);
-        vm.stopPrank();
-
-        // Check position is marked as not traded
-        assertGt(amountOut, 0);
-        uint256 fee = profit * 1000 / 10000;
-        assertEq(usdt.balanceOf(doppiCore.treasury()), fee); 
-    }
-
     function test_settle_buys_strike_profit_fee() public {
         // Deposit a buy position
         DualAssetOffer memory buyOffer = _depositUSDT();
@@ -835,7 +773,6 @@ contract DoppiCoreTest is Test {
         
     }
 
-    
     function _depositBTC() internal returns (DualAssetOffer memory) {
 
         DualAssetOffer memory sellOffer = impliedVol.getOffer(false, 1, 0);

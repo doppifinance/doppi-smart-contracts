@@ -360,7 +360,9 @@ contract DoppiCoreExtTest is Test {
         // ***** START perform opportunityBot.checkUpkeep
         vm.startPrank(admin);
         oracle.setPrice(int256(101_600 * 1e8));
-        doppiCore.opportunitySwap(user1, PRINCIPAL, 101_600 * 1e8, 0, false);
+        uint256[] memory indexes = new uint256[](1);
+        indexes[0] = 0;
+        doppiCore.performOpportunity(101_600 * 1e8, indexes, false);
         vm.stopPrank();
 
         uint256 btcInterestReceived = APR_BASIS_POINTS * PRINCIPAL / BASIS_POINTS_DENOMINATOR / DAYS_IN_YEAR;
@@ -403,7 +405,9 @@ contract DoppiCoreExtTest is Test {
         // ***** START perform opportunityBot.checkUpkeep
         vm.startPrank(admin);
         oracle.setPrice(int256(98_000 * 1e8));
-        doppiCore.opportunitySwap(user1, PRINCIPAL, 98_000 * 1e8, 0, true);
+        uint256[] memory indexes = new uint256[](1);
+        indexes[0] = 0;
+        doppiCore.performOpportunity(98_000 * 1e8, indexes, true);
         vm.stopPrank();
 
         uint256 usdtInterestReceived = APR_BASIS_POINTS * PRINCIPAL / BASIS_POINTS_DENOMINATOR / DAYS_IN_YEAR;

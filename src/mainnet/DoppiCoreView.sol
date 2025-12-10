@@ -20,6 +20,7 @@ abstract contract DoppiCoreView {
     
     
     // View functions for positions
+    
     function get_positions_buy(address _owner) external view returns (DualAssetPosition[] memory) {
         uint256 count = 0;
         uint256 length = buyPositionKeys.length;
@@ -118,52 +119,6 @@ abstract contract DoppiCoreView {
             unchecked { ++i; }
         }
         return count;
-    }
-
-    function getReadyBuyPositions() public view returns (uint256[] memory) {
-        uint256 count = 0;
-        uint256 length = buyPositionKeys.length;
-        for (uint256 i = 0; i < length; ) {
-            if (positions_buy[buyPositionKeys[i].owner][buyPositionKeys[i].positionId].expiryTimestamp <= block.timestamp) {
-                count++;
-            }
-            unchecked { ++i; }
-        }
-        
-        uint256[] memory readyIndexes = new uint256[](count);
-        uint256 idx = 0;
-        for (uint256 i = length; i > 0; ) {
-            uint256 index = i - 1;
-            if (positions_buy[buyPositionKeys[index].owner][buyPositionKeys[index].positionId].expiryTimestamp <= block.timestamp) {
-                readyIndexes[idx] = index;
-                idx++;
-            }
-            unchecked { --i; }
-        }
-        return readyIndexes;
-    }
-
-    function getReadySellPositions() public view returns (uint256[] memory) {
-        uint256 count = 0;
-        uint256 length = sellPositionKeys.length;
-        for (uint256 i = 0; i < length; ) {
-            if (positions_sell[sellPositionKeys[i].owner][sellPositionKeys[i].positionId].expiryTimestamp <= block.timestamp) {
-                count++;
-            }
-            unchecked { ++i; }
-        }
-        
-        uint256[] memory readyIndexes = new uint256[](count);
-        uint256 idx = 0;
-        for (uint256 i = length; i > 0; ) {
-            uint256 index = i - 1;
-            if (positions_sell[sellPositionKeys[index].owner][sellPositionKeys[index].positionId].expiryTimestamp <= block.timestamp) {
-                readyIndexes[idx] = index;
-                idx++;
-            }
-            unchecked { --i; }
-        }
-        return readyIndexes;
     }
 
     function getCurrentDeposits(bool isBuy) public view returns (uint256) {

@@ -153,7 +153,6 @@ contract DoppiOpportunityTest is Test {
             119584878172588832, // profit
             address(btc) // profit in asset A
         );
-
         vm.prank(mockForwarder);
         doppiOpportunity.performUpkeep(performData);
         pos = doppiCore.get_sell(user2, 1); // refresh position
@@ -241,7 +240,7 @@ contract DoppiOpportunityTest is Test {
         
         assertEq(doppiCore.getBuyPositionCount(address(0)), 3);
         oracle.setPrice(int256(95_500  * 1e8));
-        doppiOpportunity.setUpkeeps_per_check(2);
+        doppiCore.setUpkeeps_per_check(2);
 
         // first checkUpkeep
         (bool upkeepNeeded, bytes memory performData) = doppiOpportunity.checkUpkeep("");
