@@ -24,7 +24,8 @@ library TestParamLib {
 			v3Pool: PCSWAP_V3Pool,
 			twapDuration: 3600,
 			maxDepositPercentage: 20000,
-			maxDelay: 2 minutes
+			maxDelay: 2 minutes,
+			maxSwap: 500000 ether
 		});
 		
         return configLP;

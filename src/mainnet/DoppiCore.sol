@@ -533,7 +533,6 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
         _removeInterestLiability(p.interest, isBuy);
         _updateTotalDeposit(p.amount, isBuy);
 
-        uint256 amountOut;
         SettlementResult memory result;
         bool isInTheMoney = isBuy ? (price <= p.strikePrice) : (price >= p.strikePrice);
         if (isInTheMoney) {

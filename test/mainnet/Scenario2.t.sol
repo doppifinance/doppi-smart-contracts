@@ -509,6 +509,216 @@ contract Scenario2Test is Test {
         
     }
 
+    function test_Scenario_CheckUpKeep_DoppiLiquidity_GasMax_Buy() public {
+        
+        uint256 depositLPAmount = 100_000_000 ether;
+        uint256 depositBTCAmount = 100.0000 ether;
+
+        deal(USDT, trader, depositLPAmount);            
+        deal(BTC, trader, depositBTCAmount);            
+            
+        vm.startPrank(trader);            
+        usdt.approve(address(doppiRouter), depositLPAmount);        
+        btc.approve(address(doppiRouter), depositBTCAmount);        
+        doppiRouter.deposit(address(usdt), depositLPAmount);
+        doppiRouter.deposit(address(btc), depositBTCAmount);
+        vm.stopPrank();
+
+        uint256 totalSwaps = 500;
+        uint256 priceChanges = 50; // Change price 50 times during test
+        uint256 swapsPerPrice = totalSwaps / priceChanges;
+
+        uint256 currentPrice = (100_000 * 10**8) * (10100 / 10000);
+        for (uint256 priceChange = 0; priceChange < priceChanges; priceChange++) {
+            
+            int256 startPrice = int256(currentPrice);
+            _manipulateRealChainlink(startPrice, address(oracle));            
+            console.log("\nPrice change", priceChange + 1, "/", priceChanges);
+            console.log("Current price:", currentPrice / 10**8, "USD");
+            
+            // Perform swaps at this price
+            for (uint256 swapNum = 0; swapNum < swapsPerPrice; swapNum++) {
+                uint256 swapAmount = _generateRandomAmount(swapNum);
+                vm.startPrank(address(doppiCore));
+                deal(USDT, address(doppiCore), swapAmount);  
+                doppiLP.swap(swapAmount, uint256(startPrice), true);
+                vm.stopPrank();
+            }
+
+            // Generate random price between 100000 and 120000 
+            if(priceChange > 10 && priceChange <= 15){
+                currentPrice = currentPrice * 9950 / 10000;
+            }else if(priceChange > 15 && priceChange <= 20){
+                currentPrice = currentPrice * 10050 / 10000;
+            }else if(priceChange > 20 && priceChange <= 25){
+                currentPrice = currentPrice * 9910 / 10000;
+            }else{
+                currentPrice = currentPrice * 10010 / 10000;
+            }
+        }
+
+        int256 newPrice = int256(98556 * 1e8);
+        _manipulateRealChainlink(newPrice, address(oracle));
+        
+        uint256 gasBefore = gasleft();
+        (bool upkeepNeeded, bytes memory performData) = doppiLP.checkUpkeep("");
+        uint256 gasUsed = gasBefore - gasleft();
+        console.log(upkeepNeeded, gasUsed, "gasUsed in doppiLP.checkUpkeep");
+        assertLt(gasUsed, 200_000, "Gas usage too high");
+
+        vm.prank(forwarder);
+        gasBefore = gasleft();
+        doppiLP.performUpkeep(performData);
+        gasUsed = gasBefore - gasleft();
+        console.log(gasUsed, "gasUsed in doppiLP.performUpkeep");
+        assertLt(gasUsed, 2_000_000, "Gas usage too high");
+        vm.stopPrank();
+        
+    }
+
+    function test_Scenario_CheckUpKeep_DoppiLiquidity_GasMaxNetBuySell() public {
+        
+        uint256 depositLPAmount = 100_000_000 ether;
+        uint256 depositBTCAmount = 100.0000 ether;
+
+        deal(USDT, trader, depositLPAmount);            
+        deal(BTC, trader, depositBTCAmount);            
+            
+        vm.startPrank(trader);            
+        usdt.approve(address(doppiRouter), depositLPAmount);        
+        btc.approve(address(doppiRouter), depositBTCAmount);        
+        doppiRouter.deposit(address(usdt), depositLPAmount);
+        doppiRouter.deposit(address(btc), depositBTCAmount);
+        vm.stopPrank();
+
+        uint256 totalSwaps = 500;
+        uint256 priceChanges = 50; // Change price 50 times during test
+        uint256 swapsPerPrice = totalSwaps / priceChanges;
+
+        uint256 currentPrice = (100_000 * 10**8) * (10100 / 10000);
+        for (uint256 priceChange = 0; priceChange < priceChanges; priceChange++) {
+            
+            int256 startPrice = int256(currentPrice);
+            _manipulateRealChainlink(startPrice, address(oracle));            
+            console.log("\nPrice change", priceChange + 1, "/", priceChanges);
+            console.log("Current price:", currentPrice / 10**8, "USD");
+            
+            // Perform swaps at this price
+            for (uint256 swapNum = 0; swapNum < swapsPerPrice; swapNum++) {
+                bool isBuy = swapNum % 2 == 0;
+                uint256 swapAmount = _generateRandomAmount(swapNum);
+                if(!isBuy){
+                    uint256 amountinBTC = swapAmount * 1e8 / uint256(startPrice);
+                    vm.startPrank(address(doppiCore));
+                    deal(BTC, address(doppiCore), amountinBTC);  
+                    doppiLP.swap(amountinBTC, uint256(startPrice), false);
+                    vm.stopPrank();
+                }else{
+                    vm.startPrank(address(doppiCore));
+                    deal(USDT, address(doppiCore), swapAmount);  
+                    doppiLP.swap(swapAmount, uint256(startPrice), true);
+                    vm.stopPrank(); 
+                }
+            }
+
+            // Generate random price between 100000 and 120000 
+            if(priceChange > 10 && priceChange <= 15){
+                currentPrice = currentPrice * 9950 / 10000;
+            }else if(priceChange > 15 && priceChange <= 20){
+                currentPrice = currentPrice * 10050 / 10000;
+            }else if(priceChange > 20 && priceChange <= 25){
+                currentPrice = currentPrice * 9910 / 10000;
+            }else{
+                currentPrice = currentPrice * 10010 / 10000;
+            }
+        }
+
+        int256 newPrice = int256(98556 * 1e8);
+        _manipulateRealChainlink(newPrice, address(oracle));
+        
+        uint256 gasBefore = gasleft();
+        (bool upkeepNeeded, bytes memory performData) = doppiLP.checkUpkeep("");
+        uint256 gasUsed = gasBefore - gasleft();
+        console.log(upkeepNeeded, gasUsed, "gasUsed in doppiLP.checkUpkeep");
+        assertLt(gasUsed, 200_000, "Gas usage too high");
+
+        vm.prank(forwarder);
+        gasBefore = gasleft();
+        doppiLP.performUpkeep(performData);
+        gasUsed = gasBefore - gasleft();
+        console.log(gasUsed, "gasUsed in doppiLP.performUpkeep");
+        assertLt(gasUsed, 1_000_000, "Gas usage too high");
+        vm.stopPrank();
+        
+    }
+
+    function test_Scenario_CheckUpKeep_DoppiLiquidity_GasMax_Sell() public {
+        
+        uint256 depositLPAmount = 100_000_000 ether;
+        uint256 depositBTCAmount = 100.0000 ether;
+
+        deal(USDT, trader, depositLPAmount);            
+        deal(BTC, trader, depositBTCAmount);            
+            
+        vm.startPrank(trader);            
+        usdt.approve(address(doppiRouter), depositLPAmount);        
+        btc.approve(address(doppiRouter), depositBTCAmount);        
+        doppiRouter.deposit(address(usdt), depositLPAmount);
+        doppiRouter.deposit(address(btc), depositBTCAmount);
+        vm.stopPrank();
+
+        uint256 totalSwaps = 500;
+        uint256 priceChanges = 50; // Change price 50 times during test
+        uint256 swapsPerPrice = totalSwaps / priceChanges;
+
+        uint256 currentPrice = (100_000 * 10**8) * (10100 / 10000);
+        for (uint256 priceChange = 0; priceChange < priceChanges; priceChange++) {
+            
+            int256 startPrice = int256(currentPrice);
+            _manipulateRealChainlink(startPrice, address(oracle));            
+            console.log("\nPrice change", priceChange + 1, "/", priceChanges);
+            console.log("Current price:", currentPrice / 10**8, "USD");
+            
+            // Perform swaps at this price
+            for (uint256 swapNum = 0; swapNum < swapsPerPrice; swapNum++) {
+                uint256 swapAmount = _generateRandomAmount(swapNum);
+                uint256 amountinBTC = swapAmount * 1e8 / uint256(startPrice);
+                vm.startPrank(address(doppiCore));
+                deal(BTC, address(doppiCore), amountinBTC);  
+                doppiLP.swap(amountinBTC, uint256(startPrice), false);
+                vm.stopPrank();
+            }
+            // Generate random price between 100000 and 120000 
+            if(priceChange > 10 && priceChange <= 15){
+                currentPrice = currentPrice * 9950 / 10000;
+            }else if(priceChange > 15 && priceChange <= 20){
+                currentPrice = currentPrice * 10050 / 10000;
+            }else if(priceChange > 20 && priceChange <= 25){
+                currentPrice = currentPrice * 9910 / 10000;
+            }else{
+                currentPrice = currentPrice * 10010 / 10000;
+            }
+        }
+
+        int256 newPrice = int256(101556 * 1e8);
+        _manipulateRealChainlink(newPrice, address(oracle));
+        
+        uint256 gasBefore = gasleft();
+        (bool upkeepNeeded, bytes memory performData) = doppiLP.checkUpkeep("");
+        uint256 gasUsed = gasBefore - gasleft();
+        console.log(upkeepNeeded, gasUsed, "gasUsed in doppiLP.checkUpkeep");
+        assertLt(gasUsed, 200_000, "Gas usage too high");
+
+        if(upkeepNeeded){
+            vm.prank(forwarder);
+            gasBefore = gasleft();
+            doppiLP.performUpkeep(performData);
+            gasUsed = gasBefore - gasleft();
+            console.log(gasUsed, "gasUsed in doppiLP.performUpkeep");
+            assertLt(gasUsed, 2_000_000, "Gas usage too high");
+            vm.stopPrank();
+        }
+    }
 
     function _depositBTC(uint256 amount) internal returns (DualAssetOffer memory) {
 
@@ -600,6 +810,8 @@ contract Scenario2Test is Test {
         configLP = _getConfigLP();
         _doppiLP.setConfig(configLP); 
         _doppiLP.approveRouter();
+        _doppiLP.setForwarderAddress(forwarder);
+        _doppiLP.setUpkeeps_per_check(20);
         return _doppiLP;
     }
 
@@ -753,7 +965,7 @@ contract Scenario2Test is Test {
 			router : PCSWAP_V3_ROUTER,
 			quoter: PCSWAP_V3_QUOTER,
 			poolFee: 500,  
-			slippage: 1000,
+			slippage: 2000,
 			liquidityFee: 1000,
 			swapMargin: 5000,
 			priceDecimals: 8,
@@ -761,7 +973,20 @@ contract Scenario2Test is Test {
 			v3Pool: PCSWAP_V3Pool,
 			twapDuration: 3600,
 			maxDepositPercentage: 20000,
-			maxDelay: 2 minutes
+			maxDelay: 2 minutes,
+			maxSwap: 500000 ether
 		});
+    }
+
+    function _generateRandomAmount(uint256 seed) internal pure returns (uint256) {
+        // Generate amount between 1000 and 5000 tokens
+        uint256 base = 1000 * 10**18;
+        if(seed > 15){
+            seed -= 5;
+        }else if(seed > 25){
+            seed -= 10;
+        }  
+        // uint256 variation = (uint256(keccak256(abi.encodePacked(seed))) % 4990) + 10;
+        return base * (seed + 1);
     }
 }

@@ -77,6 +77,7 @@ contract DoppiLiquidityTest is Test {
         // Set router entry points as valid entry points in liquidity contract
         doppiLP.setEntryPoint(address(router.entryPointA()), true);
         doppiLP.setEntryPoint(address(router.entryPointB()), true);
+        doppiLP.setUpkeeps_per_check(20);
 
         // Mint tokens to user
         usdt.mint(user, USDT_DEPOSIT * 2); // Extra for multiple tests
@@ -319,7 +320,6 @@ contract DoppiLiquidityTest is Test {
 
         // Step 1: Create price orders through swaps at different price points
         // Swap at current price
-        
         oracle.setPrice(int256(currentPrice));
         vm.prank(mockDualAsset);
         doppiLP.swap(SWAP_AMOUNT_USDT, currentPrice, true); // Buy order at current price
@@ -341,17 +341,14 @@ contract DoppiLiquidityTest is Test {
         // Price change created arbitrage opportunity
         uint256 preUpkeepUSDT = usdt.balanceOf(address(doppiLP));
         uint256 preUpkeepBTC = btc.balanceOf(address(doppiLP));
-        uint256 preUpkeepToBuyPricesLength = doppiLP.getToBuyPricesLength();
 
         vm.prank(mockForwarder);
         doppiLP.performUpkeep(newPerformData);
 
         uint256 postUpkeepUSDT = usdt.balanceOf(address(doppiLP));
         uint256 postUpkeepBTC = btc.balanceOf(address(doppiLP));
-        uint256 postUpkeepToBuyPricesLength = doppiLP.getToBuyPricesLength();
         
         assertGt(postUpkeepBTC, preUpkeepBTC, "BTC balance should increase after unwind");
-        assertEq(postUpkeepToBuyPricesLength, preUpkeepToBuyPricesLength - 2, "ToBuyPrices length should decrease after upkeep");
         assertEq(postUpkeepUSDT, LARGE_USDT_AMOUNT * 5, "USDT balance back to initial position");
 
     }
@@ -378,17 +375,14 @@ contract DoppiLiquidityTest is Test {
         // Price change created arbitrage opportunity
         uint256 preUpkeepUSDT = usdt.balanceOf(address(doppiLP));
         uint256 preUpkeepBTC = btc.balanceOf(address(doppiLP));
-        uint256 preUpkeepToSellPricesLength = doppiLP.getToSellPricesLength();
         
         vm.prank(mockForwarder);
         doppiLP.performUpkeep(newPerformData);
 
         uint256 postUpkeepUSDT = usdt.balanceOf(address(doppiLP));
         uint256 postUpkeepBTC = btc.balanceOf(address(doppiLP));
-        uint256 postUpkeepToSellPricesLength = doppiLP.getToSellPricesLength();
 
         assertGt(postUpkeepUSDT, preUpkeepUSDT, "USDT balance should increase after unwind");
-        assertEq(postUpkeepToSellPricesLength, preUpkeepToSellPricesLength - 1, "ToSellPrices length should decrease after upkeep");
         assertEq(postUpkeepBTC, LARGE_BTC_AMOUNT * 5, "BTC balance back to initial position");
 
     }
@@ -420,7 +414,6 @@ contract DoppiLiquidityTest is Test {
         // Price change created arbitrage opportunity
         uint256 preUpkeepUSDT = usdt.balanceOf(address(doppiLP));
         uint256 preUpkeepBTC = btc.balanceOf(address(doppiLP));
-        uint256 preUpkeepToBuyPricesLength = doppiLP.getToBuyPricesLength();
 
         // Check if price change triggers arbitrage opportunity
         (bool upkeepNeededAfterPriceChange, bytes memory newPerformData) = doppiLP.checkUpkeep("");
@@ -430,7 +423,6 @@ contract DoppiLiquidityTest is Test {
 
         uint256 postUpkeepUSDT = usdt.balanceOf(address(doppiLP));
         uint256 postUpkeepBTC = btc.balanceOf(address(doppiLP));
-        uint256 postUpkeepToBuyPricesLength = doppiLP.getToBuyPricesLength();
         
         // price down to 95000, unwind the last order
         priceDown5Percent = currentPrice * 95 / 100;
@@ -439,7 +431,6 @@ contract DoppiLiquidityTest is Test {
         // Price change created arbitrage opportunity
         preUpkeepUSDT = usdt.balanceOf(address(doppiLP));
         preUpkeepBTC = btc.balanceOf(address(doppiLP));
-        preUpkeepToBuyPricesLength = doppiLP.getToBuyPricesLength();
 
         // Check if price change triggers arbitrage opportunity
         (upkeepNeededAfterPriceChange, newPerformData) = doppiLP.checkUpkeep("");
@@ -449,70 +440,9 @@ contract DoppiLiquidityTest is Test {
         
         postUpkeepUSDT = usdt.balanceOf(address(doppiLP));
         postUpkeepBTC = btc.balanceOf(address(doppiLP));
-        postUpkeepToBuyPricesLength = doppiLP.getToBuyPricesLength();
-        uint256 postUpkeepToSellPricesLength = doppiLP.getToSellPricesLength();
 
         assertGt(postUpkeepBTC, LARGE_BTC_AMOUNT * 5, "BTC balance should increase after unwind");
         assertGt(postUpkeepUSDT, LARGE_USDT_AMOUNT * 5, "USDT balance should increase after unwind");
-        assertEq(postUpkeepToBuyPricesLength, 0, "ToBuyPrices length should decrease after upkeep");
-        assertEq(postUpkeepToSellPricesLength, 0, "ToSellPrices length should decrease after upkeep");
-    }
-
-    function testCheckUpkeep_performUp_buy_pagination() public {
-        uint256 currentPrice = doppiLP.getPrice();
-        // Setup substantial liquidity for testing
-        _setupLiquidity(LARGE_USDT_AMOUNT * 5, LARGE_BTC_AMOUNT * 5);
-        _setupSwapTest(SWAP_AMOUNT_USDT * 10, SWAP_AMOUNT_BTC * 10, mockDualAsset);
-
-        uint256 percent = 0;
-        // place 3 orders
-        for(uint256 i=0; i < 3; i++)
-        {
-            uint256 priceUp5Percent = currentPrice * (100 + percent) / 100;
-            oracle.setPrice(int256(priceUp5Percent));
-            vm.prank(mockDualAsset);
-            doppiLP.swap(SWAP_AMOUNT_USDT, priceUp5Percent, true); // Buy order at current price
-            vm.stopPrank();
-            percent += 5;
-        }
-
-        // Swap at -5% price
-        uint256 priceDown5Percent = currentPrice * 95 / 100;
-        oracle.setPrice(int256(priceDown5Percent));
-
-        doppiLP.setUpkeeps_per_check(2);
-        
-        // Check if price change triggers arbitrage opportunity
-        (bool upkeepNeededAfterPriceChange, bytes memory newPerformData) = doppiLP.checkUpkeep("");
-        assertTrue(upkeepNeededAfterPriceChange, "Upkeep should be needed after price change");
-        (bool isNetBuy, uint256[] memory buyindexes, uint256[] memory sellindexes, uint256 totalAmount, uint256 totalAmountOut) = 
-            abi.decode(newPerformData, (bool, uint256[], uint256[], uint256, uint256));
-        
-        assertEq(buyindexes.length, 2);
-        
-        // perform upkeep
-        vm.prank(mockForwarder);
-        doppiLP.performUpkeep(newPerformData);
-        vm.stopPrank();
-        uint256 preUpkeepToBuyPricesLength = doppiLP.getToBuyPricesLength();
-        assertEq(preUpkeepToBuyPricesLength, 1);
-        
-        // second checkUpkeep
-        (upkeepNeededAfterPriceChange, newPerformData) = doppiLP.checkUpkeep("");
-        assertTrue(upkeepNeededAfterPriceChange);
-        (isNetBuy, buyindexes, sellindexes, totalAmount, totalAmountOut) = 
-            abi.decode(newPerformData, (bool, uint256[], uint256[], uint256, uint256));
-        
-        assertEq(buyindexes.length, 1);
-        
-        // second perform upkeep
-        vm.prank(mockForwarder);
-        doppiLP.performUpkeep(newPerformData);
-        vm.stopPrank();
-        
-        // process all
-        uint256 postUpkeepToBuyPricesLength = doppiLP.getToBuyPricesLength();
-        assertEq(postUpkeepToBuyPricesLength, 0);
     }
 
     // Event Emit 

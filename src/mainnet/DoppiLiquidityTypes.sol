@@ -16,6 +16,7 @@ struct ConfigParam {
     uint32 twapDuration;
     uint24 maxDepositPercentage;
     uint32 maxDelay;
+    uint256 maxSwap;
 }
 
 struct Config {
@@ -32,4 +33,5 @@ struct Config {
     uint32 twapDuration;
     uint24 maxDepositPercentage;
     uint32 maxDelay;
+    uint256 maxSwap;
 }
