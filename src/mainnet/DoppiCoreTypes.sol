@@ -53,12 +53,6 @@ struct HedgeBulkTrade {
     bool isNetBuy;
 }
 
-struct Trade {
-    uint256 payoutAmount;
-    uint256 origAmount;
-    uint256 origStrikePrice;
-}
-
 struct OrderConfig {
     uint8 strikeZone;
     uint24 weight;

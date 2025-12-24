@@ -67,7 +67,7 @@ contract DoppiOffer is IDoppiOffer, Ownable {
         TOTAL_OFFER = _total;
     }
 
-    function setPriceGapPerOffer(uint32 _priceGap) external onlyOwner {
+    function setPriceGapPerOffer(uint256 _priceGap) external onlyOwner {
         PRICE_GAP_PEROFFER = _priceGap;
     }
 
@@ -103,6 +103,10 @@ contract DoppiOffer is IDoppiOffer, Ownable {
         sellRegression[_daysInTimestamp].b = _sellb;
         sellRegression[_daysInTimestamp].c = _sellc;
         sellRegression[_daysInTimestamp].lastUpdated = block.timestamp;
+    }
+
+    function getPriceGapPerOffer() external view returns (uint256) {
+        return PRICE_GAP_PEROFFER;
     }
 
     /// Format it to 1e16 ie. 30.66 * 1e16

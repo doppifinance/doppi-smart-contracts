@@ -77,7 +77,6 @@ contract DoppiLiquidityTest is Test {
         // Set router entry points as valid entry points in liquidity contract
         doppiLP.setEntryPoint(address(router.entryPointA()), true);
         doppiLP.setEntryPoint(address(router.entryPointB()), true);
-        doppiLP.setUpkeeps_per_check(20);
 
         // Mint tokens to user
         usdt.mint(user, USDT_DEPOSIT * 2); // Extra for multiple tests
@@ -556,8 +555,6 @@ contract DoppiLiquidityTest is Test {
 
         // Check if price change triggers arbitrage opportunity
         (bool upkeepNeededAfterPriceChange, bytes memory newPerformData) = doppiLP.checkUpkeep("");
-        
-        // event UnwindPerformed(bool isNetBuy, uint256 totalAmount, uint256 totalAmountOut);
         
         vm.expectEmit(true, true, true, true);
         emit UnwindPerformed(

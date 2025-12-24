@@ -581,7 +581,7 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
             doppiTraderFactory.isTraderBot(p.owner)
         ) {
             IDoppiTrader(p.owner).createUnwindPosition(
-                p.amount,
+                p.payout,
                 p.strikePrice,
                 isBuy
             );
