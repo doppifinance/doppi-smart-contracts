@@ -108,56 +108,28 @@ library DALiquidityLib {
         return Math.mulDiv(numerator1, numerator2, 1 << 192);
     }
 
-    function sortedInsert(
-        uint256[] storage a,
-        uint256 index,
-        uint256 value
-    ) public {
-        if (index > a.length) revert OUTOFBOUNDS();
-        a.push();
-        // Only shift if not inserting at the end
-        if (index < a.length - 1) {
-            for (uint256 i = a.length - 1; i > index; ) {
-                a[i] = a[i - 1];
-                unchecked {
-                    i--;
-                }
-            }
-        }
-        a[index] = value;
-    }
+    
 
-    function sortedRemove(uint256[] storage a, uint256 index) public {
-        if (index >= a.length) revert OUTOFBOUNDS();
-        for (uint256 i = index; i < a.length - 1; ) {
-            a[i] = a[i + 1];
-            unchecked {
-                i++;
-            }
-        }
-        a.pop();
-    }
-
-    function find(
-        uint256[] memory a,
-        uint256 value
-    ) public pure returns (bool, uint256) {
-        uint256 left = 0;
-        uint256 right = a.length;
-        while (left < right) {
-            uint256 mid = (left & right) + ((left ^ right) >> 1);
-            uint256 midVal = a[mid];
-            if (midVal == value) {
-                return (true, mid);
-            }
-            if (midVal < value) {
-                left = mid + 1;
-            } else {
-                right = mid;
-            }
-        }
-        return (false, 0);
-    }
+    // function find(
+    //     uint256[] memory a,
+    //     uint256 value
+    // ) public pure returns (bool, uint256) {
+    //     uint256 left = 0;
+    //     uint256 right = a.length;
+    //     while (left < right) {
+    //         uint256 mid = (left & right) + ((left ^ right) >> 1);
+    //         uint256 midVal = a[mid];
+    //         if (midVal == value) {
+    //             return (true, mid);
+    //         }
+    //         if (midVal < value) {
+    //             left = mid + 1;
+    //         } else {
+    //             right = mid;
+    //         }
+    //     }
+    //     return (false, 0);
+    // }
 
     function sumArray(uint24[] calldata arr) public pure returns (uint24) {
         uint24 i;
@@ -167,18 +139,18 @@ library DALiquidityLib {
         return sum;
     }
 
-    function netoutBuySell(
-        uint256 _totalSellB,
-        uint256 _totalSellOut,
-        uint256 _totalBuyA,
-        uint256 _totalBuyAOut
-    ) public pure returns (bool isNetBuy, uint256 netSellOrBuy) {
-        if (_totalSellB > _totalBuyAOut) {
-            isNetBuy = false;
-            netSellOrBuy = _totalSellB - _totalBuyAOut;
-        } else {
-            isNetBuy = true;
-            netSellOrBuy = _totalBuyA - _totalSellOut;
-        }
-    }
+    // function netoutBuySell(
+    //     uint256 _totalSellB,
+    //     uint256 _totalSellOut,
+    //     uint256 _totalBuyA,
+    //     uint256 _totalBuyAOut
+    // ) public pure returns (bool isNetBuy, uint256 netSellOrBuy) {
+    //     if (_totalSellB > _totalBuyAOut) {
+    //         isNetBuy = false;
+    //         netSellOrBuy = _totalSellB - _totalBuyAOut;
+    //     } else {
+    //         isNetBuy = true;
+    //         netSellOrBuy = _totalBuyA - _totalSellOut;
+    //     }
+    // }
 }
