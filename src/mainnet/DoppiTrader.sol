@@ -5,7 +5,7 @@ import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {AutomationCompatibleInterface} from "../Interface/AutomationCompatibleInterface.sol";
 import {DALiquidityLib} from "../Library/DALiquidityLib.sol";
-import "./DoppiCoreTypes.sol";
+import "./DoppiTraderTypes.sol";
 import "./DoppiTraderAdminView.sol";
 // import "forge-std/console.sol";
 
@@ -74,10 +74,8 @@ contract DoppiTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCompati
         tolerance = 100;
 
         uint256 price = doppiLP.getPrice();
-        uint256 lower = _getUnwindTargetPrice(price, 1, true);   
-        uint256 upper = _getUnwindTargetPrice(price, 1, false);   
-        lowerBound = lower;
-        upperBound = upper;
+        lowerBound = price;
+        upperBound = price;
     }
 
     function start(uint256 _amountA, uint256 _amountB) external onlyTrader nonReentrant {
@@ -462,7 +460,7 @@ contract DoppiTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCompati
         uint256 length = diff / priceGapWithDecimals + 1;
 
         for (uint256 i = length; i > 0 && lowerBound <= upperBound; ) {
-            uint256 index = i - 1;
+            // uint256 index = i - 1;
             delete unWindBuy[lowerBound];
             delete unWindSell[lowerBound];
             lowerBound += priceGapWithDecimals;

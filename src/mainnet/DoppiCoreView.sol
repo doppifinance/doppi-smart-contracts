@@ -17,10 +17,10 @@ abstract contract DoppiCoreView {
     KeyPosition[] public sellPositionKeys;
     mapping(uint64 => DualAssetPosition) public positions_buy; 
     mapping(uint64 => DualAssetPosition) public positions_sell; 
+    mapping(uint256 => OpportunityOrders) public opportunityBuy;
+    mapping(uint256 => OpportunityOrders) public opportunitySell;
     
-    
-    // View functions for positions
-    
+    // View functions for positions    
     function get_positions_buy(address _owner) external view returns (DualAssetPosition[] memory) {
         uint256 count = 0;
         uint256 length = buyPositionKeys.length;
@@ -63,34 +63,6 @@ abstract contract DoppiCoreView {
             unchecked { ++i; }
         }
         return result;
-    }
-
-    function get_positions_buy() external view returns (DualAssetPosition[] memory) {
-        uint256 length = buyPositionKeys.length;
-        DualAssetPosition[] memory result = new DualAssetPosition[](length);
-        for (uint256 i = 0; i < length; ) {
-            result[i] = positions_buy[buyPositionKeys[i].positionId];
-            unchecked { ++i; }
-        }
-        return result;
-    }
-
-    function get_positions_sell() external view returns (DualAssetPosition[] memory) {
-        uint256 length = sellPositionKeys.length;
-        DualAssetPosition[] memory result = new DualAssetPosition[](length);
-        for (uint256 i = 0; i < length; ) {
-            result[i] = positions_sell[sellPositionKeys[i].positionId];
-            unchecked { ++i; }
-        }
-        return result;
-    }
-
-    function get_buy(uint32 _positionId) external view returns (DualAssetPosition memory) {
-        return positions_buy[_positionId];
-    }
-
-    function get_sell(uint32 _positionId) external view returns (DualAssetPosition memory) {
-        return positions_sell[_positionId];
     }
 
     function getBuyPositionCount(address _owner) external view returns (uint256) {

@@ -28,13 +28,15 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
     uint32 public constant SECONDS_PER_YEAR = 31536000;
     uint24 public constant SECONDS_PER_DAY = 86400;
     uint16 public constant BASIS_POINTS = 10000;
+    uint256 public upperBound;
+    uint256 public lowerBound;
     
     event Deposited(address indexed trader, uint64 positionId, address asset, uint256 amount, uint256 interest, uint256 strikePrice, uint32 apr, uint32 numDays);
     event Settled(address indexed trader, uint64 positionId, bool striked, bool isProfit, uint256 profitLoss, uint256 payout, uint256 interest, address profitToken, address payoutToken, address interestToken);
     event HedgeSettled(address indexed trader, uint64 positionId, bool isProfit, uint256 profitLoss, address profitToken);
     event EmergencyWithdraw(bool isBuy, address indexed trader, uint64 positionId, uint256 amount);
-    event OppPerformed(bool isBuy, address indexed trader, uint256 price, uint256 amount, uint256 amountOut);
-    event OppUnwindPerformed(bool isBuy, address indexed trader, uint256 price, uint256 swappedAmount, uint256 amountOut, uint256 profit, address profitToken);
+    event OppPerformed(bool isBuy, uint256 price, uint256 amount, uint256 amountOut);
+    event OppUnwindPerformed(bool isBuy, uint256 price, uint256 swappedAmount, uint256 amountOut, uint256 profit, address profitToken);
     
     error InvalidStrikePriceOrPrice();
     error InvalidAPR();
@@ -57,6 +59,10 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
         opportunityBots[msg.sender] = true;
         assetA.safeIncreaseAllowance(address(doppiLP), type(uint256).max);
         assetB.safeIncreaseAllowance(address(doppiLP), type(uint256).max);
+
+        uint256 price = doppiLP.getPrice();
+        lowerBound = price;
+        upperBound = price;
     }
 
     // Single deposit functionality
@@ -72,6 +78,12 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
         if(buyOffer.strikePrice != params.strikePrice || buyOffer.price == 0) revert InvalidStrikePriceOrPrice();
         if(!_isAPRWithinTolerance(buyOffer.apr, params.apr)) revert InvalidAPR();
         _depositBuy(params, buyOffer, true);
+
+        if(buyOffer.strikePrice > upperBound){
+            upperBound = buyOffer.strikePrice;
+        }else if (buyOffer.strikePrice < lowerBound || lowerBound == 0){
+            lowerBound = buyOffer.strikePrice;
+        }
     }
 
     function deposit_sell(DepositParams calldata params) 
@@ -86,6 +98,11 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
         if(sellOffer.strikePrice != params.strikePrice) revert InvalidStrikePriceOrPrice();
         if(!_isAPRWithinTolerance(sellOffer.apr, params.apr)) revert InvalidAPR();
         _depositSell(params, sellOffer, true);
+        if(sellOffer.strikePrice > upperBound){
+            upperBound = sellOffer.strikePrice;
+        }else if (sellOffer.strikePrice < lowerBound || lowerBound == 0){
+            lowerBound = sellOffer.strikePrice;
+        }
     }
 
     function bulkDeposit(bool isBuy, DepositParams[] calldata params, DualAssetOffer[] memory _offers, bool _hedge) external onlyTraderBot whenNotPaused {
@@ -453,8 +470,6 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
             _buyOffer.expiry,
             _buyOffer.apr,
             sender,
-            0,
-            false,
             interest,
             hedgeAmountInAssetB,
             swappedHedgeAmount,
@@ -463,6 +478,7 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
         );
 
         buyPositionKeys.push(KeyPosition(sender, positionId));
+        opportunityBuy[_buyOffer.strikePrice].amount += amount;
         // Update interest liability
         _updateInterestLiability(interest, true);
         emit Deposited(sender, positionId, address(assetA), amount, interest, _buyOffer.strikePrice, _buyOffer.apr, numDays);
@@ -503,8 +519,6 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
             _sellOffer.expiry,
             _sellOffer.apr,
             sender,
-            0,
-            false,
             interest,
             hedgeAmountInAssetA,
             swappedHedgeAmount,
@@ -512,6 +526,8 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
             payout
         );
         sellPositionKeys.push(KeyPosition(sender, positionId));
+        opportunitySell[_sellOffer.strikePrice].amount += amount;
+
         _updateInterestLiability(interest, false);
         emit Deposited(sender, positionId, address(assetB), amount, interest, _sellOffer.strikePrice, _sellOffer.apr, numDays);
     }
@@ -522,12 +538,8 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
         uint256 price
     ) internal {
         
-        DualAssetPosition memory p = isBuy
-            ? positions_buy[position.positionId]
-            : positions_sell[position.positionId];
-
+        DualAssetPosition memory p = isBuy ? positions_buy[position.positionId] : positions_sell[position.positionId];
         if(p.expiryTimestamp > block.timestamp) revert NotExpired();
-
         uint256 payout = p.payout;
         
         _removeInterestLiability(p.interest, isBuy);
@@ -536,24 +548,22 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
         SettlementResult memory result;
         bool isInTheMoney = isBuy ? (price <= p.strikePrice) : (price >= p.strikePrice);
         if (isInTheMoney) {
-            result = p.isTraded ? _settleStrikeTraded(p, isBuy) : _settleStrikeNoTraded(p, price, isBuy);
+            result = _settleStrike(p, price, isBuy);
             _createTraderBotUnwindPosition(p, isBuy);
-            
         } else {
-            result = p.isTraded ? _settleNoStrikeTraded(p, price, isBuy) : _settleNoStrikeNoTraded(p, isBuy);
+            result = _settleNoStrike(p, price, isBuy);
             payout = 0;
         }
+
         // get interest from LP and unwind hedging
         (uint256 hedgeOut, ) = _doppiInterestUnwindHedge(IERC20(result.interestToken), p.interest, p.swappedHedgeAmount, price, isBuy);
-        
-        if (p.interest > 0) {
-            _safeTransferWithFee(IERC20(result.interestToken), p.owner, p.interest);
-        }
-        // update Hedge unwind settlement
         if(hedgeOut > 0){
             _recordHedgeSwap(p, hedgeOut, isBuy, position.positionId);
         }
         
+        if (p.interest > 0) {
+            _safeTransferWithFee(IERC20(result.interestToken), p.owner, p.interest);
+        }
         // record for points
         if(!doppiPoints.paused()){
             uint256 tradeVolume = isBuy ? p.amount : (p.amount * price) / priceDecimal; 
@@ -573,7 +583,7 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
             result.interestToken
         );
     }
-  
+
     function _createTraderBotUnwindPosition(DualAssetPosition memory p, bool isBuy) internal {
         
         if (
@@ -588,7 +598,6 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
         }
     }
     
-
     function _removePosition(uint256 index, KeyPosition memory _pos, bool isBuy) internal {
         // Delete from storage mapping
         if (isBuy) {
@@ -596,7 +605,6 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
         } else {
             delete positions_sell[_pos.positionId];
         }
-        
         // Get the correct array
         KeyPosition[] storage positionKeys = isBuy ? buyPositionKeys : sellPositionKeys;
         uint256 lastIndex = positionKeys.length - 1;
@@ -609,32 +617,9 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
     }
 
     // Settlement helper functions
-    function _settleStrikeNoTraded(
+    function _settleStrike(
         DualAssetPosition memory p,
         uint256 _price,
-        bool _isBuy
-    ) internal returns (SettlementResult memory result) {
-        (IERC20 payoutToken_, IERC20 interestToken_) = _isBuy ? (assetB, assetA): (assetA, assetB);
-
-        uint256 amountOut = _isBuy
-            ? (p.amount * priceDecimal) / _price
-            : (p.amount * _price) / priceDecimal;
-        _doppiSettleCall(p.amount, amountOut, _price, _isBuy);
-        payoutToken_.safeTransfer(p.owner, p.payout);
-        uint256 settleprofit = amountOut > p.payout ? amountOut - p.payout : 0;
-        if (settleprofit > 0) {
-            _safeTransferWithFee(payoutToken_, address(doppiLP), settleprofit);
-        }
-
-        result.payoutToken = address(payoutToken_);
-        result.interestToken = address(interestToken_);
-        result.profitToken = address(payoutToken_);
-        return result;
-    }
-
-
-    function _settleStrikeTraded(
-        DualAssetPosition memory p,
         bool _isBuy
     ) internal returns (SettlementResult memory result) {
         
@@ -642,61 +627,82 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
             ? (assetB, assetB, assetA)
             : (assetA, assetA, assetB);
 
-        // Payout
-        payoutToken.safeTransfer(p.owner, p.payout);
-        if (p.swappedAmount >= p.payout) {
-            unchecked {
-                result.profitLoss = p.swappedAmount - p.payout; 
+        mapping(uint256 => OpportunityOrders) storage opporMap = _isBuy ? opportunityBuy : opportunitySell; 
+        uint256 amount = opporMap[p.strikePrice].amount;
+        uint256 swappedAmount = opporMap[p.strikePrice].swappedAmount;
+        uint256 unTradeAmount = amount - swappedAmount;
+        
+        uint256 amountOut = _isBuy ? (p.amount * priceDecimal) / _price : (p.amount * _price) / priceDecimal;
+        
+        // not traded case
+        if(unTradeAmount >= p.amount){
+            _doppiSettleCall(p.amount, amountOut, _price, _isBuy);
+            payoutToken.safeTransfer(p.owner, p.payout);
+            uint256 settleprofit = amountOut > p.payout ? amountOut - p.payout : 0;
+            if (settleprofit > 0) {
+                _safeTransferWithFee(payoutToken, address(doppiLP), settleprofit);
             }
-            result.isProfit = true;
-            _safeTransferWithFee(profitToken, address(doppiLP), result.profitLoss);
+        // traded case
+        }else{
+            payoutToken.safeTransfer(p.owner, p.payout);
+            uint256 ratio = p.amount * 1e18 / swappedAmount;
+            uint256 myamountOut = opporMap[p.strikePrice].outAmount * ratio / 1e18;
+            if (myamountOut >= p.payout) {
+                unchecked {
+                    result.profitLoss = myamountOut - p.payout; 
+                }
+                result.isProfit = true;
+                _safeTransferWithFee(profitToken, address(doppiLP), result.profitLoss);
+                opporMap[p.strikePrice].outAmount -= myamountOut;
+                opporMap[p.strikePrice].swappedAmount -= swappedAmount;
+            }
         }
-
-        result.profitToken = address(profitToken);
+        
         result.payoutToken = address(payoutToken);
         result.interestToken = address(interestToken);
+        result.profitToken = address(profitToken);
         return result;
     }
 
-
-    function _settleNoStrikeTraded(
+    function _settleNoStrike(
         DualAssetPosition memory p,
         uint256 _price,
         bool _isBuy
     ) internal returns (SettlementResult memory result) {
+        
+        mapping(uint256 => OpportunityOrders) storage opporMap = _isBuy ? opportunityBuy : opportunitySell; 
+        uint256 amount = opporMap[p.strikePrice].amount;
+        uint256 swappedAmount = opporMap[p.strikePrice].swappedAmount;
+        uint256 unTradeAmount = amount - swappedAmount;
+
         // Pick settle/payout tokens based on trade direction
         IERC20 payoutToken = _isBuy ? assetA : assetB;
-        // Perform settlement
-        uint256 amountOut = _swapLowLevel(p.swappedAmount, _price, !_isBuy); 
-        // Profit calculation
-        if (amountOut >= p.amount) {
-            unchecked {
-                result.profitLoss = amountOut - p.amount; 
+
+        if(unTradeAmount >= p.amount){
+            payoutToken.safeTransfer(p.owner, p.amount);
+        }else{
+            uint256 ratio = p.amount * 1e18 / swappedAmount;
+            uint256 amountOut = opporMap[p.strikePrice].outAmount * ratio / 1e18;
+            // Perform settlement
+            uint256 amountInOrig = _swapLowLevel(amountOut, _price, !_isBuy);             
+            payoutToken.safeTransfer(p.owner, p.amount);
+            // Profit calculation
+            if (amountInOrig >= p.amount) {
+                unchecked {
+                    result.profitLoss = amountInOrig - p.amount; 
+                }
+                result.isProfit = true;
+                _safeTransferWithFee(payoutToken, address(doppiLP), result.profitLoss);
             }
-            result.isProfit = true;
-            _safeTransferWithFee(payoutToken, address(doppiLP), result.profitLoss);
+            opporMap[p.strikePrice].outAmount -= amountOut;
+            opporMap[p.strikePrice].swappedAmount -= swappedAmount;
         }
-
+        
         result.profitToken = address(payoutToken);
         result.payoutToken = address(payoutToken);
         result.interestToken = address(payoutToken);
         return result;
     }
-
-
-    function _settleNoStrikeNoTraded(
-        DualAssetPosition memory p,
-        bool _isBuy
-    ) internal returns (SettlementResult memory result) {
-        IERC20 payoutToken = _isBuy ? assetA : assetB;
-        // Transfer principal
-        payoutToken.safeTransfer(p.owner, p.amount);
-        result.profitToken = address(payoutToken);
-        result.payoutToken = address(payoutToken);
-        result.interestToken = address(payoutToken);
-        return result;
-    }
-
 
     function _recordHedgeSwap(DualAssetPosition memory p, uint256 hedgeOut, bool isBuy, uint64 _positionId) internal {
         
@@ -732,117 +738,169 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
         }
     }
 
+    function _checkOppoOrUnwind(
+        bool _isBuy,
+        uint256 price, 
+        uint256 oneDayMove,
+        bool _unwind
+    ) internal view returns (uint256[] memory targetPrices, uint256[] memory totalAmount) 
+    {
+        mapping(uint256 => OpportunityOrders) storage opporMap = _isBuy ? opportunityBuy : opportunitySell; 
+        
+        bool direction = (_isBuy && _unwind) || (!_isBuy && !_unwind);
+
+        uint256 round = _getLoopRound(price, direction);
+        uint256[] memory tempTargetPrice = new uint256[](round);
+        uint256[] memory tempTotalAmount = new uint256[](round);
+        
+        uint256 count = 0;
+        uint256 buffer = price * oneDayMove / 10000;
+        uint256 triggerPrice = _isBuy ? price + buffer : price - buffer;
+        uint256 triggerUnwindPrice = _isBuy ? price - buffer : price + buffer;
+        // uint256 maxSwapInLocal = isBuy ? config.maxSwap : config.maxSwap * config.decimals / currentPrice;
+        
+        for (uint256 i = round; i > 0; ) {
+            uint256 strikeprice = _getTargetPrice(price, uint8(i), direction);
+            
+            if(_unwind){
+                
+                uint256 outAmount = opporMap[strikeprice].outAmount;
+                uint256 unwindSwappedAmount = opporMap[strikeprice].swappedAmount;
+
+                if(outAmount > 0){
+                    uint256 costPrice = _isBuy ? unwindSwappedAmount * priceDecimal / outAmount : outAmount * priceDecimal / unwindSwappedAmount;
+                    bool shouldUnwind = _isBuy ? costPrice < triggerUnwindPrice : costPrice > triggerUnwindPrice;
+                    
+                    if (shouldUnwind) {
+                        tempTargetPrice[count] = strikeprice;
+                        tempTotalAmount[count] = outAmount;
+                        count++;
+                    }
+                }
+            }else{
+                uint256 unTradeAmount = opporMap[strikeprice].amount - opporMap[strikeprice].swappedAmount;
+                bool isTriggered = _isBuy ? (unTradeAmount > 0) && strikeprice > triggerPrice : (unTradeAmount > 0) && strikeprice < triggerPrice;
+                if(isTriggered){
+                    tempTotalAmount[count] = unTradeAmount;                
+                    tempTargetPrice[count] = strikeprice;
+                    count++;
+                }
+            }
+            unchecked { --i; }   
+        }
+
+        return _createResultArrays(tempTargetPrice, tempTotalAmount, count);
+    }
+
+
     function checkOpportunity(uint256 price, bool _isBuy) external view
-        returns (uint256 count, uint256[] memory indexes) {
+        returns (
+            uint256[] memory targetPrices, 
+            uint256[] memory targetPricesUnwind, 
+            uint256[] memory totalAmount,
+            uint256[] memory totalAmountUnwind
+        ) {
         
         uint256 oneDayMove = doppiOffer.getOneDayBuffer(price, _isBuy);
-        uint256 length = _isBuy ? buyPositionKeys.length : sellPositionKeys.length; 
-        if(length == 0) return (count, indexes);
-        
-        indexes = new uint256[](UPKEEPS_PER_CHECK);
-        count = 0;
-        for (uint256 i = 0; i < length && count < UPKEEPS_PER_CHECK; ) {
-
-            DualAssetPosition memory p = _isBuy
-                ? positions_buy[buyPositionKeys[i].positionId]
-                : positions_sell[sellPositionKeys[i].positionId];
-
-            uint256 buffer = p.strikePrice * oneDayMove / 10000;
-            
-            if (_isBuy) {
-                uint256 triggerPrice = p.strikePrice - buffer;
-                if ((!p.isTraded && price <= triggerPrice) || (p.isTraded && price >= p.strikePrice)) {
-                    indexes[count] = i;
-                    count++;
-                }
-            } else {
-                uint256 triggerPrice = p.strikePrice + buffer;
-                if ((!p.isTraded && price >= triggerPrice) || (p.isTraded && price <= p.strikePrice)) {
-                    indexes[count] = i;
-                    count++;
-                }
-            }
-            unchecked { ++i; }
-        }
-        // If we found fewer than max, trim the array
-        if (count < UPKEEPS_PER_CHECK) {
-            uint256[] memory trimmed = new uint256[](count);
-            for (uint256 j = 0; j < count; j++) {
-                trimmed[j] = indexes[j];
-            }
-            return (count, trimmed);
-        }
-        return (count, indexes);
+        (targetPrices, totalAmount) = _checkOppoOrUnwind(_isBuy, price, oneDayMove, false);
+        (targetPricesUnwind, totalAmountUnwind) = _checkOppoOrUnwind(_isBuy, price, oneDayMove, true);
     }
 
     function performOpportunity(
-        uint256 price,
-        uint256[] memory _indexes,
+        uint256[] memory targetPrices, 
+        uint256[] memory targetPricesUnwind, 
+        uint256[] memory totalAmount,
+        uint256[] memory totalAmountUnwind,
         bool _isBuy
     ) external onlyOpportunityBot nonReentrant {
         
-        uint256 oneDayMove = doppiOffer.getOneDayBuffer(price, _isBuy);
-        
-        uint256 length = _isBuy ? buyPositionKeys.length : sellPositionKeys.length; 
-        for (uint256 j = 0; j < _indexes.length; ) {
-            uint256 i = _indexes[j];
-            if (i < length) {
-                
-                DualAssetPosition storage p = _isBuy
-                    ? positions_buy[buyPositionKeys[i].positionId]
-                    : positions_sell[sellPositionKeys[i].positionId];
-                
-                uint256 bufferUnwind = p.strikePrice * tolerance / 10000;
-                uint256 buffer = p.strikePrice * oneDayMove / 10000;
-                    
-                if (_isNotTradedTriggered(_isBuy, p, price, buffer)) {
+        uint256 price = _getPriceFromLP();
+        mapping(uint256 => OpportunityOrders) storage opporMap = _isBuy ? opportunityBuy : opportunitySell; 
 
-                    uint256 amountOut = _swapLowLevel(p.amount, price, _isBuy);
-                    p.isTraded = true;
-                    p.swappedAmount = amountOut;
-                    emit OppPerformed(_isBuy, p.owner, price, p.amount, amountOut);
-                } else if (_isTradedTriggered(_isBuy, p, price, bufferUnwind)) {
-                    
-                    uint256 swappedAmount = p.swappedAmount;
-                    uint256 amountOut = _swapLowLevel(swappedAmount, price, !_isBuy);
-                    p.isTraded = false;
-                    p.swappedAmount = 0;
-                    uint256 profit = amountOut - p.amount;
-                    _safeTransferWithFee(_isBuy ? assetA : assetB, address(doppiLP), profit);
-                    emit OppUnwindPerformed(_isBuy, p.owner, price, swappedAmount, amountOut, profit, _isBuy ? address(assetA): address(assetB));
-                }
-            }
+        for (uint256 j = 0; j < targetPrices.length; ) {
+            _executeOpportunity(targetPrices[j], totalAmount[j], _isBuy, price, opporMap);
+            unchecked { ++j; }
+        }
+        for (uint256 j = 0; j < targetPricesUnwind.length; ) {
+            _executeUnwind(targetPricesUnwind[j], totalAmountUnwind[j], _isBuy, price, opporMap);
             unchecked { ++j; }
         }
     }
 
-    function _isNotTradedTriggered(
-        bool _isBuy,
-        DualAssetPosition memory _order,
-        uint256 _price,
-        uint256 _buffer
-    ) internal pure returns (bool) {
-        if (_isBuy) {
-            uint256 triggerPrice = _order.strikePrice + _buffer;
-            return !_order.isTraded && _price <= triggerPrice;
-        } else {
-            uint256 triggerPrice = _order.strikePrice - _buffer;
-            return !_order.isTraded && _price >= triggerPrice;
+
+    function _createResultArrays(
+        uint256[] memory tempPrices,
+        uint256[] memory tempAmounts,
+        uint256 count
+    ) private pure returns (uint256[] memory prices, uint256[] memory amounts) {
+        uint256 resultSize = count < tempPrices.length ? count : tempPrices.length;
+        
+        prices = new uint256[](resultSize);
+        amounts = new uint256[](resultSize);
+        
+        // Reverse order while copying to final arrays
+        for (uint256 i = 0; i < resultSize;) {
+            prices[i] = tempPrices[resultSize - 1 - i];
+            amounts[i] = tempAmounts[resultSize - 1 - i];
+            unchecked { ++i; }
         }
     }
 
-    function _isTradedTriggered(
-        bool _isBuy,
-        DualAssetPosition memory _order,
-        uint256 _price,
-        uint256 _buffer
-    ) internal pure returns (bool) {
-        if (_isBuy) {
-            uint256 triggerPrice = _order.strikePrice + _buffer;
-            return _order.isTraded && _price >= triggerPrice;
-        } else {
-            return _order.isTraded && _price <= _order.strikePrice;
+    function _getLoopRound(uint256 _price, bool unwind) internal view returns (uint256 round) {
+
+        uint256 firstPrice = _getTargetPrice(_price, 1, unwind);
+        uint256 priceGap = doppiOffer.getPriceGapPerOffer() * priceDecimal;
+        
+        uint256 diff = unwind 
+            ? (firstPrice > lowerBound ? firstPrice - lowerBound : 0)
+            : (upperBound > firstPrice ? upperBound - firstPrice : 0);
+
+        round = diff / priceGap + 1;
+    }
+
+    function _executeOpportunity(
+        uint256 targetPrice,
+        uint256 amount,
+        bool isBuy,
+        uint256 currentPrice,
+        mapping(uint256 => OpportunityOrders) storage opporMap
+    ) internal {
+        
+        uint256 amountOut = _swapLowLevel(amount, currentPrice, isBuy);
+        opporMap[targetPrice].outAmount += amountOut;
+        opporMap[targetPrice].swappedAmount += amount;
+        
+        emit OppPerformed(isBuy, currentPrice, amount, amountOut);
+    }
+
+    function _executeUnwind(
+        uint256 targetPrice,
+        uint256 amount,
+        bool isBuy,
+        uint256 currentPrice,
+        mapping(uint256 => OpportunityOrders) storage opporMap
+    ) internal {
+        uint256 swappedAmount = opporMap[targetPrice].swappedAmount;
+        uint256 amountOut = _swapLowLevel(amount, currentPrice, !isBuy);
+        
+        // Clear the order
+        opporMap[targetPrice].outAmount = 0;
+        opporMap[targetPrice].swappedAmount = 0;
+        
+        // Calculate and transfer profit if any
+        uint256 profit;
+        IERC20 profitToken = isBuy ? assetA : assetB;
+        if (amountOut > swappedAmount) {
+            profit = amountOut - swappedAmount;
+            _safeTransferWithFee(profitToken, address(doppiLP), profit);
         }
+        emit OppUnwindPerformed(isBuy, currentPrice, amount, amountOut, profit, address(profitToken));
+    }
+
+    function _getTargetPrice(uint256 _price, uint8 _zone, bool _isBuy) internal view returns (uint256) {
+        uint256 priceGapWithDecimals = doppiOffer.getPriceGapPerOffer() * priceDecimal;
+        _price = (_price / priceGapWithDecimals) * priceGapWithDecimals;
+        return _isBuy ? _price - (priceGapWithDecimals * (_zone - 1)) : _price + (priceGapWithDecimals * _zone);
     }
 
     function _safeTransferWithFee(IERC20 _asset, address _to, uint256 _amount) internal {

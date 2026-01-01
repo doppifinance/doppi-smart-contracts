@@ -569,8 +569,8 @@ contract DoppiCoreTest is Test {
     function test_get_positions() public {
         // Initially no positions
 
-        DualAssetPosition[] memory buyPositions = doppiCore.get_positions_buy();
-        DualAssetPosition[] memory sellPositions = doppiCore.get_positions_sell();
+        DualAssetPosition[] memory buyPositions = doppiCore.get_positions_buy(user1);
+        DualAssetPosition[] memory sellPositions = doppiCore.get_positions_sell(user1);
         assertEq(buyPositions.length, 0);
         assertEq(sellPositions.length, 0);
 
@@ -623,12 +623,13 @@ contract DoppiCoreTest is Test {
         );
         vm.stopPrank();
 
-        DualAssetPosition[] memory positions = doppiCore.get_positions_buy();
-        assertEq(positions.length, 2);
+        DualAssetPosition[] memory positions = doppiCore.get_positions_buy(user1);
+        DualAssetPosition[] memory positions2= doppiCore.get_positions_buy(user2);
+        // assertEq(positions.length, 2);
         assertEq(positions[0].owner, user1);
-        assertEq(positions[1].owner, user2);
+        assertEq(positions2[0].owner, user2);
         assertEq(positions[0].amount, 50_000 ether);
-        assertEq(positions[1].amount, 75_000 ether);
+        assertEq(positions2[0].amount, 75_000 ether);
 
         positions = doppiCore.get_positions_buy(user1);
         assertEq(positions.length, 1);

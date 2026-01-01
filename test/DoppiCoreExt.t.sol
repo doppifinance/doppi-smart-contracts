@@ -360,9 +360,13 @@ contract DoppiCoreExtTest is Test {
         // ***** START perform opportunityBot.checkUpkeep
         vm.startPrank(admin);
         oracle.setPrice(int256(101_600 * 1e8));
-        uint256[] memory indexes = new uint256[](1);
-        indexes[0] = 0;
-        doppiCore.performOpportunity(101_600 * 1e8, indexes, false);
+        uint256[] memory targetprices = new uint256[](1);
+        uint256[] memory targetPricesUnwind = new uint256[](0);
+        uint256[] memory totalAmount = new uint256[](1);
+        uint256[] memory totalAmountUnwind = new uint256[](0);
+        targetprices[0] = 100_500 * 1e8;
+        totalAmount[0] = PRINCIPAL;
+        doppiCore.performOpportunity(targetprices, targetPricesUnwind, totalAmount, totalAmountUnwind, false);
         vm.stopPrank();
 
         uint256 btcInterestReceived = APR_BASIS_POINTS * PRINCIPAL / BASIS_POINTS_DENOMINATOR / DAYS_IN_YEAR;
@@ -405,9 +409,13 @@ contract DoppiCoreExtTest is Test {
         // ***** START perform opportunityBot.checkUpkeep
         vm.startPrank(admin);
         oracle.setPrice(int256(98_000 * 1e8));
-        uint256[] memory indexes = new uint256[](1);
-        indexes[0] = 0;
-        doppiCore.performOpportunity(98_000 * 1e8, indexes, true);
+        uint256[] memory targetprices = new uint256[](1);
+        uint256[] memory targetPricesUnwind = new uint256[](0);
+        uint256[] memory totalAmount = new uint256[](1);
+        uint256[] memory totalAmountUnwind = new uint256[](0);
+        targetprices[0] = 99_500 * 1e8;
+        totalAmount[0] = PRINCIPAL;
+        doppiCore.performOpportunity(targetprices, targetPricesUnwind, totalAmount, totalAmountUnwind, true);
         vm.stopPrank();
 
         uint256 usdtInterestReceived = APR_BASIS_POINTS * PRINCIPAL / BASIS_POINTS_DENOMINATOR / DAYS_IN_YEAR;

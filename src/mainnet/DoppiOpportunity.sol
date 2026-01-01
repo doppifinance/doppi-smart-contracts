@@ -32,13 +32,27 @@ contract DoppiOpportunity is Ownable, Pausable, AutomationCompatibleInterface {
         if(paused()) return (false, bytes(""));
 
         uint256 price = doppiLP.getPrice();
-        (uint256 buyCount, uint256[] memory buyIndexes) = doppiCore.checkOpportunity(price, true);
-        (uint256 sellCount, uint256[] memory sellIndexes) = doppiCore.checkOpportunity(price, false);
+        (   
+            uint256[] memory targetPrices, 
+            uint256[] memory targetPricesUnwind, 
+            uint256[] memory totalAmount,
+            uint256[] memory totalAmountUnwind
+        ) = doppiCore.checkOpportunity(price, true);
         
-        upkeepNeeded = (buyCount > 0 || sellCount > 0);
+        (   
+            uint256[] memory targetPricesSell, 
+            uint256[] memory targetPricesSellUnwind, 
+            uint256[] memory totalAmountSell,
+            uint256[] memory totalAmountSellUnwind
+        ) = doppiCore.checkOpportunity(price, false);
+
+        upkeepNeeded = (targetPrices.length > 0 || targetPricesUnwind.length > 0 || targetPricesSell.length > 0 || targetPricesSellUnwind.length > 0);
         
         if (upkeepNeeded) {
-            performData = abi.encode(price, buyIndexes, sellIndexes);
+            performData = abi.encode(
+                targetPrices, targetPricesUnwind, totalAmount, totalAmountUnwind,
+                targetPricesSell, targetPricesSellUnwind, totalAmountSell, totalAmountSellUnwind
+                );
         } else {
             performData = bytes("");
         }
@@ -50,15 +64,20 @@ contract DoppiOpportunity is Ownable, Pausable, AutomationCompatibleInterface {
         
         if(paused()) return;
         
-        (uint256 price, uint256[] memory buyIndexes, uint256[] memory sellIndexes) =
-            abi.decode(performData, (uint256, uint256[], uint256[]));
+        (
+            uint256[] memory targetPrices, 
+            uint256[] memory targetPricesUnwind, 
+            uint256[] memory totalAmount,
+            uint256[] memory totalAmountUnwind,
+            uint256[] memory targetPricesSell, 
+            uint256[] memory targetPricesSellUnwind, 
+            uint256[] memory totalAmountSell,
+            uint256[] memory totalAmountSellUnwind
+        ) = abi.decode(performData, (uint256[], uint256[], uint256[], uint256[], uint256[], uint256[], uint256[], uint256[]));
 
-        uint256 currentPrice = doppiLP.getPrice();
-        uint256 priceChance = price * 10000 / currentPrice;
-        if (priceChance > 10000 + tolerance || priceChance < 10000 - tolerance) {
-            return;
-        }        
-        _opportunity_bot(price, buyIndexes, sellIndexes);
+        doppiCore.performOpportunity(targetPrices, targetPricesUnwind, totalAmount, totalAmountUnwind, true);
+        doppiCore.performOpportunity(targetPricesSell, targetPricesSellUnwind, totalAmountSell, totalAmountSellUnwind, false);
+        
     }
 
     function setPause() external onlyOwner {
@@ -67,16 +86,6 @@ contract DoppiOpportunity is Ownable, Pausable, AutomationCompatibleInterface {
 
     function setUnPause() external onlyOwner {
         _unpause();
-    }
-
-    function _opportunity_bot(uint256 price, uint256[] memory buyIndexes, uint256[] memory sellIndexes) internal {
-        if (buyIndexes.length > 0) {
-            doppiCore.performOpportunity(price, buyIndexes, true);
-        }
-        
-        if (sellIndexes.length > 0) {
-            doppiCore.performOpportunity(price, sellIndexes, false);
-        }
     }
 
     modifier onlyForwarder() {
