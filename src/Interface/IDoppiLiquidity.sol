@@ -10,7 +10,6 @@ interface IDoppiLiquidity is IShares {
     function doppiCore() external view returns (address);
     function amountToBuy(uint256 price) external view returns (uint256);
     function amountToSell(uint256 price) external view returns (uint256);
-    function hedgeSwap(uint256 _amountIn, uint256 _price, bool _isBuy) external returns (uint256 amountOut, uint256 tradedPrice);
     function swap(uint256 _amountIn, uint256 _price, bool _isBuy) external returns (uint256 amountOut) ;
     function settle(uint256 _amountIn, uint256 _payout, uint256 _price, bool _isBuy) external returns (uint256);
     function getPrice() external view returns (uint256);
@@ -19,11 +18,10 @@ interface IDoppiLiquidity is IShares {
     function totalAssetsInAssetA() external view returns (uint256);
     function totalAssetsInAssetB() external view returns (uint256);
     function getMaxDepositAmount(bool isBuy) external view returns (uint256);
-    function interestUnwindHedge(
+    function interestGet(
         address _interestToken,
         uint256 interest,
-        uint256 unhedged,
         uint256 price,
         bool isBuy
-    ) external returns (uint256 hedgeOut, uint256 hedgeTradedPrice);
+    ) external;
 }

@@ -9,6 +9,7 @@ import {DoppiLiquidityRouter} from "../src/mainnet/DoppiLiquidityRouter.sol";
 import {BlackScholes} from "../src/mainnet/BlackScholes.sol";
 import {DoppiOffer} from "../src/mainnet/DoppiOffer.sol";
 import {IDoppiOffer} from "../src/Interface/IDoppiOffer.sol";
+import {DoppiPoints} from "../src/mainnet/DoppiPoints.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {MockToken} from "../src/test/MockToken.sol";
 import {MockOracle} from "../src/test/MockOracle.sol";
@@ -21,6 +22,7 @@ contract DoppiOpportunityTest is Test {
     DoppiOpportunity doppiOpportunity;
     DoppiCore doppiCore;
     DoppiLiquidity doppiLP;
+    DoppiPoints doppiPoints;
     DoppiLiquidityRouter doppiRouter;
     BlackScholes blackScholes;
     DoppiOffer impliedVol;
@@ -61,7 +63,7 @@ contract DoppiOpportunityTest is Test {
         // Deploy Swapper that will act as both router and pool
         swapper = new Swapper(MockToken(usdt), MockToken(btc));
         swapper.setOracle(MockOracle(oracle));    
-
+        doppiPoints = _deployDoppiPoints();
         doppiLP =
             new DoppiLiquidity("Dual Asset Liquidity Pool", "DALP", IERC20(usdt), IERC20(btc));
         
@@ -76,7 +78,8 @@ contract DoppiOpportunityTest is Test {
         doppiLP.setEntryPoint(address(doppiRouter.entryPointA()), true);
         doppiLP.setEntryPoint(address(doppiRouter.entryPointB()), true);
         
-        doppiCore = new DoppiCore(address(usdt), address(btc), doppiLP, impliedVol, address(0));
+        doppiCore = new DoppiCore(address(usdt), address(btc), doppiLP, impliedVol, address(doppiPoints));
+        doppiPoints.setDoppiCore(address(doppiCore), true);
         
         doppiLP.setDoppiCore(address(doppiCore));
 
@@ -106,7 +109,7 @@ contract DoppiOpportunityTest is Test {
 
     function test_checkUpkeep_opportunityBuy() public {
         depositUSDT();
-        assertEq(doppiCore.getBuyPositionCount(address(0)), 1);
+        assertEq(doppiCore.getBuyPositionCount(user1), 1);
         oracle.setPrice(int256(95_500  * 1e8));
         (bool upkeepNeeded, bytes memory performData) = doppiOpportunity.checkUpkeep("");
         assertTrue(upkeepNeeded);
@@ -117,7 +120,7 @@ contract DoppiOpportunityTest is Test {
 
     function test_checkUpkeep_opportunitySell() public {
         depositBTC();
-        assertEq(doppiCore.getSellPositionCount(address(0)), 1);
+        assertEq(doppiCore.getSellPositionCount(user2), 1);
         oracle.setPrice(int256(104_000 * 1e8));
         (bool upkeepNeeded, bytes memory performData) = doppiOpportunity.checkUpkeep("");
         assertTrue(upkeepNeeded);
@@ -127,11 +130,18 @@ contract DoppiOpportunityTest is Test {
     }
 
     function test_checkUpkeep_opportunityTakeSellProfit() public {
+        
+        vm.startPrank(doppiCore.owner());            
+        doppiCore.setMaxSwap(200000 ether);
+        vm.stopPrank();
+
         depositBTC();
         oracle.setPrice(int256(110_500  * 1e8));
         (bool upkeepNeeded, bytes memory performData) = doppiOpportunity.checkUpkeep("");
         vm.prank(mockForwarder);
         doppiOpportunity.performUpkeep(performData);
+        
+        OpportunityOrders memory sell = doppiCore.getOpportunityOrders(false, 10050000000000);
         
         // unwind for profit opportunity
         oracle.setPrice(int256(98_500 * 1e8));
@@ -199,9 +209,12 @@ contract DoppiOpportunityTest is Test {
         vm.prank(mockForwarder);
         doppiOpportunity.performUpkeep(performData);
 
+        OpportunityOrders memory buy = doppiCore.getOpportunityOrders(true, 9950000000000);
+        
         oracle.setPrice(int256(100_500 * 1e8));
         (, performData) = doppiOpportunity.checkUpkeep("");
 
+        buy = doppiCore.getOpportunityOrders(true, 9950000000000);
         vm.expectEmit(true, true, true, true);
         emit OppUnwindPerformed(
             true,
@@ -249,6 +262,13 @@ contract DoppiOpportunityTest is Test {
         btc.approve(address(doppiCore), params.amount);
         doppiCore.deposit_sell(params);
         vm.stopPrank();
+    }
+
+    function _deployDoppiPoints() internal returns (DoppiPoints) {
+        console.log("Deploying DoppiPoints...");
+        DoppiPoints _doppiPoints = new DoppiPoints();
+        console.log("DoppiPoints deployed at:", address(_doppiPoints));
+        return _doppiPoints;
     }
 
     

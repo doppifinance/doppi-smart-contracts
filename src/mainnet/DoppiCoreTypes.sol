@@ -30,15 +30,15 @@ struct DualAssetPosition {
     uint32 apr;
     address owner;
     uint256 interest;
-    uint256 hedgeAmountInHedgeToken;
-    uint256 swappedHedgeAmount;
-    uint256 hedgePrice;
     uint256 payout;
 }
 
-struct KeyPosition {
-    address owner;
-    uint64 positionId; // Changed to uint32
+struct SettleAccumulate {
+    uint64 positionId;
+    uint256 totalInterestA;
+    uint256 totalInterestB;
+    uint256 totalA;
+    uint256 totalB;
 }
 
 struct DepositParams {

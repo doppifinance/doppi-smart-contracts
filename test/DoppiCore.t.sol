@@ -172,15 +172,14 @@ contract DoppiCoreTest is Test {
 
     function test_deposit_buy() public {
         _depositUSDT();
-
-        assertEq(doppiCore.getBuyPositionCount(address(0)), 1);
+        assertEq(doppiCore.getBuyPositionCount(user1), 1);
         assertEq(usdt.balanceOf(user1), 200_000 ether - 50_000 ether);
     }
 
     function test_deposit_sell() public {
         _depositBTC();
 
-        assertEq(doppiCore.getSellPositionCount(address(0)), 1);
+        assertEq(doppiCore.getSellPositionCount(user1), 1);
         assertEq(btc.balanceOf(user1), 2 ether - 0.5 ether);
     }
 
@@ -225,14 +224,14 @@ contract DoppiCoreTest is Test {
         _depositUSDT();
 
         // Should not be ready yet
-        uint256[] memory readyPositions = doppiCore.getReadyBuyPositions();
+        (uint64[] memory readyPositions, SettleAccumulate memory settleAccu) = doppiCore.getReadyAllPositions();
         assertEq(readyPositions.length, 0);
 
         // Fast forward time
         vm.warp(block.timestamp + 1 days + 1);
 
         // Should be ready now
-        readyPositions = doppiCore.getReadyBuyPositions();
+        (readyPositions, settleAccu) = doppiCore.getReadyAllPositions();
         assertEq(readyPositions.length, 1);
     }
 
@@ -241,14 +240,14 @@ contract DoppiCoreTest is Test {
         _depositBTC();
 
         // Should not be ready yet
-        uint256[] memory readyPositions = doppiCore.getReadySellPositions();
+        (uint64[] memory readyPositions, SettleAccumulate memory settleAccu) = doppiCore.getReadyAllPositions();
         assertEq(readyPositions.length, 0);
 
         // Fast forward time
         vm.warp(block.timestamp + 1 days + 1);
 
         // Should be ready now
-        readyPositions = doppiCore.getReadySellPositions();
+        (readyPositions, settleAccu) = doppiCore.getReadyAllPositions();
         assertEq(readyPositions.length, 1);
     }
 
@@ -260,15 +259,15 @@ contract DoppiCoreTest is Test {
         vm.warp(block.timestamp + 1 days + 1);
         oracle.setPrice(int256(INITIAL_PRICE)); // Price stays same, above strike
 
-        uint256[] memory readyPositions = doppiCore.getReadyBuyPositions();
+        (uint64[] memory readyPositions, SettleAccumulate memory settleAccu) = doppiCore.getReadyAllPositions();
         uint256 initialBalance = usdt.balanceOf(user1);
 
         vm.startPrank(owner);
-        doppiCore.settle_buys(readyPositions);
+        doppiCore.settleOrders(readyPositions, settleAccu);
 
         // Should receive original amount + interest
         assertGt(usdt.balanceOf(user1), initialBalance);
-        assertEq(doppiCore.getBuyPositionCount(address(0)), 0);
+        assertEq(doppiCore.getBuyPositionCount(user1), 0);
     }
 
     function test_settle_buys_priceBelowStrike() public {
@@ -279,17 +278,18 @@ contract DoppiCoreTest is Test {
         vm.warp(block.timestamp + 1 days + 1);
         oracle.setPrice(int256(buyOffer.strikePrice - 1000 * 1e8));
 
-        uint256[] memory readyPositions = doppiCore.getReadyBuyPositions();
+        (uint64[] memory readyPositions, SettleAccumulate memory settleAccu) = doppiCore.getReadyAllPositions();
+        console.log(readyPositions.length, settleAccu.totalInterestA);
         uint256 initialBtcBalance = btc.balanceOf(user1);
         uint256 initialUsdtBalance = usdt.balanceOf(user1);
 
         vm.startPrank(owner);
-        doppiCore.settle_buys(readyPositions);
+        doppiCore.settleOrders(readyPositions, settleAccu);
 
         // Should receive BTC (converted at strike price) + interest in USDT
         assertGt(btc.balanceOf(user1), initialBtcBalance);
         assertGt(usdt.balanceOf(user1), initialUsdtBalance);
-        assertEq(doppiCore.getBuyPositionCount(address(0)), 0);
+        assertEq(doppiCore.getBuyPositionCount(user1), 0);
     }
 
     function test_settle_sells_priceBelowStrike() public {
@@ -300,15 +300,15 @@ contract DoppiCoreTest is Test {
         vm.warp(block.timestamp + 1 days + 1);
         oracle.setPrice(int256(INITIAL_PRICE)); // Price stays same, below strike
 
-        uint256[] memory readyPositions = doppiCore.getReadySellPositions();
+        (uint64[] memory readyPositions, SettleAccumulate memory settleAccu) = doppiCore.getReadyAllPositions();
         uint256 initialBalance = btc.balanceOf(user1);
 
         vm.startPrank(owner);
-        doppiCore.settle_sells(readyPositions);
+        doppiCore.settleOrders(readyPositions, settleAccu);
 
         // Should receive original amount + interest
         assertGt(btc.balanceOf(user1), initialBalance);
-        assertEq(doppiCore.getSellPositionCount(address(0)), 0);
+        assertEq(doppiCore.getSellPositionCount(user1), 0);
     }
 
     function test_settle_sells_priceAboveStrike() public {
@@ -319,17 +319,17 @@ contract DoppiCoreTest is Test {
         vm.warp(block.timestamp + 1 days + 1);
         oracle.setPrice(int256(sellOffer.strikePrice + 1000 * 1e8));
 
-        uint256[] memory readyPositions = doppiCore.getReadySellPositions();
+        (uint64[] memory readyPositions, SettleAccumulate memory settleAccu) = doppiCore.getReadyAllPositions();
         uint256 initialUsdtBalance = usdt.balanceOf(user1);
         uint256 initialBtcBalance = btc.balanceOf(user1);
 
         vm.startPrank(owner);
-        doppiCore.settle_sells(readyPositions);
+        doppiCore.settleOrders(readyPositions, settleAccu);
 
         // Should receive USDT (converted at strike price) + interest in BTC
         assertGt(usdt.balanceOf(user1), initialUsdtBalance);
         assertGt(btc.balanceOf(user1), initialBtcBalance);
-        assertEq(doppiCore.getSellPositionCount(address(0)), 0);
+        assertEq(doppiCore.getSellPositionCount(user1), 0);
     }
     
     function test_checkUpkeep() public {
@@ -358,12 +358,12 @@ contract DoppiCoreTest is Test {
         (bool upkeepNeeded, bytes memory performData) = doppiCore.checkUpkeep("");
         assertTrue(upkeepNeeded);
 
-        uint256 initialPositionCount = doppiCore.getBuyPositionCount(address(0));
+        uint256 initialPositionCount = doppiCore.getBuyPositionCount(user1);
         vm.prank(mockForwarder);
         doppiCore.performUpkeep(performData);
 
         // Position should be settled
-        assertLt(doppiCore.getBuyPositionCount(address(0)), initialPositionCount);
+        assertLt(doppiCore.getBuyPositionCount(user1), initialPositionCount);
     }
 
     function test_performUpkeep_sell() public {
@@ -376,12 +376,12 @@ contract DoppiCoreTest is Test {
         (bool upkeepNeeded, bytes memory performData) = doppiCore.checkUpkeep("");
         assertTrue(upkeepNeeded);
 
-        uint256 initialPositionCount = doppiCore.getSellPositionCount(address(0));
+        uint256 initialPositionCount = doppiCore.getSellPositionCount(user1);
         vm.prank(mockForwarder);
         doppiCore.performUpkeep(performData);
 
         // Position should be settled
-        assertLt(doppiCore.getSellPositionCount(address(0)), initialPositionCount);
+        assertLt(doppiCore.getSellPositionCount(user1), initialPositionCount);
     }
 
     function test_performUpkeep_buy_pagination() public {
@@ -399,22 +399,15 @@ contract DoppiCoreTest is Test {
         (bool upkeepNeeded, bytes memory performData) = doppiCore.checkUpkeep("");
         assertTrue(upkeepNeeded);
 
-        (bool cached, , ) =
-            abi.decode(performData, (bool, uint256[], uint256[]));
-        
-        assertFalse(cached);
-
-        // uint256 initialPositionCount = doppiCore.getBuyPositionCount(address(0));
         vm.prank(mockForwarder);
         doppiCore.performUpkeep(performData);
 
         (upkeepNeeded, performData) = doppiCore.checkUpkeep("");
         assertTrue(upkeepNeeded);
 
-        (cached) =
-            abi.decode(performData, (bool));
+        (uint64[] memory allPositions) = abi.decode(performData, (uint64[]));
         
-        assertTrue(cached);
+        assertGt(allPositions.length, 0);
         vm.prank(mockForwarder);
         doppiCore.performUpkeep(performData);
 
@@ -422,104 +415,104 @@ contract DoppiCoreTest is Test {
         assertFalse(upkeepNeeded);
         
         // // Position should be settled
-        assertEq(doppiCore.getBuyPositionCount(address(0)), 0);
+        assertEq(doppiCore.getBuyPositionCount(user1), 0);
     }
 
-    function test_performUpkeep_buy_hedge_profit() public {
+    // function test_performUpkeep_buy_hedge_profit() public {
         
-        // Deposit positions
-        _depositUSDT();
+    //     // Deposit positions
+    //     _depositUSDT();
 
-        // Fast forward time
-        vm.warp(block.timestamp + 1 days + 1);
-        oracle.setPrice(int256(96_500 * 1e8));
-        (, bytes memory performData) = doppiCore.checkUpkeep("");
+    //     // Fast forward time
+    //     vm.warp(block.timestamp + 1 days + 1);
+    //     oracle.setPrice(int256(96_500 * 1e8));
+    //     (, bytes memory performData) = doppiCore.checkUpkeep("");
         
-        // Expect HedgeSettled event
-        vm.expectEmit(true, true, true, true);
-        emit HedgeSettled(
-            user1,
-            1, // positionId
-            true, // profit 
-            3358772020725388, // profit amount
-            address(btc) // profit in assetB
-        );    
+    //     // Expect HedgeSettled event
+    //     vm.expectEmit(true, true, true, true);
+    //     emit HedgeSettled(
+    //         user1,
+    //         1, // positionId
+    //         true, // profit 
+    //         3358772020725388, // profit amount
+    //         address(btc) // profit in assetB
+    //     );    
 
-        vm.prank(mockForwarder);
-        doppiCore.performUpkeep(performData);
-    }
+    //     vm.prank(mockForwarder);
+    //     doppiCore.performUpkeep(performData);
+    // }
 
-    function test_performUpkeep_sell_hedge_profit() public {
-        // Deposit positions
-        _depositBTC();
+    // function test_performUpkeep_sell_hedge_profit() public {
+    //     // Deposit positions
+    //     _depositBTC();
 
-        // Fast forward time
-        vm.warp(block.timestamp + 1 days + 1);
-        oracle.setPrice(int256(106_500 * 1e8));
-        (, bytes memory performData) = doppiCore.checkUpkeep("");
+    //     // Fast forward time
+    //     vm.warp(block.timestamp + 1 days + 1);
+    //     oracle.setPrice(int256(106_500 * 1e8));
+    //     (, bytes memory performData) = doppiCore.checkUpkeep("");
         
-        // Expect HedgeSettled event
-        vm.expectEmit(true, true, true, true);
-        emit HedgeSettled(
-            user1,
-            1, // positionId
-            true, // profit 
-            982798827500000000000, // profit amount
-            address(usdt) // profit in assetA
-        );    
+    //     // Expect HedgeSettled event
+    //     vm.expectEmit(true, true, true, true);
+    //     emit HedgeSettled(
+    //         user1,
+    //         1, // positionId
+    //         true, // profit 
+    //         982798827500000000000, // profit amount
+    //         address(usdt) // profit in assetA
+    //     );    
 
-        vm.prank(mockForwarder);
-        doppiCore.performUpkeep(performData);
+    //     vm.prank(mockForwarder);
+    //     doppiCore.performUpkeep(performData);
         
-    }
+    // }
 
-    function test_performUpkeep_buy_hedge_loss() public {
-        // Deposit positions
-        _depositUSDT();
+    // function test_performUpkeep_buy_hedge_loss() public {
+    //     // Deposit positions
+    //     _depositUSDT();
 
-        // Fast forward time
-        vm.warp(block.timestamp + 1 days + 1);
-        oracle.setPrice(int256(106_500 * 1e8));
-        (, bytes memory performData) = doppiCore.checkUpkeep("");
+    //     // Fast forward time
+    //     vm.warp(block.timestamp + 1 days + 1);
+    //     oracle.setPrice(int256(106_500 * 1e8));
+    //     (, bytes memory performData) = doppiCore.checkUpkeep("");
         
-        // Expect HedgeSettled event
-        vm.expectEmit(true, true, true, true);
-        emit HedgeSettled(
-            user1,
-            1, // positionId
-            false, // loss 
-            17111535211267607, // loss  amount
-            address(btc) // loss in assetB
-        );    
+    //     // Expect HedgeSettled event
+    //     vm.expectEmit(true, true, true, true);
+    //     emit HedgeSettled(
+    //         user1,
+    //         1, // positionId
+    //         false, // loss 
+    //         17111535211267607, // loss  amount
+    //         address(btc) // loss in assetB
+    //     );    
 
-        vm.prank(mockForwarder);
-        doppiCore.performUpkeep(performData);
+    //     vm.prank(mockForwarder);
+    //     doppiCore.performUpkeep(performData);
 
-    }
+    // }
 
-    function test_performUpkeep_sell_hedge_loss() public {
-        // Deposit positions
-        _depositBTC();
+    // function test_performUpkeep_sell_hedge_loss() public {
+    //     // Deposit positions
+    //     _depositBTC();
 
-        // Fast forward time
-        vm.warp(block.timestamp + 1 days + 1);
-        oracle.setPrice(int256(96_500 * 1e8));
-        (, bytes memory performData) = doppiCore.checkUpkeep("");
+    //     // Fast forward time
+    //     vm.warp(block.timestamp + 1 days + 1);
+    //     oracle.setPrice(int256(96_500 * 1e8));
+    //     (, bytes memory performData) = doppiCore.checkUpkeep("");
         
-        // Expect HedgeSettled event
-        vm.expectEmit(true, true, true, true);
-        emit HedgeSettled(
-            user1,
-            1, // positionId
-            false, // loss 
-            1216055522500000000000, // loss  amount
-            address(usdt) // loss in assetB
-        );  
+    //     // Expect HedgeSettled event
+    //     vm.expectEmit(true, true, true, true);
+    //     emit HedgeSettled(
+    //         user1,
+    //         1, // positionId
+    //         false, // loss 
+    //         1216055522500000000000, // loss  amount
+    //         address(usdt) // loss in assetB
+    //     );  
 
-        vm.prank(mockForwarder);
-        doppiCore.performUpkeep(performData);
+    //     vm.prank(mockForwarder);
+    //     doppiCore.performUpkeep(performData);
 
-    }
+    // }
 
     function testFuzz_deposit_buy_amounts(uint256 amount) public {
         amount = bound(amount, 1000 ether, 100_000 ether);
@@ -541,7 +534,7 @@ contract DoppiCoreTest is Test {
         doppiCore.deposit_buy(params);
         vm.stopPrank();
 
-        assertEq(doppiCore.getBuyPositionCount(address(0)), 1);
+        assertEq(doppiCore.getBuyPositionCount(user1), 1);
     }
 
     function testFuzz_deposit_sell_amounts(uint256 amount) public {
@@ -563,7 +556,7 @@ contract DoppiCoreTest is Test {
         doppiCore.deposit_sell(params);
         vm.stopPrank();
 
-        assertEq(doppiCore.getSellPositionCount(address(0)), 1);
+        assertEq(doppiCore.getSellPositionCount(user1), 1);
     }
 
     function test_get_positions() public {
@@ -645,11 +638,11 @@ contract DoppiCoreTest is Test {
         vm.warp(block.timestamp + 1 days + 1);
         oracle.setPrice(int256(INITIAL_PRICE)); // Price stays same, above strike
 
-        uint256[] memory readyPositions = doppiCore.getReadyBuyPositions();
+        (uint64[] memory readyPositions, SettleAccumulate memory settleAccu) = doppiCore.getReadyAllPositions();
         // uint256 initialBalance = usdt.balanceOf(user1);
 
         vm.startPrank(owner);
-        doppiCore.settle_buys(readyPositions);
+        doppiCore.settleOrders(readyPositions, settleAccu);
         assertEq(usdt.balanceOf(doppiCore.treasury()), 43012328767123287671); // 50000 * 313.99% / 365 * 10%
     }
 
@@ -661,7 +654,7 @@ contract DoppiCoreTest is Test {
         vm.warp(block.timestamp + 1 days + 1);
         oracle.setPrice(int256(buyOffer.strikePrice - 1000 * 1e8));
         
-        uint256[] memory readyPositions = doppiCore.getReadyBuyPositions();
+        (uint64[] memory readyPositions, SettleAccumulate memory settleAccu) = doppiCore.getReadyAllPositions();
         
         uint256 userUSDTbefore = usdt.balanceOf(user1);
         uint256 userBTCbefore = btc.balanceOf(user1);
@@ -672,7 +665,7 @@ contract DoppiCoreTest is Test {
         
         // settlement in doppiCore
         vm.startPrank(owner);
-        doppiCore.settle_buys(readyPositions);
+        doppiCore.settleOrders(readyPositions, settleAccu);
 
         
         uint256 userUSDTafter = usdt.balanceOf(user1);
@@ -693,8 +686,8 @@ contract DoppiCoreTest is Test {
         
         // hedge position: selling 0.21465 btc into usdt
         // unwind hedge position: get back 0.21358 btc into usdt
-        uint256 hedgeSoldBTC = 214650000000000000;
-        uint256 hedgeSoldBTCunwind = 213582197969543146;
+        uint256 hedgeSoldBTC = 0; // 214650000000000000;
+        uint256 hedgeSoldBTCunwind = 0; // 213582197969543146;
         
         // confirm doppi LP usdt balance = APR payout in USDT + strike on receiving 50000 USDT 
         // confirm doppi LP btc balance = loss in hedge position + btc payout to trader + settlement profit gained in BTC minus 10% fee 
@@ -721,7 +714,7 @@ contract DoppiCoreTest is Test {
         vm.warp(block.timestamp + 1 days + 1);
         oracle.setPrice(int256(sellOffer.strikePrice + 1000 * 1e8));
 
-        uint256[] memory readyPositions = doppiCore.getReadySellPositions();
+        (uint64[] memory readyPositions, SettleAccumulate memory settleAccu) = doppiCore.getReadyAllPositions();
         
         uint256 userUSDTbefore = usdt.balanceOf(user1);
         uint256 userBTCbefore = btc.balanceOf(user1);
@@ -732,7 +725,7 @@ contract DoppiCoreTest is Test {
         
         // settlement in doppiCore
         vm.startPrank(owner);
-        doppiCore.settle_sells(readyPositions);
+        doppiCore.settleOrders(readyPositions, settleAccu);
 
         
         uint256 userUSDTafter = usdt.balanceOf(user1);
@@ -753,8 +746,8 @@ contract DoppiCoreTest is Test {
         
         // hedge position: selling 22435 usdt into btc
         // unwind hedge position: get back 22318 usdt into btc
-        uint256 hedgeSoldUSDT = 22435000000000000000000;
-        uint256 hedgeSoldUSDTunwind = 22318371652500000000000;
+        uint256 hedgeSoldUSDT = 0; // 22435000000000000000000;
+        uint256 hedgeSoldUSDTunwind = 0; // 22318371652500000000000;
         
         // confirm doppi LP btc balance = APR payout in btc + strike on receiving 0.5 btc 
         // confirm doppi LP usdt balance = loss in hedge position + usdt payout to trader + settlement profit gained in usdt minus 10% fee 

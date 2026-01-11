@@ -25,7 +25,8 @@ library TestParamLib {
 			twapDuration: 3600,
 			maxDepositPercentage: 20000,
 			maxDelay: 2 minutes,
-			maxSwap: 500000 ether
+			maxSwap: 500000 ether,
+			priceGap: 500
 		});
 		
         return configLP;

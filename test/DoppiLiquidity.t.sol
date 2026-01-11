@@ -234,49 +234,6 @@ contract DoppiLiquidityTest is Test {
         assertEq(sellAmountOut, expectedSellAmountOutAfterDexFee, "Sell swap output should match calculation");
     }
 
-    // ===== HEDGE SWAP FUNCTIONALITY TESTS =====
-
-    function test_hedgeswap_with_balance() public {
-        
-        _setupLiquidity(LARGE_USDT_AMOUNT, LARGE_BTC_AMOUNT);
-        uint256 currentPrice = doppiLP.getPrice();
-
-        // Test hedge swap buy calculation
-        uint256 hedgeBuyAmount = 25_000e18;
-        vm.prank(mockDualAsset);
-        (uint256 swappedHedgeAmount, uint256 hedgePrice) = doppiLP.hedgeSwap(hedgeBuyAmount, currentPrice, true);
-
-        uint256 expectedBuyAmountOut = hedgeBuyAmount * 10 ** 8 / currentPrice;
-        expectedBuyAmountOut = expectedBuyAmountOut *  9900 / 10000;
-        assertEq(swappedHedgeAmount, expectedBuyAmountOut, "Hedge swap buy output should match calculation");
-
-        // Test hedge swap sell calculation
-        uint256 hedgeSellAmount = 0.25e18;
-        vm.prank(mockDualAsset);
-        (swappedHedgeAmount, hedgePrice) =  doppiLP.hedgeSwap(hedgeSellAmount, currentPrice, false);
-
-        uint256 expectedSellAmountOut = hedgeSellAmount * currentPrice / 10 ** 8;
-        expectedSellAmountOut = expectedSellAmountOut *  9900 / 10000;
-        assertEq(swappedHedgeAmount, expectedSellAmountOut, "Hedge swap sell output should match calculation");
-    }
-
-    function test_hedgeswap_with_no_balance() public {
-        
-        uint256 currentPrice = doppiLP.getPrice();
-
-        // Test hedge swap buy calculation
-        uint256 hedgeBuyAmount = 25_000e18;
-        vm.prank(mockDualAsset);
-        (uint256 swappedHedgeAmount, uint256 hedgePrice) = doppiLP.hedgeSwap(hedgeBuyAmount, currentPrice, true);
-        assertEq(swappedHedgeAmount, 0, "Hedge swap buy output should be zero");
-
-        // Test hedge swap sell calculation
-        uint256 hedgeSellAmount = 0.25e18;
-        vm.prank(mockDualAsset);
-        (swappedHedgeAmount, hedgePrice) =  doppiLP.hedgeSwap(hedgeSellAmount, currentPrice, false);
-        assertEq(swappedHedgeAmount, 0, "Hedge swap sell output should be 0");
-    }
-
     // ===== UPKEEP SYSTEM TESTS =====
 
     function testCheckUpkeepWithNoPriceOrders() public view {
@@ -310,6 +267,7 @@ contract DoppiLiquidityTest is Test {
         // emit log_named_uint("Total assets in USDT", totalInAssetA);
         // emit log_named_uint("Total assets in BTC", totalInAssetB);
     }
+
     // ===== INTEGRATION TESTS =====
     function testCheckUpkeep_performUp_buy() public {
         uint256 currentPrice = doppiLP.getPrice();

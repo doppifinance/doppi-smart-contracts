@@ -72,10 +72,10 @@ contract DoppiTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCompati
         maxOrder = 5;
         ratioLP = 5000;
         tolerance = 100;
-
+        maxSwap = 200000 ether;
         uint256 price = doppiLP.getPrice();
-        lowerBound = price;
-        upperBound = price;
+        lowerBound = _getUnwindTargetPrice(price, 1, true);
+        upperBound = _getUnwindTargetPrice(price, 1, false);
     }
 
     function start(uint256 _amountA, uint256 _amountB) external onlyTrader nonReentrant {
@@ -186,6 +186,20 @@ contract DoppiTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCompati
         }        
     }
 
+    function display() public {
+        
+        uint256 gap = 500 * 1e8;
+        for(uint256 i=lowerBound; i <= upperBound;) {
+            console.log("Buy", i, unWindBuy[i]);
+            i += gap;
+        }
+        for(uint256 i=lowerBound; i <= upperBound;) {
+            console.log("Sell", i, unWindSell[i]);
+            i += gap;
+        }
+
+    }
+
     function checkUpkeep(bytes calldata) external view override returns (bool upkeepNeeded, bytes memory performData) {
         
         if(s_forwarderAddress == address(0)) return (false, bytes(""));
@@ -201,19 +215,11 @@ contract DoppiTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCompati
 
         (targetPricesBuy, totalBuyAmountInB) =_checkUndoTrade(true, price);
         (targetPricesSell, totalSellAmountInA) =_checkUndoTrade(false, price);
-        if (totalBuyAmountInB > 0 && totalSellAmountInA > 0) {
+        if (totalBuyAmountInB > 0 || totalSellAmountInA > 0) {
             (bool isNetBuy, uint256 netAmount) = _netoutBuySell(totalSellAmountInA, totalBuyAmountInB, price);
             if(netAmount > 0){
                 return (true, abi.encode(true, isNetBuy, targetPricesBuy, targetPricesSell, netAmount, totalSellAmountInA, totalBuyAmountInB, false, false));
             }
-        }
-
-        if (totalBuyAmountInB > 0) {
-            return (true, abi.encode(true, false, targetPricesBuy, targetPricesSell, totalBuyAmountInB, 0, totalBuyAmountInB, false, false));
-        }
-        
-        if (totalSellAmountInA > 0) {
-            return (true, abi.encode(true, true, targetPricesBuy, targetPricesSell, totalSellAmountInA, totalSellAmountInA, 0, false, false));
         }
     }
 
@@ -233,6 +239,7 @@ contract DoppiTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCompati
             uint256 amountOut = doppiLP.swap(totalAmount, currentPrice, isNetBuy);
             _clearUnwindMap(targetPricesBuy, true, totalBuyAmountInB);
             _clearUnwindMap(targetPricesSell, false, totalSellAmountInA);  
+            _updateBound();
             emit UnwindPerformed(address(this), isNetBuy, totalAmount, amountOut);
         }
     }
@@ -242,21 +249,27 @@ contract DoppiTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCompati
         s_forwarderAddress = doppiUpkeepManager.getForwarder(upKeepId);
     }
 
-    function _clearUnwindMap(uint256[] memory prices, bool isBuy, uint256 _payout) internal {
+    function _clearUnwindMap(uint256[] memory prices, bool isBuy, uint256 totalpayout) internal {
         uint256 length = prices.length;
         if (length == 0) return;
         
         mapping(uint256 => uint256) storage unWindMap = isBuy ? unWindBuy : unWindSell; 
-        
+        uint256 reduced = totalpayout;
         for (uint256 i = length; i > 0; ) {
             uint256 index = i - 1;
-            delete unWindMap[prices[index]];
+            uint256 unwind = unWindMap[prices[index]];
+            if(reduced >= unwind){
+                delete unWindMap[prices[index]];
+                reduced -= unwind;
+            }else{
+                unWindMap[prices[index]] = reduced;
+            }
             unchecked { --i; }
         }
         if (isBuy) {
-            undoStat.undo_assetB = undoStat.undo_assetB > _payout ? undoStat.undo_assetB - _payout : 0;
+            undoStat.undo_assetB = undoStat.undo_assetB > totalpayout ? undoStat.undo_assetB - totalpayout : 0;
         } else {
-            undoStat.undo_assetA = undoStat.undo_assetA > _payout ? undoStat.undo_assetA - _payout : 0;
+            undoStat.undo_assetA = undoStat.undo_assetA > totalpayout ? undoStat.undo_assetA - totalpayout : 0;
         }
     }
 
@@ -406,7 +419,7 @@ contract DoppiTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCompati
         uint256 available
     ) internal returns (bool) {
         
-        doppiCore.bulkDeposit(isBuy, deposits, offers, false);
+        doppiCore.bulkDeposit(isBuy, deposits, offers);
         emit BulkDeposited(msg.sender, available, isBuy);
         return true;
     }
@@ -428,15 +441,20 @@ contract DoppiTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCompati
         
         uint256[] memory tempTargetPrice = new uint256[](round);
         uint256 count = 0;
-        // uint256 maxSwapInLocal = isBuy ? config.maxSwap : config.maxSwap * config.decimals / currentPrice;
+        uint256 priceDecimals = 10 ** doppiLP.getPriceDecimals();
+        uint256 maxSwapInLocal = _isBuy ? maxSwap * priceDecimals / _price : maxSwap;
 
         for (uint256 i = round; i > 0; ) {
 
             uint256 origStrikeprice = _getUnwindTargetPrice(_price, uint8(i), _isBuy);
             uint256 amount = unwindMap[origStrikeprice];
-            // if (condition && totalAmount <= maxSwapInLocal) {
-            if (amount > 0) {
-                totalAmount += amount;                
+            if(totalAmount >= maxSwapInLocal){
+                break;
+            }
+            uint256 totalAmountPost = totalAmount + amount;
+            uint256 unwindAmount = totalAmountPost > maxSwapInLocal ? amount - (totalAmountPost - maxSwapInLocal) : amount;
+            if (amount > 0 && (totalAmount + unwindAmount) <= maxSwapInLocal) {
+                totalAmount += unwindAmount;                
                 tempTargetPrice[count] = origStrikeprice;
                 count++;
             }
@@ -467,7 +485,6 @@ contract DoppiTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCompati
             unchecked { --i; }
         }
     }
-
 
     function _deposit(address _token, uint256 _amount) internal returns (uint256 shares) {
         return doppiRouter.deposit(_token, _amount);

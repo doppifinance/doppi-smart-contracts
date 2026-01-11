@@ -10,11 +10,11 @@ abstract contract DoppiCoreView {
     uint256 public totalSellDeposits;
     uint256 public totalInterestLiabilityA; 
     uint256 public totalInterestLiabilityB;
+    uint64 public nextPositionId = 1; 
+    uint64 public nextProcessId = 1; 
 
     IDoppiLiquidity public immutable doppiLP; // Made immutable
     
-    KeyPosition[] public buyPositionKeys;
-    KeyPosition[] public sellPositionKeys;
     mapping(uint64 => DualAssetPosition) public positions_buy; 
     mapping(uint64 => DualAssetPosition) public positions_sell; 
     mapping(uint256 => OpportunityOrders) public opportunityBuy;
@@ -23,55 +23,53 @@ abstract contract DoppiCoreView {
     // View functions for positions    
     function get_positions_buy(address _owner) external view returns (DualAssetPosition[] memory) {
         uint256 count = 0;
-        uint256 length = buyPositionKeys.length;
-        for (uint256 i = 0; i < length; ) {
-            if (buyPositionKeys[i].owner == _owner) {
+        uint256 length = getPositionLength();
+        uint64 end = nextProcessId + uint64(length);
+        DualAssetPosition[] memory tempresult = new DualAssetPosition[](length);
+        for (uint64 i = nextProcessId; i < end; ) {
+            if (positions_buy[i].owner == _owner) {
+                tempresult[count] = positions_buy[i];
                 count++;
             }
             unchecked { ++i; }
         }
-        
-        DualAssetPosition[] memory result = new DualAssetPosition[](count);
-        count = 0;
-        for (uint256 i = 0; i < length; ) {
-            if (buyPositionKeys[i].owner == _owner) {
-                result[count] = positions_buy[buyPositionKeys[i].positionId];
-                count++;
-            }
+
+        uint256 resultSize = count < tempresult.length ? count : tempresult.length;
+        DualAssetPosition[] memory result = new DualAssetPosition[](resultSize);
+        for (uint256 i = 0; i < resultSize;) {
+            result[i] = tempresult[i];
             unchecked { ++i; }
-        }
+        }        
         return result;
     }
 
     function get_positions_sell(address _owner) external view returns (DualAssetPosition[] memory) {
         uint256 count = 0;
-        uint256 length = sellPositionKeys.length;
-        for (uint256 i = 0; i < length; ) {
-            if (sellPositionKeys[i].owner == _owner) {
+        uint256 length = getPositionLength();
+        uint64 end = nextProcessId + uint64(length);
+        DualAssetPosition[] memory tempresult = new DualAssetPosition[](length);
+        for (uint64 i = nextProcessId; i < end; ) {
+            if (positions_sell[i].owner == _owner) {
+                tempresult[count] = positions_sell[i];
                 count++;
             }
             unchecked { ++i; }
         }
-        
-        DualAssetPosition[] memory result = new DualAssetPosition[](count);
-        count = 0;
-        for (uint256 i = 0; i < length; ) {
-            if (sellPositionKeys[i].owner == _owner) {
-                result[count] = positions_sell[sellPositionKeys[i].positionId];
-                count++;
-            }
+        uint256 resultSize = count < tempresult.length ? count : tempresult.length;
+        DualAssetPosition[] memory result = new DualAssetPosition[](resultSize);
+        for (uint256 i = 0; i < resultSize;) {
+            result[i] = tempresult[i];
             unchecked { ++i; }
-        }
+        }        
         return result;
     }
 
-    function getBuyPositionCount(address _owner) external view returns (uint256) {
-        uint256 count = 0;
-        uint256 length = buyPositionKeys.length;
-        if(_owner == address(0)) return length;
-
-        for (uint256 i = 0; i < length; ) {
-            if (buyPositionKeys[i].owner == _owner) {
+    function getBuyPositionCount(address _owner) external view returns (uint256 count) {
+        
+        uint256 length = getPositionLength();
+        uint64 end = nextProcessId + uint64(length);
+        for (uint64 i = nextProcessId; i < end; ) {
+            if (positions_buy[i].owner == _owner) {
                 count++;
             }
             unchecked { ++i; }
@@ -79,13 +77,11 @@ abstract contract DoppiCoreView {
         return count;
     }
 
-    function getSellPositionCount(address _owner) external view returns (uint256) {
-        uint256 count = 0;
-        uint256 length = sellPositionKeys.length;
-        if(_owner == address(0)) return length;
-        
-        for (uint256 i = 0; i < length; ) {
-            if (sellPositionKeys[i].owner == _owner) {
+    function getSellPositionCount(address _owner) external view returns (uint256 count) {
+        uint256 length = getPositionLength();
+        uint64 end = nextProcessId + uint64(length);
+        for (uint64 i = nextProcessId; i < end; ) {
+            if (positions_sell[i].owner == _owner) {
                 count++;
             }
             unchecked { ++i; }
@@ -96,6 +92,10 @@ abstract contract DoppiCoreView {
     function getCurrentDeposits(bool isBuy) public view returns (uint256) {
         return isBuy ? totalBuyDeposits : totalSellDeposits;
     }
+
+    function getPositionLength() public view returns (uint64){
+        return nextPositionId - nextProcessId;
+    } 
 
     function canAcceptDeposit(bool isBuy, uint256 depositAmount) public view returns (bool) {
         uint256 maxDeposit = doppiLP.getMaxDepositAmount(isBuy);
@@ -112,5 +112,9 @@ abstract contract DoppiCoreView {
 
     function getInterestLiabilities() external view returns (uint256, uint256) {
         return (totalInterestLiabilityA, totalInterestLiabilityB);
+    }
+
+    function getOpportunityOrders(bool isBuy, uint256 strikePrice) external view returns (OpportunityOrders memory) {
+        return isBuy ? opportunityBuy[strikePrice] : opportunitySell[strikePrice];
     }
 }

@@ -341,18 +341,19 @@ contract DoppiTraderTest is Test {
         // ***** START perform opportunityBot.checkUpkeep
         oracle.setPrice(int256(104_000 * 1e8));
         (bool upkeepNeeded, bytes memory performData) = opportunityBot.checkUpkeep("");
+        // console.log(upkeepNeeded, "upkeepNeeded");
         assertTrue(upkeepNeeded);
         assertGt(performData.length, 0);
         (
             uint256[] memory targetPrices, 
             uint256[] memory targetPricesUnwind, 
-            uint256[] memory totalAmount,
-            uint256[] memory totalAmountUnwind,
+            uint256 totalAmount,
+            uint256 totalAmountUnwind,
             uint256[] memory targetPricesSell, 
             uint256[] memory targetPricesSellUnwind, 
-            uint256[] memory totalAmountSell,
-            uint256[] memory totalAmountSellUnwind
-        ) = abi.decode(performData, (uint256[], uint256[], uint256[], uint256[], uint256[], uint256[], uint256[], uint256[]));
+            uint256 totalAmountSell,
+            uint256 totalAmountSellUnwind
+        ) = abi.decode(performData, (uint256[], uint256[], uint256, uint256, uint256[], uint256[], uint256, uint256));
 
         assertGt(targetPricesSell.length, 0);
         assertEq(targetPrices.length, 0);
@@ -367,6 +368,7 @@ contract DoppiTraderTest is Test {
         vm.warp(block.timestamp + 1 days + 1);
         oracle.setPrice(int256(99_500 * 1e8)); // settled sell + traded with profit in assetB with buy back + NO strike
         (upkeepNeeded, performData) = doppiCore.checkUpkeep("");
+        console.log(upkeepNeeded, "upkeepNeeded");
         assertTrue(upkeepNeeded);
         vm.prank(mockForwarder);
         doppiCore.performUpkeep(performData);
@@ -390,13 +392,13 @@ contract DoppiTraderTest is Test {
         (
             uint256[] memory targetPrices, 
             uint256[] memory targetPricesUnwind, 
-            uint256[] memory totalAmount,
-            uint256[] memory totalAmountUnwind,
+            uint256 totalAmount,
+            uint256 totalAmountUnwind,
             uint256[] memory targetPricesSell, 
             uint256[] memory targetPricesSellUnwind, 
-            uint256[] memory totalAmountSell,
-            uint256[] memory totalAmountSellUnwind
-        ) = abi.decode(performData, (uint256[], uint256[], uint256[], uint256[], uint256[], uint256[], uint256[], uint256[]));
+            uint256 totalAmountSell,
+            uint256 totalAmountSellUnwind
+        ) = abi.decode(performData, (uint256[], uint256[], uint256, uint256, uint256[], uint256[], uint256, uint256));
 
         assertGt(targetPricesSell.length, 0);
         assertEq(targetPrices.length, 0);

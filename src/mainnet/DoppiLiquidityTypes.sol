@@ -17,6 +17,7 @@ struct ConfigParam {
     uint24 maxDepositPercentage;
     uint32 maxDelay;
     uint256 maxSwap;
+    uint256 priceGap;
 }
 
 struct Config {
@@ -34,4 +35,5 @@ struct Config {
     uint24 maxDepositPercentage;
     uint32 maxDelay;
     uint256 maxSwap;
+    uint256 priceGap;
 }

@@ -35,22 +35,23 @@ contract DoppiOpportunity is Ownable, Pausable, AutomationCompatibleInterface {
         (   
             uint256[] memory targetPrices, 
             uint256[] memory targetPricesUnwind, 
-            uint256[] memory totalAmount,
-            uint256[] memory totalAmountUnwind
+            uint256 totalAmountBuy,
+            uint256 totalAmountBuyUnwind
         ) = doppiCore.checkOpportunity(price, true);
         
         (   
             uint256[] memory targetPricesSell, 
             uint256[] memory targetPricesSellUnwind, 
-            uint256[] memory totalAmountSell,
-            uint256[] memory totalAmountSellUnwind
+            uint256 totalAmountSell,
+            uint256 totalAmountSellUnwind
         ) = doppiCore.checkOpportunity(price, false);
 
+        console.log(targetPrices.length, targetPricesSell.length);
         upkeepNeeded = (targetPrices.length > 0 || targetPricesUnwind.length > 0 || targetPricesSell.length > 0 || targetPricesSellUnwind.length > 0);
         
         if (upkeepNeeded) {
             performData = abi.encode(
-                targetPrices, targetPricesUnwind, totalAmount, totalAmountUnwind,
+                targetPrices, targetPricesUnwind, totalAmountBuy, totalAmountBuyUnwind,
                 targetPricesSell, targetPricesSellUnwind, totalAmountSell, totalAmountSellUnwind
                 );
         } else {
@@ -67,17 +68,21 @@ contract DoppiOpportunity is Ownable, Pausable, AutomationCompatibleInterface {
         (
             uint256[] memory targetPrices, 
             uint256[] memory targetPricesUnwind, 
-            uint256[] memory totalAmount,
-            uint256[] memory totalAmountUnwind,
+            uint256 totalAmountBuy,
+            uint256 totalAmountBuyUnwind,
             uint256[] memory targetPricesSell, 
             uint256[] memory targetPricesSellUnwind, 
-            uint256[] memory totalAmountSell,
-            uint256[] memory totalAmountSellUnwind
-        ) = abi.decode(performData, (uint256[], uint256[], uint256[], uint256[], uint256[], uint256[], uint256[], uint256[]));
+            uint256 totalAmountSell,
+            uint256 totalAmountSellUnwind
+        ) = abi.decode(performData, (uint256[], uint256[], uint256, uint256, uint256[], uint256[], uint256, uint256));
+        console.log(targetPrices.length, targetPricesUnwind.length, targetPricesSell.length, targetPricesSellUnwind.length);
 
-        doppiCore.performOpportunity(targetPrices, targetPricesUnwind, totalAmount, totalAmountUnwind, true);
-        doppiCore.performOpportunity(targetPricesSell, targetPricesSellUnwind, totalAmountSell, totalAmountSellUnwind, false);
-        
+        if(targetPrices.length > 0 || targetPricesUnwind.length > 0){
+            doppiCore.performOpportunity(targetPrices, targetPricesUnwind, totalAmountBuy, totalAmountBuyUnwind, true);
+        }
+        if(targetPricesSell.length > 0 || targetPricesSellUnwind.length > 0){
+            doppiCore.performOpportunity(targetPricesSell, targetPricesSellUnwind, totalAmountSell, totalAmountSellUnwind, false);
+        }
     }
 
     function setPause() external onlyOwner {

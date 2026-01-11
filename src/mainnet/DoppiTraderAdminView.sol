@@ -32,6 +32,7 @@ abstract contract DoppiTraderAdminView is Ownable {
     uint32 public tolerance;
     uint256 public upperBound;
     uint256 public lowerBound;
+    uint256 public maxSwap;
 
     
     function getTotalBalancesInLP() external view returns (uint256 totalAssetA, uint256 totalAssetB) {
@@ -75,12 +76,16 @@ abstract contract DoppiTraderAdminView is Ownable {
         return validTrader;
     }
 
-    function setDefaultDay(uint16 _day) external onlyTrader {
+    function setDefaultDay(uint16 _day) external onlyOwner {
         traderDefaultDay = _day;
     }
 
     function setMaxOrder(uint24 _maxOrder) external onlyTrader {
         maxOrder = _maxOrder;
+    }
+
+    function setMaxSwap(uint256 _maxSwap) external onlyTrader {
+        maxSwap = _maxSwap;
     }
 
     function setForwarderAddress(address forwarderAddress) external onlyTrader {
@@ -93,6 +98,54 @@ abstract contract DoppiTraderAdminView is Ownable {
 
     function setTolerance(uint32 _tolerance) external onlyOwner {
         tolerance = _tolerance;
+    }
+
+    function getUnwindInfo(bool isBuy, uint256 strikePrice) external view returns (uint256) {
+        return isBuy ? unWindBuy[strikePrice] : unWindSell[strikePrice];
+    }
+
+    function _updateBound() internal {
+
+        uint256 priceDecimals = 10 ** doppiLP.getPriceDecimals();
+        uint256 gap = impliedVol.getPriceGapPerOffer() * priceDecimals;
+        // uint256 gap = config.priceGap * config.decimals;
+
+        // ------------------ UPDATE LOWER BOUND ------------------
+        uint256 i = lowerBound;
+        while (true) {
+            if (unWindBuy[i] != 0 || unWindSell[i] != 0) {
+                // Found first valid strike
+                lowerBound = i;
+                break;
+            }
+            // move upward
+            i += gap;
+
+            // no valid strike left
+            if (i > upperBound) {
+                lowerBound = 0;
+                upperBound = 0;
+                return;
+            }
+        }
+
+        // ------------------ UPDATE UPPER BOUND ------------------
+        i = upperBound;
+        while (true) {
+            if (unWindBuy[i] != 0 || unWindSell[i] != 0) {
+                upperBound = i;
+                break;
+            }
+            // guard underflow
+            if (i < gap) break;
+            i -= gap;
+
+            if (i < lowerBound) {
+                lowerBound = 0;
+                upperBound = 0;
+                return;
+            }
+        }
     }
 
     function _getLoopRound(uint256 _price, bool _isBuy) internal view returns (uint256 round) {
