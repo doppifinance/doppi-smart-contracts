@@ -18,4 +18,5 @@ interface IDoppiCore {
     function acceptedDeposit(bool isBuy) external view returns (uint256 acceptedAmount);
     function getMinOrder() external view returns (uint256, uint256);
     function getDoppiOffer() external view returns (address);
+    function canAcceptDeposit(bool isBuy, uint256 depositAmount) external view returns (bool);
 }

@@ -46,7 +46,6 @@ contract DoppiOpportunity is Ownable, Pausable, AutomationCompatibleInterface {
             uint256 totalAmountSellUnwind
         ) = doppiCore.checkOpportunity(price, false);
 
-        console.log(targetPrices.length, targetPricesSell.length);
         upkeepNeeded = (targetPrices.length > 0 || targetPricesUnwind.length > 0 || targetPricesSell.length > 0 || targetPricesSellUnwind.length > 0);
         
         if (upkeepNeeded) {
@@ -75,8 +74,7 @@ contract DoppiOpportunity is Ownable, Pausable, AutomationCompatibleInterface {
             uint256 totalAmountSell,
             uint256 totalAmountSellUnwind
         ) = abi.decode(performData, (uint256[], uint256[], uint256, uint256, uint256[], uint256[], uint256, uint256));
-        console.log(targetPrices.length, targetPricesUnwind.length, targetPricesSell.length, targetPricesSellUnwind.length);
-
+        
         if(targetPrices.length > 0 || targetPricesUnwind.length > 0){
             doppiCore.performOpportunity(targetPrices, targetPricesUnwind, totalAmountBuy, totalAmountBuyUnwind, true);
         }

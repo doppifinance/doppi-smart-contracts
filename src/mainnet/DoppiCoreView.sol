@@ -89,8 +89,17 @@ abstract contract DoppiCoreView {
         return count;
     }
 
-    function getCurrentDeposits(bool isBuy) public view returns (uint256) {
-        return isBuy ? totalBuyDeposits : totalSellDeposits;
+    function getCurrentDeposits(bool isBuy) public view returns (uint256 currentDeposits) {
+
+        uint256 price = doppiLP.getPrice();
+        uint256 priceDecimal = 10 ** doppiLP.getPriceDecimals();
+        if(isBuy) {
+            uint256 sellInA = totalSellDeposits * price / priceDecimal;
+            currentDeposits = totalBuyDeposits + sellInA;
+        }else{
+            uint256 buyInB = totalBuyDeposits * priceDecimal / price;
+            currentDeposits = totalSellDeposits + buyInB;
+        }
     }
 
     function getPositionLength() public view returns (uint64){

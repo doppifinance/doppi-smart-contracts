@@ -11,7 +11,7 @@ import {IDoppiOffer} from "../Interface/IDoppiOffer.sol";
 import "./DoppiCoreTypes.sol";
 import "./DoppiCoreAdmin.sol";
 import "./DoppiCoreView.sol";
-import "forge-std/console.sol";
+// import "forge-std/console.sol";
 
 contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, AutomationCompatibleInterface {
     using SafeERC20 for IERC20;
@@ -76,7 +76,7 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
         if(!_isAPRWithinTolerance(buyOffer.apr, params.apr)) revert InvalidAPR();
         
         _depositBuy(params, buyOffer);
-        _updateBounds(buyOffer.strikePrice);
+        _updateLowerUpperBound(buyOffer.strikePrice);
     }
 
     function deposit_sell(DepositParams calldata params) 
@@ -91,7 +91,7 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
         if(sellOffer.strikePrice != params.strikePrice) revert InvalidStrikePriceOrPrice();
         if(!_isAPRWithinTolerance(sellOffer.apr, params.apr)) revert InvalidAPR();
         _depositSell(params, sellOffer);
-        _updateBounds(sellOffer.strikePrice);
+        _updateLowerUpperBound(sellOffer.strikePrice);
     }
 
     function bulkDeposit(bool isBuy, DepositParams[] calldata params, DualAssetOffer[] memory _offers) external onlyTraderBot whenNotPaused {
@@ -256,7 +256,8 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
     ) internal {
         uint256 price = _getPriceFromLP();
         _batchProcess(allPositions, settleAccu, price);
-        _settle_positions(allPositions, price);        
+        _settle_positions(allPositions, price);   
+        _updateBound();     
     }
 
     function _depositBuy(DepositParams calldata params, DualAssetOffer memory _buyOffer) internal {
@@ -439,16 +440,16 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
                 }
                 isProfit = true;
                 _safeTransferWithFee(payoutToken, address(doppiLP), profitLoss);
-                order.outAmount -= myamountOut;
-                order.swappedAmount -= swappedAmount;
-                
-                if(p.amount >= order.amount){
-                    delete opporMap[p.strikePrice];
-                }else{
-                    order.amount -= p.amount;
-                }
+
+                order.outAmount = order.outAmount > myamountOut ? order.outAmount - myamountOut : 0;
+                order.swappedAmount = order.swappedAmount > swappedAmount ? order.swappedAmount - swappedAmount : 0;
             }
-        }        
+        } 
+        if(p.amount >= order.amount){
+            delete opporMap[p.strikePrice];
+        }else{
+            order.amount -= p.amount;
+        }       
     }
 
     function _settleNoStrike(
@@ -478,15 +479,13 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
                 isProfit = true;
                 _safeTransferWithFee(payoutToken, address(doppiLP), profitLoss);
             }
-            
-            order.outAmount -= amountOut;
-            order.swappedAmount -= swappedAmount;
-
-            if(p.amount > order.amount){
-                delete opporMap[p.strikePrice];
-            }else{
-                order.amount -= p.amount;
-            }
+            order.outAmount = order.outAmount > amountOut ? order.outAmount - amountOut : 0;
+            order.swappedAmount = order.swappedAmount > swappedAmount ? order.swappedAmount - swappedAmount : 0;
+        }
+        if(p.amount > order.amount){
+            delete opporMap[p.strikePrice];
+        }else{
+            order.amount -= p.amount;
         }        
     }
 
@@ -523,8 +522,6 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
         uint256 triggerPrice = _isBuy ? price + buffer : price - buffer;
         uint256 triggerUnwindPrice = _isBuy ? price - buffer : price + buffer;
         uint256 maxSwapInLocal = (_isBuy == _unwind) ? maxSwap * priceDecimal / price : maxSwap;
-        console.log(_isBuy, price, triggerPrice, "_isBuy, price, triggerPrice");
-        console.log(round, maxSwapInLocal, "round, maxSwapInLocal");
         for (uint256 i = round; i > 0; ) {
             if (totalAmount >= maxSwapInLocal) break;
             uint256 strikeprice = _getTargetPrice(price, uint8(i), direction);
@@ -547,7 +544,7 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
                 totalAmountPost = totalAmount + comparedAmount;
             }
             uint256 toTradeAmount = totalAmountPost > maxSwapInLocal ? comparedAmount - (totalAmountPost - maxSwapInLocal) : comparedAmount;
-            console.log(isTriggered, totalAmountPost, toTradeAmount, maxSwapInLocal);
+            
             if (isTriggered && (totalAmount + toTradeAmount) <= maxSwapInLocal) {
                 totalAmount += toTradeAmount;
                 tempTargetPrice[count] = strikeprice;
@@ -559,19 +556,6 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
         targetPrices = _createResultArrays(tempTargetPrice, count);
     }
 
-    function display() public {
-        
-        uint256 gap = 500 * 1e8;
-        for(uint256 i=lowerBound; i <= upperBound;) {
-            console.log(opportunityBuy[i].amount, i, opportunityBuy[i].outAmount, opportunityBuy[i].swappedAmount);
-            i += gap;
-        }
-        for(uint256 i=lowerBound; i <= upperBound;) {
-            console.log(opportunitySell[i].amount, i, opportunitySell[i].outAmount, opportunitySell[i].swappedAmount);
-            i += gap;
-        }
-    }
-    
     function checkOpportunity(uint256 price, bool _isBuy) external view
         returns (
             uint256[] memory targetPrices, 
@@ -618,6 +602,50 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
         }
     }
 
+    function _updateBound() internal {
+
+        uint256 gap = doppiOffer.getPriceGapPerOffer() * priceDecimal;
+
+        // ------------------ UPDATE LOWER BOUND ------------------
+        uint256 i = lowerBound;
+        while (true) {
+            if (opportunityBuy[i].amount > 0 || opportunitySell[i].amount > 0) {
+                lowerBound = i;
+                break;
+            }
+            // move upward
+            i += gap;
+
+            // no valid strike left
+            if (i > upperBound) {
+                _resetBound();
+                return;
+            }
+        }
+
+        // ------------------ UPDATE UPPER BOUND ------------------
+        i = upperBound;
+        while (true) {
+            if (opportunityBuy[i].amount > 0 || opportunitySell[i].amount > 0) {
+                upperBound = i;
+                break;
+            }
+            // guard underflow
+            if (i < gap) break;
+            i -= gap;
+
+            if (i < lowerBound) {
+                _resetBound();
+                return;
+            }
+        }
+    }
+
+    function _resetBound() internal {
+        uint256 price = doppiLP.getPrice();
+        lowerBound = _getTargetPrice(price, 1, true);
+        upperBound = _getTargetPrice(price, 1, false);
+    }
 
     function _createResultArrays(
         uint256[] memory tempPrices,
@@ -695,11 +723,9 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
         uint256 myAmountOut;
         reducedUpdated = reduced;
         reducedoutUpdated = reducedout;
-        // console.log(reducedUpdated, unwind, "reducedUpdated, unwind");
         if(reducedUpdated >= unwind){
             ratio = unwind * 1e18 / totalAmountUnwind;
             myAmountOut = amountOutUnwind * ratio / 1e18;
-            // console.log(order.amount, myAmountOut, swappedAmount, "myAmountOut, swappedAmount");
             order.outAmount -= unwind;
             order.swappedAmount -= swappedAmount;
             reducedUpdated -= unwind;
@@ -718,7 +744,6 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
         uint256 profit;
         IERC20 profitToken = isBuy ? assetA : assetB;
         if (myAmountOut > swappedAmount) {
-            // console.log(myAmountOut, swappedAmount, "myAmountOut, swappedAmount");
             profit = myAmountOut - swappedAmount;
             _safeTransferWithFee(profitToken, address(doppiLP), profit);
             reducedoutUpdated -= profit;
@@ -773,7 +798,7 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
         }
     }
 
-    function _updateBounds(uint256 strikePrice) internal {
+    function _updateLowerUpperBound(uint256 strikePrice) internal {
         if(strikePrice > upperBound){
             upperBound = strikePrice;
         }else if (strikePrice < lowerBound || lowerBound == 0){
@@ -786,10 +811,9 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
         uint256 orderAmount,
         bool isBuy) internal view returns (bool) 
     {
-        mapping(uint256 => OpportunityOrders) storage opporMap = isBuy ? opportunityBuy : opportunitySell; 
-        
-        uint256 amount = opporMap[strikePrice].amount;
-        uint256 swappedAmount = opporMap[strikePrice].swappedAmount;
+        OpportunityOrders memory order = isBuy ? opportunityBuy[strikePrice] : opportunitySell[strikePrice]; 
+        uint256 amount = order.amount;
+        uint256 swappedAmount = order.swappedAmount;
         uint256 unTradeAmount = amount - swappedAmount;
         return unTradeAmount < orderAmount;
     }

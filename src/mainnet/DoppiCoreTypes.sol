@@ -26,7 +26,7 @@ struct DualAssetPosition {
     uint256 amount;
     uint256 price;
     uint256 strikePrice;
-    uint32 expiryTimestamp; // Changed to uint32 to save storage
+    uint32 expiryTimestamp; 
     uint32 apr;
     address owner;
     uint256 interest;
@@ -47,7 +47,7 @@ struct DepositParams {
     uint256 strikePrice;
     uint32 numDays;
     uint32 apr;
-    uint32 expiry; // Changed to uint32
+    uint32 expiry; 
 }
 
 struct SettlementResult {

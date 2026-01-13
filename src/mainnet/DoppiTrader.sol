@@ -7,7 +7,7 @@ import {AutomationCompatibleInterface} from "../Interface/AutomationCompatibleIn
 import {DALiquidityLib} from "../Library/DALiquidityLib.sol";
 import "./DoppiTraderTypes.sol";
 import "./DoppiTraderAdminView.sol";
-// import "forge-std/console.sol";
+import "forge-std/console.sol";
 
 contract DoppiTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCompatibleInterface, Initializable {
     using SafeERC20 for IERC20;
@@ -73,9 +73,7 @@ contract DoppiTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCompati
         ratioLP = 5000;
         tolerance = 100;
         maxSwap = 200000 ether;
-        uint256 price = doppiLP.getPrice();
-        lowerBound = _getUnwindTargetPrice(price, 1, true);
-        upperBound = _getUnwindTargetPrice(price, 1, false);
+        _resetBound();
     }
 
     function start(uint256 _amountA, uint256 _amountB) external onlyTrader nonReentrant {
@@ -186,20 +184,6 @@ contract DoppiTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCompati
         }        
     }
 
-    function display() public {
-        
-        uint256 gap = 500 * 1e8;
-        for(uint256 i=lowerBound; i <= upperBound;) {
-            console.log("Buy", i, unWindBuy[i]);
-            i += gap;
-        }
-        for(uint256 i=lowerBound; i <= upperBound;) {
-            console.log("Sell", i, unWindSell[i]);
-            i += gap;
-        }
-
-    }
-
     function checkUpkeep(bytes calldata) external view override returns (bool upkeepNeeded, bytes memory performData) {
         
         if(s_forwarderAddress == address(0)) return (false, bytes(""));
@@ -303,12 +287,18 @@ contract DoppiTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCompati
         
         if (buyPosCount == 0 && availableA > 0 && offerBuy.apr > 0) {
             hasValidBuyOrder = _hasValidOrderConfig(true, availableA);
+            if(hasValidBuyOrder){
+                uint256 eachOrderA = availableA / orderConfigs.length;
+                hasValidBuyOrder = doppiCore.canAcceptDeposit(true, eachOrderA);
+            }
         }
-        
         if (sellPosCount == 0 && availableB > 0 && offerSell.apr > 0) {
             hasValidSellOrder = _hasValidOrderConfig(false, availableB);
+            if(hasValidSellOrder){
+                uint256 eachOrderB = availableB / orderConfigs.length;
+                hasValidSellOrder = doppiCore.canAcceptDeposit(false, eachOrderB);
+            }
         }
-
         return (hasValidBuyOrder, hasValidSellOrder);
     }
 
@@ -375,32 +365,31 @@ contract DoppiTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCompati
         (uint256 minA, uint256 minB) = doppiCore.getMinOrder();
         uint256 min = isBuy ? minA : minB;
         
-        // Count and prepare in single pass using assembly for array creation
-        uint256 validCount = 0;
-        
-        // First, count valid orders
+        uint256 validCount = 0;   
+        uint256 acceptedDeposit = doppiCore.acceptedDeposit(isBuy); 
+
         for (uint256 i = 0; i < length; ) {
             uint256 depositAmount = (availableAsset * orderConfigs[i].weight) / 10000;
-            if (depositAmount >= min) {
+            bool canAccept = acceptedDeposit > depositAmount;
+            if (depositAmount >= min && canAccept) {
                 unchecked { ++validCount; }
             }
+            acceptedDeposit = acceptedDeposit > depositAmount ? acceptedDeposit - depositAmount : 0;
             unchecked { ++i; }
         }
         
         if (validCount == 0) return (deposits, offers, 0);
-        
+
         // Create arrays with exact size
         deposits = new DepositParams[](validCount);
         offers = new DualAssetOffer[](validCount);
         
         // Populate arrays
         uint256 count = 0;
-        for (uint256 i = 0; i < length; ) {
+        for (uint256 i = 0; i < validCount; ) {
             uint256 depositAmount = (availableAsset * orderConfigs[i].weight) / 10000;
-            if (depositAmount >= min) {
-                (deposits[count], offers[count]) = _prepareOrder(isBuy, depositAmount, orderConfigs[i], price);
-                unchecked { ++count; }
-            }
+            (deposits[count], offers[count]) = _prepareOrder(isBuy, depositAmount, orderConfigs[i], price);
+            unchecked { ++count; }
             unchecked { ++i; }
         }
         
@@ -518,10 +507,6 @@ contract DoppiTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCompati
             return 0;
         }
         availableAmount = balance - undoAmount;
-        uint256 acceptedAmount = doppiCore.acceptedDeposit(_isBuy);
-        if (acceptedAmount < availableAmount) {
-            availableAmount = acceptedAmount;
-        }
     }
     
     modifier onlyDoppiCore() {

@@ -17,7 +17,7 @@ import {Pausable} from "@openzeppelin/contracts/utils/Pausable.sol";
 import {AggregatorV3Interface} from "../Interface/AggregatorV3Interface.sol";
 import "./DoppiLiquidityTypes.sol";
 import "./DoppiCoreTypes.sol";
-import "forge-std/console.sol";
+// import "forge-std/console.sol";
 
 contract DoppiLiquidity is ERC20, Ownable, Pausable, IDoppiLiquidity, AutomationCompatibleInterface, ReentrancyGuard {
     using SafeERC20 for IERC20;
@@ -309,19 +309,6 @@ contract DoppiLiquidity is ERC20, Ownable, Pausable, IDoppiLiquidity, Automation
         }
     }
 
-    function display() public {
-        
-        uint256 gap = 500 * 1e8;
-        for(uint256 i=lowerBound; i <= upperBound;) {
-            console.log("Buy", i, amountToBuy[i]);
-            i += gap;
-        }
-        for(uint256 i=lowerBound; i <= upperBound;) {
-            console.log("Sell", i, amountToSell[i]);
-            i += gap;
-        }
-    }
-
     function _netoutBuySell(uint256 _totalSellAmount, uint256 _totalBuyAmount, uint256 currentPrice) 
         internal view returns (bool isNetBuy, uint256 netSellOrBuy) 
     {
@@ -351,7 +338,7 @@ contract DoppiLiquidity is ERC20, Ownable, Pausable, IDoppiLiquidity, Automation
                 delete amountMap[prices[index]];
                 reduced -= unwind;
             }else{
-                amountMap[prices[index]] = reduced;
+                amountMap[prices[index]] = unwind - reduced;
             }
             unchecked { --i; }
         }

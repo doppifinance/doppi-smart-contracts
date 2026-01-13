@@ -8,7 +8,7 @@ import {IDoppiUpkeepManager} from "../Interface/IDoppiUpkeepManager.sol";
 import {IDoppiLiquidityRouter} from "../Interface/IDoppiLiquidityRouter.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "./DoppiCoreTypes.sol";
-import "forge-std/console.sol";
+// import "forge-std/console.sol";
 
 
 abstract contract DoppiTraderAdminView is Ownable {
@@ -108,7 +108,6 @@ abstract contract DoppiTraderAdminView is Ownable {
 
         uint256 priceDecimals = 10 ** doppiLP.getPriceDecimals();
         uint256 gap = impliedVol.getPriceGapPerOffer() * priceDecimals;
-        // uint256 gap = config.priceGap * config.decimals;
 
         // ------------------ UPDATE LOWER BOUND ------------------
         uint256 i = lowerBound;
@@ -123,8 +122,7 @@ abstract contract DoppiTraderAdminView is Ownable {
 
             // no valid strike left
             if (i > upperBound) {
-                lowerBound = 0;
-                upperBound = 0;
+                _resetBound();
                 return;
             }
         }
@@ -141,8 +139,7 @@ abstract contract DoppiTraderAdminView is Ownable {
             i -= gap;
 
             if (i < lowerBound) {
-                lowerBound = 0;
-                upperBound = 0;
+                _resetBound();
                 return;
             }
         }
@@ -193,6 +190,12 @@ abstract contract DoppiTraderAdminView is Ownable {
         uint256 priceGapWithDecimals = impliedVol.getPriceGapPerOffer() * priceDecimals;
         _price = (_price / priceGapWithDecimals) * priceGapWithDecimals;
         return _isBuy ? _price - (priceGapWithDecimals * (_zone - 1)) : _price + (priceGapWithDecimals * _zone);
+    }
+
+    function _resetBound() internal {
+        uint256 price = doppiLP.getPrice();
+        lowerBound = _getUnwindTargetPrice(price, 1, true);
+        upperBound = _getUnwindTargetPrice(price, 1, false);
     }
 
     modifier onlyTrader() {
