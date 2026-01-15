@@ -115,221 +115,224 @@ contract Scenario2Test is Test {
         vm.stopPrank();
     }
 
-    // function test_Scenario_LP_WithdrawMaxAvailability() public {
+    function test_Scenario_LP_WithdrawMaxAvailability() public {
         
-    //     vm.startPrank(trader);
-    //     deal(BTC, address(trader), 10 ether);
-    //     deal(USDT, address(trader), 1_000_000 ether);
-    //     deal(LINK, address(0x719474EC3C3587F47C81424c9c73F785aec3f1A0), 10_000 ether); //mockRegistryConsumer
+        vm.startPrank(trader);
+        deal(BTC, address(trader), 10 ether);
+        deal(USDT, address(trader), 1_000_000 ether);
+        deal(LINK, address(0x719474EC3C3587F47C81424c9c73F785aec3f1A0), 10_000 ether); //mockRegistryConsumer
 
-    //     usdt.approve(address(doppiRouter), 200_000 ether);
-    //     // btc.approve(address(doppiRouter), 1 ether);
+        usdt.approve(address(doppiRouter), 200_000 ether);
+        // btc.approve(address(doppiRouter), 1 ether);
         
-    //     uint256 sharesA = doppiRouter.deposit(address(usdt), 100000 ether);
-    //     // uint256 sharesB = doppiRouter.deposit(address(btc), 1 ether);
+        uint256 sharesA = doppiRouter.deposit(address(usdt), 100000 ether);
+        // uint256 sharesB = doppiRouter.deposit(address(btc), 1 ether);
 
-    //     usdt.approve(address(doppiCore), 100000 ether);
+        usdt.approve(address(doppiCore), 100000 ether);
         
-    //     DualAssetOffer memory buyOffer = impliedVol.getOffer(true, 1, 0);
-    //     doppiCore.deposit_buy(DepositParams({
-    //         amount: 100000 ether,
-    //         strikeZone: 0,
-    //         strikePrice: buyOffer.strikePrice,
-    //         numDays: 1,
-    //         apr: buyOffer.apr,
-    //         expiry: buyOffer.expiry
-    //     }));
+        DualAssetOffer memory buyOffer = impliedVol.getOffer(true, 1, 0);
+        doppiCore.deposit_buy(DepositParams({
+            amount: 100000 ether,
+            strikeZone: 0,
+            strikePrice: buyOffer.strikePrice,
+            numDays: 1,
+            apr: buyOffer.apr,
+            expiry: buyOffer.expiry
+        }));
         
-    //     vm.stopPrank();
+        vm.stopPrank();
 
-    //     // Verify active
-    //     assertTrue(doppiCore.getBuyPositionCount(address(trader)) > 0);
+        // Verify active
+        assertTrue(doppiCore.getBuyPositionCount(address(trader)) > 0);
 
-    //     (uint256 interestLiabilitiesA, uint256 interestLiabilitiesB) = doppiCore.getInterestLiabilities();
-    //     assertGt(interestLiabilitiesA, 0);
-    //     assertEq(interestLiabilitiesB, 0);
+        (uint256 interestLiabilitiesA, uint256 interestLiabilitiesB) = doppiCore.getInterestLiabilities();
+        assertGt(interestLiabilitiesA, 0);
+        assertEq(interestLiabilitiesB, 0);
 
-    //     uint256 avail = doppiRouter.getWithdrawableAmount(trader);
-    //     assertLt(avail, 100000 ether);
+        uint256 avail = doppiRouter.getWithdrawableAmount(trader);
+        assertLt(avail, 100000 ether);
 
         
-    //     vm.startPrank(trader);
-    //     doppiLP.approve(address(doppiRouter), sharesA);
-    //     vm.expectRevert("exceeds available capacity");
-    //     doppiRouter.redeem(sharesA);
+        vm.startPrank(trader);
+        doppiLP.approve(address(doppiRouter), sharesA);
+        vm.expectRevert("exceeds available capacity");
+        doppiRouter.redeem(sharesA);
         
-    //     (uint256 assetsA, ) = doppiRouter.redeem(avail);
-    //     assertGt(assetsA, 0);
+        (uint256 assetsA, ) = doppiRouter.redeem(avail);
+        assertGt(assetsA, 0);
 
-    //     vm.stopPrank();
+        vm.stopPrank();
         
-    // }
+    }
 
-    // function test_Scenario_DoppiCore_DepositMax() public {
+    function test_Scenario_DoppiCore_DepositMax() public {
         
-    //     uint256 depositAmount = 5000000 ether;
-    //     vm.startPrank(trader);
-    //     deal(BTC, address(trader), 10 ether);
-    //     deal(USDT, address(trader), 10_000_000 ether);
-    //     deal(LINK, mockRegistryConsumerAddr, 10_000 ether); //mockRegistryConsumer
+        uint256 depositAmount = 5000000 ether;
+        vm.startPrank(trader);
+        deal(BTC, address(trader), 10 ether);
+        deal(USDT, address(trader), 10_000_000 ether);
+        deal(LINK, mockRegistryConsumerAddr, 10_000 ether); //mockRegistryConsumer
 
-    //     usdt.approve(address(doppiRouter), depositAmount);
-    //     btc.approve(address(doppiRouter), 1 ether);
+        usdt.approve(address(doppiRouter), depositAmount);
+        btc.approve(address(doppiRouter), 1 ether);
         
-    //     uint256 sharesA = doppiRouter.deposit(address(usdt), 1000 ether);
-    //     uint256 sharesB = doppiRouter.deposit(address(btc), 1 ether);
+        uint256 sharesA = doppiRouter.deposit(address(usdt), 1000 ether);
+        uint256 sharesB = doppiRouter.deposit(address(btc), 1 ether);
 
-    //     uint256 maxDeposit = doppiLP.getMaxDepositAmount(true);
-    //     usdt.approve(address(doppiCore), 500000 ether);
-    //     btc.approve(address(doppiCore), 1 ether);
+        uint256 maxDeposit = doppiCore.acceptedDeposit(true);
         
-    //     DualAssetOffer memory buyOffer = impliedVol.getOffer(true, 1, 1);
-    //     doppiCore.deposit_buy(DepositParams({
-    //         amount: maxDeposit,
-    //         strikeZone: 1,
-    //         strikePrice: buyOffer.strikePrice,
-    //         numDays: 1,
-    //         apr: buyOffer.apr,
-    //         expiry: buyOffer.expiry
-    //     }));
-
-    //     vm.expectRevert("ExceedsPoolCap()");
-    //     doppiCore.deposit_buy(DepositParams({
-    //         amount: depositAmount,
-    //         strikeZone: 1,
-    //         strikePrice: buyOffer.strikePrice,
-    //         numDays: 1,
-    //         apr: buyOffer.apr,
-    //         expiry: buyOffer.expiry
-    //     }));
+        usdt.approve(address(doppiCore), 500000 ether);
+        btc.approve(address(doppiCore), 1 ether);
         
-    //     vm.stopPrank();
+        DualAssetOffer memory buyOffer = impliedVol.getOffer(true, 1, 1);
+        doppiCore.deposit_buy(DepositParams({
+            amount: maxDeposit / 2,
+            strikeZone: 1,
+            strikePrice: buyOffer.strikePrice,
+            numDays: 1,
+            apr: buyOffer.apr,
+            expiry: buyOffer.expiry
+        }));
 
-    //     // Verify active
-    //     assertTrue(doppiCore.getBuyPositionCount(address(trader)) > 0);
-
-    //     (uint256 interestLiabilitiesA, uint256 interestLiabilitiesB) = doppiCore.getInterestLiabilities();
-    //     assertGt(interestLiabilitiesA, 0);
-    //     assertEq(interestLiabilitiesB, 0);
-
-    //     uint256 avail = doppiRouter.getWithdrawableAmount(trader);
-    //     assertEq(avail, 89653621668080546613122);
+        vm.expectRevert("ExceedsPoolCap()");
+        doppiCore.deposit_buy(DepositParams({
+            amount: depositAmount,
+            strikeZone: 1,
+            strikePrice: buyOffer.strikePrice,
+            numDays: 1,
+            apr: buyOffer.apr,
+            expiry: buyOffer.expiry
+        }));
         
-    //     _depositBTC(1 ether);
-    //     vm.startPrank(trader);
-    //     avail = doppiRouter.getWithdrawableAmount(trader);
-    //     uint256 bal = doppiLP.balanceOf(trader);
-    //     doppiLP.approve(address(doppiRouter), bal);
-    //     vm.expectRevert("exceeds available capacity");
-    //     doppiRouter.redeem(sharesA + sharesB);
+        vm.stopPrank();
+
+        // Verify active
+        assertTrue(doppiCore.getBuyPositionCount(address(trader)) > 0);
+
+        (uint256 interestLiabilitiesA, uint256 interestLiabilitiesB) = doppiCore.getInterestLiabilities();
+        assertGt(interestLiabilitiesA, 0);
+        assertEq(interestLiabilitiesB, 0);
+
+        uint256 avail = doppiRouter.getWithdrawableAmount(trader);
+        assertEq(avail, 91084405834040272619260);
         
-    //     (uint256 assetsA, uint256 assetsB) = doppiRouter.redeem(avail);
-    //     assertGt(assetsA, 0);
-    //     assertGt(assetsB, 0);
-
-    //     vm.stopPrank();
+        maxDeposit = doppiCore.acceptedDeposit(false);
         
-    // }
-
-    // function test_Scenario2_TraderBotLifecycle() public {
+        _depositBTC(maxDeposit);
+        vm.startPrank(trader);
+        avail = doppiRouter.getWithdrawableAmount(trader);
+        uint256 bal = doppiLP.balanceOf(trader);
+        doppiLP.approve(address(doppiRouter), bal);
+        vm.expectRevert("exceeds available capacity");
+        doppiRouter.redeem(sharesA + sharesB);
         
-    //     vm.startPrank(trader);
-    //     deal(BTC, address(trader), 1 ether);
-    //     deal(USDT, address(trader), 100_000 ether);
-    //     deal(LINK, mockRegistryConsumerAddr, 10_000 ether); //mockRegistryConsumer
+        (uint256 assetsA, uint256 assetsB) = doppiRouter.redeem(avail);
+        assertGt(assetsA, 0);
+        assertGt(assetsB, 0);
 
-    //     // Deploy bot
-    //     uint32 traderId = doppiFactory.deployTraderBot(defaultWeights);
-    //     DoppiTrader traderBot = DoppiTrader(doppiFactory.traderBots(traderId));
-
-    //     // Setup Automation First time
-    //     // vm.warp(1763164397);
-    //     usdt.approve(address(doppiUpkeepManager), 100000 ether);
-    //     uint256 upkeepId = _setupAutomation(traderBot);
-
-    //     // Verify active
-    //     assertTrue(doppiCore.getBuyPositionCount(address(traderBot)) > 0);
-    //     vm.stopPrank();
-
-    //     // Cancel Automation
-    //     vm.startPrank(trader);
-    //     uint256 balLINK = link.balanceOf(trader);
-    //     assertEq(balLINK, 0);
-    //     doppiUpkeepManager.cancelUpkeep(upkeepId);
-    //     vm.roll(block.number + 51);
-    //     doppiUpkeepManager.stopWithdraw(upkeepId);
-    //     balLINK = link.balanceOf(trader);
-    //     assertGt(balLINK, 0);
-    //     vm.stopPrank();
-
-    //     // settle core
-    //     vm.warp(block.timestamp + 1 days + 1);
-    //      _doppiCoreCheckUpkeep_performUpkeep();
-
-    //     // stop and withdraw fund 
-    //     vm.startPrank(trader);
-    //     traderBot.stop();
-    //     vm.stopPrank();
-
-    //     vm.startPrank(owner);
-    //     _setupIV(impliedVol);
-    //     vm.stopPrank();
-
-    //     // setup again new automation
-    //     vm.startPrank(trader);
-    //     _setupAutomation(traderBot);
-    //     vm.stopPrank();
-
-    // }
-
-    // function test_Scenario_TraderBot_MinOrder_Handling() public {
+        vm.stopPrank();
         
-    //     vm.startPrank(trader);
-    //     deal(BTC, address(trader), 1 ether);
-    //     deal(USDT, address(trader), 100_000 ether);
-    //     deal(LINK, mockRegistryConsumerAddr, 10_000 ether); //mockRegistryConsumer
+    }
 
-    //     // Deploy bot
-    //     uint32 traderId = doppiFactory.deployTraderBot(defaultWeights);
-    //     DoppiTrader traderBot = DoppiTrader(doppiFactory.traderBots(traderId));
-    //     // Fund and start
-    //     usdt.approve(address(traderBot), 1000 ether);
-    //     btc.approve(address(traderBot), 0.01 ether);
-    //     traderBot.start(1000 ether, 0.01 ether);
-
-    //     // Verify active
-    //     assertTrue(doppiCore.getBuyPositionCount(address(traderBot)) > 0);
-    //     vm.stopPrank();
-
-    //     // Price Down 2%
-    //     uint256 currentPrice = doppiLP.getPrice();
-    //     int256 newPrice = int256(currentPrice * 9900 / 10000);
-    //     _manipulateRealChainlink(newPrice, address(oracle));
-
-    //     // settle core
-    //     vm.warp(block.timestamp + 1 days + 1);
-    //     _doppiCoreCheckUpkeep_performUpkeep();
-
-    //     vm.startPrank(owner);
-    //     _setupIV(impliedVol);
-    //     vm.stopPrank();
-
-    //     uint256 usdtbal = usdt.balanceOf(address(traderBot));
-    //     uint256 btcbal = btc.balanceOf(address(traderBot));
+    function test_Scenario2_TraderBotLifecycle() public {
         
-    //     console.log(usdtbal, btcbal, "usdtbal, btcbal");
+        vm.startPrank(trader);
+        deal(BTC, address(trader), 1 ether);
+        deal(USDT, address(trader), 100_000 ether);
+        deal(LINK, mockRegistryConsumerAddr, 10_000 ether); //mockRegistryConsumer
 
-    //     assertGt(btcbal, 0.005 ether);
-    //     assertLt(usdtbal, 500 ether);
-    //     // place second round
-    //     vm.startPrank(trader);
-    //     traderBot.placeOrders();
-    //     vm.stopPrank();
-    //     console.log(doppiCore.getBuyPositionCount(address(traderBot)), doppiCore.getSellPositionCount(address(traderBot)));
+        // Deploy bot
+        uint32 traderId = doppiFactory.deployTraderBot(defaultWeights);
+        DoppiTrader traderBot = DoppiTrader(doppiFactory.traderBots(traderId));
 
-    //     assertTrue(doppiCore.getBuyPositionCount(address(traderBot)) == 0); // no new order
-    //     assertTrue(doppiCore.getSellPositionCount(address(traderBot)) > 0); // with new orders
-    // }
+        // Setup Automation First time
+        // vm.warp(1763164397);
+        usdt.approve(address(doppiUpkeepManager), 100000 ether);
+        uint256 upkeepId = _setupAutomation(traderBot);
+
+        // Verify active
+        assertTrue(doppiCore.getBuyPositionCount(address(traderBot)) > 0);
+        vm.stopPrank();
+
+        // Cancel Automation
+        vm.startPrank(trader);
+        uint256 balLINK = link.balanceOf(trader);
+        assertEq(balLINK, 0);
+        doppiUpkeepManager.cancelUpkeep(upkeepId);
+        vm.roll(block.number + 51);
+        doppiUpkeepManager.stopWithdraw(upkeepId);
+        balLINK = link.balanceOf(trader);
+        assertGt(balLINK, 0);
+        vm.stopPrank();
+
+        // settle core
+        vm.warp(block.timestamp + 1 days + 1);
+         _doppiCoreCheckUpkeep_performUpkeep();
+
+        // stop and withdraw fund 
+        vm.startPrank(trader);
+        traderBot.stop();
+        vm.stopPrank();
+
+        vm.startPrank(owner);
+        _setupIV(impliedVol);
+        vm.stopPrank();
+
+        // setup again new automation
+        vm.startPrank(trader);
+        _setupAutomation(traderBot);
+        vm.stopPrank();
+
+    }
+
+    function test_Scenario_TraderBot_MinOrder_Handling() public {
+        
+        vm.startPrank(trader);
+        deal(BTC, address(trader), 1 ether);
+        deal(USDT, address(trader), 100_000 ether);
+        deal(LINK, mockRegistryConsumerAddr, 10_000 ether); //mockRegistryConsumer
+
+        // Deploy bot
+        uint32 traderId = doppiFactory.deployTraderBot(defaultWeights);
+        DoppiTrader traderBot = DoppiTrader(doppiFactory.traderBots(traderId));
+        // Fund and start
+        usdt.approve(address(traderBot), 1000 ether);
+        btc.approve(address(traderBot), 0.01 ether);
+        traderBot.start(1000 ether, 0.01 ether);
+
+        // Verify active
+        assertTrue(doppiCore.getBuyPositionCount(address(traderBot)) > 0);
+        vm.stopPrank();
+
+        // Price Down 2%
+        uint256 currentPrice = doppiLP.getPrice();
+        int256 newPrice = int256(currentPrice * 9900 / 10000);
+        _manipulateRealChainlink(newPrice, address(oracle));
+
+        // settle core
+        vm.warp(block.timestamp + 1 days + 1);
+        _doppiCoreCheckUpkeep_performUpkeep();
+
+        vm.startPrank(owner);
+        _setupIV(impliedVol);
+        vm.stopPrank();
+
+        uint256 usdtbal = usdt.balanceOf(address(traderBot));
+        uint256 btcbal = btc.balanceOf(address(traderBot));
+        
+        console.log(usdtbal, btcbal, "usdtbal, btcbal");
+
+        assertGt(btcbal, 0.005 ether);
+        assertLt(usdtbal, 500 ether);
+        // place second round
+        vm.startPrank(trader);
+        traderBot.placeOrders();
+        vm.stopPrank();
+        console.log(doppiCore.getBuyPositionCount(address(traderBot)), doppiCore.getSellPositionCount(address(traderBot)));
+
+        assertTrue(doppiCore.getBuyPositionCount(address(traderBot)) == 0); // no new order
+        assertTrue(doppiCore.getSellPositionCount(address(traderBot)) > 0); // with new orders
+    }
 
     function test_Scenario_TraderBot_MinOrder_PoolLimit_Handling() public {
         
@@ -397,52 +400,52 @@ contract Scenario2Test is Test {
         assertEq(doppiCore.getSellPositionCount(address(traderBot)), 3); // only 3 sell orders
     }
 
-    // function test_Scenario_DepositUSDTBTC_Without_BTC_Liquidity() public {
+    function test_Scenario_DepositUSDTBTC_Without_BTC_Liquidity() public {
         
-    //     uint256 depositAmount = 10000 ether;
-    //     uint256 depositBTCAmount = 0.10000 ether;
-    //     vm.startPrank(trader);
-    //     deal(BTC, address(trader), 10 ether);
-    //     deal(USDT, address(trader), 10_000_000 ether);
-    //     deal(LINK, mockRegistryConsumerAddr, 10_000 ether); //mockRegistryConsumer
+        uint256 depositAmount = 10000 ether;
+        uint256 depositBTCAmount = 0.10000 ether;
+        vm.startPrank(trader);
+        deal(BTC, address(trader), 10 ether);
+        deal(USDT, address(trader), 10_000_000 ether);
+        deal(LINK, mockRegistryConsumerAddr, 10_000 ether); //mockRegistryConsumer
 
-    //     usdt.approve(address(doppiRouter), depositAmount);
+        usdt.approve(address(doppiRouter), depositAmount);
         
-    //     uint256 sharesA = doppiRouter.deposit(address(usdt), depositAmount);
+        uint256 sharesA = doppiRouter.deposit(address(usdt), depositAmount);
 
-    //     uint256 maxDeposit = doppiLP.getMaxDepositAmount(true);
+        uint256 maxDeposit = doppiCore.acceptedDeposit(true);
         
-    //     usdt.approve(address(doppiCore), depositAmount);
-    //     btc.approve(address(doppiCore), depositBTCAmount);
-    //     vm.stopPrank();
+        usdt.approve(address(doppiCore), depositAmount);
+        btc.approve(address(doppiCore), depositBTCAmount);
+        vm.stopPrank();
 
-    //     int256 startPrice = int256(9142000000000);
-    //     _manipulateRealChainlink(startPrice, address(oracle));
+        int256 startPrice = int256(9142000000000);
+        _manipulateRealChainlink(startPrice, address(oracle));
 
-    //     DualAssetOffer memory sellOffer = impliedVol.getOffer(false, 1, 0);
-    //     vm.startPrank(trader);
-    //     doppiCore.deposit_sell(DepositParams({
-    //         amount: depositBTCAmount,
-    //         strikeZone: 0,
-    //         strikePrice: sellOffer.strikePrice,
-    //         numDays: 1,
-    //         apr: sellOffer.apr,
-    //         expiry: sellOffer.expiry
-    //     }));
+        DualAssetOffer memory sellOffer = impliedVol.getOffer(false, 1, 0);
+        vm.startPrank(trader);
+        doppiCore.deposit_sell(DepositParams({
+            amount: depositBTCAmount,
+            strikeZone: 0,
+            strikePrice: sellOffer.strikePrice,
+            numDays: 1,
+            apr: sellOffer.apr,
+            expiry: sellOffer.expiry
+        }));
         
-    //     vm.stopPrank();
+        vm.stopPrank();
 
-    //     // Verify active
-    //     // assertTrue(doppiCore.getBuyPositionCount(address(trader)) > 0);
-    //     assertTrue(doppiCore.getSellPositionCount(address(trader)) > 0);
+        // Verify active
+        // assertTrue(doppiCore.getBuyPositionCount(address(trader)) > 0);
+        assertTrue(doppiCore.getSellPositionCount(address(trader)) > 0);
 
-    //     int256 newPrice = int256(9152000000000);
-    //     _manipulateRealChainlink(newPrice, address(oracle));
+        int256 newPrice = int256(9152000000000);
+        _manipulateRealChainlink(newPrice, address(oracle));
 
-    //     // 1 day fast forward and settle
-    //     vm.warp(block.timestamp + 1 days + 1);
-    //     _doppiCoreCheckUpkeep_performUpkeep();
-    // }
+        // 1 day fast forward and settle
+        vm.warp(block.timestamp + 1 days + 1);
+        _doppiCoreCheckUpkeep_performUpkeep();
+    }
 
     function _depositBTC(uint256 amount) internal returns (DualAssetOffer memory) {
 

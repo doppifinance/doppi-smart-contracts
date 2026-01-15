@@ -149,11 +149,6 @@ contract DoppiLiquidity is ERC20, Ownable, Pausable, IDoppiLiquidity, Automation
         availableCapacity = maxDepositAmount > currentDeposits ? maxDepositAmount - currentDeposits : 0;
     }
 
-    function getMaxDepositForUser(bool isBuy, uint256 desiredAmount) external view returns (uint256) {
-        uint256 availableCapacity = getMaxDepositAmount(isBuy) - IDoppiCore(doppiCore).getCurrentDeposits(isBuy);
-        return desiredAmount > availableCapacity ? availableCapacity : desiredAmount;
-    }
-
     function setForwarderAddress(address forwarderAddress) external onlyOwner {
         s_forwarderAddress = forwarderAddress;
     }

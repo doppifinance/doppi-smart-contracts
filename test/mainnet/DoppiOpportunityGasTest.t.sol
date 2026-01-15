@@ -519,7 +519,6 @@ contract Scenario2Test is Test {
         assertEq(buy.amount, 75000000000000000000000);
         assertEq(buy.swappedAmount, 75000000000000000000000);
         assertEq(buy.outAmount, 827388577233976765);
-        doppiCore.display();
         newPrice = int256(102556 * 1e8);
         _manipulateRealChainlink(newPrice, address(oracle));
         

@@ -116,7 +116,7 @@ abstract contract DoppiCoreView {
         uint256 maxDeposit = doppiLP.getMaxDepositAmount(isBuy);
         if(maxDeposit == 0) return 0;
         uint256 currentDeposits = getCurrentDeposits(isBuy); 
-        acceptedAmount = maxDeposit - currentDeposits;
+        acceptedAmount = maxDeposit > currentDeposits ? maxDeposit - currentDeposits : 0;
     }
 
     function getInterestLiabilities() external view returns (uint256, uint256) {
