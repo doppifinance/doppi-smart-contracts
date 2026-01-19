@@ -29,7 +29,6 @@ abstract contract DoppiTraderAdminView is Ownable {
     uint16 public traderDefaultDay;
     uint24 public maxOrder;
     uint32 public ratioLP;
-    uint32 public tolerance;
     uint256 public upperBound;
     uint256 public lowerBound;
     uint256 public maxSwap;
@@ -94,10 +93,6 @@ abstract contract DoppiTraderAdminView is Ownable {
 
     function setRatioLP(uint32 _ratioLP) external onlyOwner {
         ratioLP = _ratioLP;
-    }
-
-    function setTolerance(uint32 _tolerance) external onlyOwner {
-        tolerance = _tolerance;
     }
 
     function getUnwindInfo(bool isBuy, uint256 strikePrice) external view returns (uint256) {

@@ -60,6 +60,9 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
         uint256 price = doppiLP.getPrice();
         lowerBound = _getTargetPrice(price, 1, true);
         upperBound = _getTargetPrice(price, 1, false);
+        supportDays.push(1);
+        nextProcessId[1] = 1;
+        nextPositionId = 1;
     }
 
     // Single deposit functionality
@@ -138,6 +141,10 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
         _emergencyWithdrawAll();
     }
 
+    function addSupportDay(uint8 _day) external onlyOwner {
+        supportDays.push(_day);
+    }
+
     function isEmergency() external view returns (bool){
         return emergencyMode;
     } 
@@ -147,34 +154,95 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
             uint64[] memory readyPositionId,
             SettleAccumulate memory settleAccu
         ) {
-        uint64 length = getPositionLength();
-        length = length > UPKEEPS_PER_CHECK ? UPKEEPS_PER_CHECK : length;
-
-        uint64[] memory tempPositionId = new uint64[](length);
+        
+        uint64[] memory tempPositionId = new uint64[](UPKEEPS_PER_CHECK);
         uint256 idx = 0;
-        uint64 end = nextProcessId + uint64(length);
-        for (uint64 i = nextProcessId; i < end; ) {
-            bool isBuy = positions_buy[i].amount > 0;
-            DualAssetPosition memory pos = isBuy ? positions_buy[i] : positions_sell[i];
-            if (pos.expiryTimestamp <= block.timestamp) {
-                tempPositionId[idx] = i;
-                if(isBuy){
-                    settleAccu.totalInterestA += pos.interest;
-                }else {
-                    settleAccu.totalInterestB += pos.interest;
+        
+        for(uint8 x=0; x < supportDays.length; ) {
+            uint8 day = supportDays[x];
+            uint64 id = nextProcessId[day];
+            uint64 end = id + uint64(UPKEEPS_PER_CHECK);
+            
+            for (uint64 posId = id; posId < end; ) {
+                bool isBuy = positions_buy[day][posId].amount > 0;
+                DualAssetPosition memory pos = isBuy ? positions_buy[day][posId] : positions_sell[day][posId];
+                bool exist = _posExist(day, posId);
+                if(exist) {
+                    if (pos.expiryTimestamp <= block.timestamp) {
+                        tempPositionId[idx] = posId;
+                        if(isBuy){
+                            settleAccu.totalInterestA += pos.interest;
+                        }else {
+                            settleAccu.totalInterestB += pos.interest;
+                        }
+                        idx++;
+                    }else{
+                        break;
+                    }
                 }
-                idx++;
+                unchecked { ++posId; }
             }
-            unchecked { ++i; }
+            unchecked { ++x; }
         }
-        uint256 resultSize = idx < tempPositionId.length ? idx : tempPositionId.length;
-        readyPositionId = new uint64[](resultSize);
-        for (uint64 i = 0; i < resultSize;) {
-            readyPositionId[i] = tempPositionId[i];
-            unchecked { ++i; }
+        if(idx > 0) {
+            uint256 resultSize = idx < UPKEEPS_PER_CHECK ? idx : UPKEEPS_PER_CHECK;
+            readyPositionId = new uint64[](resultSize);
+            for (uint64 i = 0; i < resultSize;) {
+                readyPositionId[i] = tempPositionId[i];
+                unchecked { ++i; }
+            }
         }
     }
 
+    // function getReadyAllPositions() public view 
+    //     returns (
+    //         uint64[] memory readyPositionId,
+    //         SettleAccumulate memory settleAccu
+    //     ) {
+        
+    //     uint64[] memory tempPositionId = new uint64[](UPKEEPS_PER_CHECK);
+    //     uint256 idx = 0;
+
+    //     uint64 next = nextProcessId[1];
+    //     for(uint8 x=1; x < supportDays.length; ) {
+    //         uint8 day = supportDays[x];
+    //         uint64 tempnext = nextProcessId[day];
+    //         if(tempnext > 0 && tempnext < next) {
+    //             next = tempnext;
+    //         }
+    //         unchecked { ++x; }
+    //     }
+        
+    //     uint64 tempEnd = next + uint64(UPKEEPS_PER_CHECK);
+    //     uint64 end = tempEnd > nextPositionId ? nextPositionId : tempEnd; // uint64(UPKEEPS_PER_CHECK);
+    //     console.log(next, end, "next, end");
+    //     for (uint64 posId = next; posId < end; ) {
+    //         (bool isBuy, DualAssetPosition memory pos, , bool found) = _getPos(posId);
+    //         // console.log(posId, found, pos.expiryTimestamp, "posId, found");
+    //         if (found && pos.expiryTimestamp <= block.timestamp) {
+    //             tempPositionId[idx] = posId;
+    //             if(isBuy){
+    //                 settleAccu.totalInterestA += pos.interest;
+    //             }else {
+    //                 settleAccu.totalInterestB += pos.interest;
+    //             }
+    //             idx++;
+    //         }
+    //         // else{
+    //         //     break;
+    //         // }
+    //         unchecked { ++posId; }
+    //     }
+        
+    //     if(idx > 0) {
+    //         uint256 resultSize = idx < UPKEEPS_PER_CHECK ? idx : UPKEEPS_PER_CHECK;
+    //         readyPositionId = new uint64[](resultSize);
+    //         for (uint64 i = 0; i < resultSize;) {
+    //             readyPositionId[i] = tempPositionId[i];
+    //             unchecked { ++i; }
+    //         }
+    //     }
+    // }
 
     function getDoppiOffer() external view returns (address){
         return address(doppiOffer);
@@ -225,28 +293,37 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
 
     function _emergencyWithdrawAll() internal {
 
-        uint64 length = getPositionLength();
-        uint64 end = nextProcessId + uint64(length);
-        for (uint64 i = nextProcessId; i < end; ) {
-            bool isBuy = positions_buy[i].amount > 0;
-            DualAssetPosition memory pos = positions_buy[i].amount > 0 ? positions_buy[i] : positions_sell[i];
+        
+        for (uint8 x = 0; x < supportDays.length; ) {
+            
+            uint8 day = supportDays[x];
+            uint64 length = getPositionLength(x);
+            uint64 end = nextProcessId[day] + uint64(length);
+            for (uint64 i = nextProcessId[day]; i < end; ) {
+                bool exist = _posExist(day, i);
+                if(exist) {
+                    bool isBuy = positions_buy[day][i].amount > 0;
+                    DualAssetPosition memory pos = positions_buy[day][i].amount > 0 ? positions_buy[day][i] : positions_sell[day][i];
 
-            if (pos.amount > 0) {
-                uint256 amountToReturn = pos.amount;
-                uint256 interest = pos.interest;
-                // Update total deposits (prevent underflow)
-                _updateTotalDeposit(amountToReturn, isBuy);
-                _removeInterestLiability(interest, isBuy);
-                if (isBuy) {
-                    delete positions_buy[i];
-                    assetA.safeTransfer(pos.owner, amountToReturn);
-                } else {
-                    delete positions_sell[i];
-                    assetB.safeTransfer(pos.owner, amountToReturn);
+                    if (pos.amount > 0) {
+                        uint256 amountToReturn = pos.amount;
+                        uint256 interest = pos.interest;
+                        // Update total deposits (prevent underflow)
+                        _updateTotalDeposit(amountToReturn, isBuy);
+                        _removeInterestLiability(interest, isBuy);
+                        if (isBuy) {
+                            delete positions_buy[day][i];
+                            assetA.safeTransfer(pos.owner, amountToReturn);
+                        } else {
+                            delete positions_sell[day][i];
+                            assetB.safeTransfer(pos.owner, amountToReturn);
+                        }
+                        emit EmergencyWithdraw(isBuy, pos.owner, i, amountToReturn);
+                    }
                 }
-                emit EmergencyWithdraw(isBuy, pos.owner, i, amountToReturn);
+                unchecked { ++i; }
             }
-            unchecked { ++i; }
+            unchecked { ++x; }  
         }
     }
 
@@ -276,7 +353,7 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
         uint256 interest = (amount * _buyOffer.apr) / BASIS_POINTS;
         interest = (interest * duration) / SECONDS_PER_YEAR;
         uint256 payout = (amount * priceDecimal) / _buyOffer.strikePrice;
-        positions_buy[positionId] = DualAssetPosition(
+        positions_buy[numDays][positionId] = DualAssetPosition(
             amount,
             _buyOffer.price,
             _buyOffer.strikePrice,
@@ -314,7 +391,7 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
         uint256 interest = (amount * _sellOffer.apr) / BASIS_POINTS;
         interest = (interest * duration) / SECONDS_PER_YEAR;
         uint256 payout = (amount * _sellOffer.strikePrice) / priceDecimal;
-        positions_sell[positionId] = DualAssetPosition(
+        positions_sell[numDays][positionId] = DualAssetPosition(
             amount,
             _sellOffer.price,
             _sellOffer.strikePrice,
@@ -336,23 +413,22 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
     }
 
     function _settlePosition(
+        uint8 day,
         uint64 posId,
-        uint256 price
+        uint256 price,
+        bool isBuy
     ) internal {
         
-        bool isBuy;
         bool isInTheMoney;
         DualAssetPosition memory p;
         
-        if(positions_buy[posId].amount > 0){
-            isBuy = true;
-            p = positions_buy[posId];
-            delete positions_buy[posId];
+        if(positions_buy[day][posId].amount > 0){
+            p = positions_buy[day][posId];
+            delete positions_buy[day][posId];
             isInTheMoney = price <= p.strikePrice;
         }else{
-            isBuy = false;
-            p = positions_sell[posId];
-            delete positions_sell[posId];
+            p = positions_sell[day][posId];
+            delete positions_sell[day][posId];
             isInTheMoney = price >= p.strikePrice;
         }
         if(p.expiryTimestamp > block.timestamp) revert NotExpired();
@@ -395,6 +471,7 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
         );
     }
 
+    
     function _createTraderBotUnwindPosition(DualAssetPosition memory p, bool isBuy) internal {
         
         if (
@@ -495,10 +572,29 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
         ) internal {
         
         uint256 length = _allPositions.length;
+
         for (uint256 i = 0; i < length; ) {
             uint64 idx = _allPositions[i];
-            _settlePosition(idx, _settlePrice);
-            nextProcessId = idx + 1;
+            (bool isBuy, , uint8 day, ) = _getPos(idx);
+            _settlePosition(day, idx, _settlePrice, isBuy);
+            nextProcessId[day] = idx + 1;
+            unchecked { ++i; }
+        }
+    }
+
+    function _posExist(uint8 day, uint64 posId) internal view returns (bool) {
+        return positions_buy[day][posId].amount > 0 || positions_sell[day][posId].amount > 0;
+    }
+
+    function _getPos(uint64 posId) internal view returns (bool isBuy, DualAssetPosition memory p, uint8 day, bool found) {
+        
+        for(uint256 i=0; i< supportDays.length; ) {
+            day = supportDays[i];
+            (p, isBuy) = positions_buy[day][posId].amount > 0 ? (positions_buy[day][posId], true) : (positions_sell[day][posId], false);
+            if(p.amount > 0) {
+                found = true;
+                break;
+            } 
             unchecked { ++i; }
         }
     }
@@ -758,13 +854,12 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
         ) internal {
         
         uint256 length = allPositions.length;
+
         for (uint256 i = 0; i < length; ) {
             uint64 idx = allPositions[i];
-            DualAssetPosition memory p;
             bool isInTheMoney;
-            bool isBuy = positions_buy[idx].amount > 0;
+            (bool isBuy, DualAssetPosition memory p, ,) = _getPos(idx);
             if(isBuy){
-                p = positions_buy[idx];
                 isInTheMoney = price <= p.strikePrice;
                 if(isInTheMoney){
                     if(!_isPosTraded(p.strikePrice, p.amount, true)){
@@ -772,7 +867,6 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
                     }
                 }
             }else{
-                p = positions_sell[idx];
                 isInTheMoney = price >= p.strikePrice;
                 if(isInTheMoney){
                     if(!_isPosTraded(p.strikePrice, p.amount, false)){
@@ -782,6 +876,7 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
             }
             unchecked { ++i; }
         }
+        
         if(settleAccu.totalA > 0){
             uint256 amountOut = (settleAccu.totalA * priceDecimal) / price;
             _doppiSettleCall(settleAccu.totalA, amountOut, price, true);

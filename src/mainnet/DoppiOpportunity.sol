@@ -12,15 +12,10 @@ contract DoppiOpportunity is Ownable, Pausable, AutomationCompatibleInterface {
     DoppiCore public immutable doppiCore;
     IDoppiLiquidity public immutable doppiLP;
     address public s_forwarderAddress;
-    uint32 public tolerance = 100;
     
     constructor(address _doppiCore, address _doppiLP) Ownable(msg.sender) {
         doppiCore = DoppiCore(_doppiCore);
         doppiLP = IDoppiLiquidity(_doppiLP);
-    }
-
-    function setTolerance(uint32 _tolerance) external onlyOwner {
-        tolerance = _tolerance;
     }
 
     function setForwarderAddress(address forwarderAddress) external onlyOwner {

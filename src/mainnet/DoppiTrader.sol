@@ -71,7 +71,6 @@ contract DoppiTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCompati
         traderDefaultDay = 1;
         maxOrder = 5;
         ratioLP = 5000;
-        tolerance = 100;
         maxSwap = 200000 ether;
         _resetBound();
     }
@@ -209,8 +208,6 @@ contract DoppiTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCompati
 
     function performUpkeep(bytes calldata performData) external override nonReentrant onlyForwarder {
         
-        if(s_forwarderAddress == address(0)) return;
-
         (bool performUnwind, bool isNetBuy, uint256[] memory targetPricesBuy, uint256[] memory targetPricesSell, uint256 totalAmount, uint256 totalSellAmountInA, uint256 totalBuyAmountInB, bool placeBuy, bool placeSell) = 
             abi.decode(performData, (bool, bool, uint256[], uint256[], uint256, uint256, uint256, bool, bool));
 

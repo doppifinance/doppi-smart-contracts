@@ -598,7 +598,6 @@ contract Scenario2Test is Test {
 			poolFee: 500,  
 			slippage: 2000,
 			liquidityFee: 1000,
-			swapMargin: 5000,
 			priceDecimals: 8,
 			decimals: 10 ** 8,
 			v3Pool: PCSWAP_V3Pool,

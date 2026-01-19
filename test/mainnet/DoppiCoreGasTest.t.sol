@@ -146,9 +146,11 @@ contract Scenario2Test is Test {
                 expiry: buyOffer.expiry
             }));
             vm.stopPrank();
+            // console.log(l1);
             // Verify active
-            assertTrue(doppiCore.get_positions_buy(l1).length > 0);
         }
+        // console.log(doppiCore.get_positions_buy(0x00000000000000000000000000000000000004f6).length);
+        assertTrue(doppiCore.get_positions_buy(0x00000000000000000000000000000000000004f6).length > 0);
         
         int256 newPrice = int256(9152000000000);
         _manipulateRealChainlink(newPrice, address(oracle));
@@ -267,6 +269,125 @@ contract Scenario2Test is Test {
         
     }
 
+    function test_Scenario_DoppiCore_CheckUpKeep_GasMaxBuySell_1Day3Days() public {
+        
+        uint256 depositLPAmount = 100_000_000 ether;
+        uint256 depositBTCAmount = 30.0000 ether;
+
+        deal(USDT, trader, depositLPAmount);            
+        deal(BTC, trader, depositBTCAmount);            
+            
+        vm.startPrank(trader);            
+        usdt.approve(address(doppiRouter), depositLPAmount);        
+        btc.approve(address(doppiRouter), depositBTCAmount);        
+        doppiRouter.deposit(address(usdt), depositLPAmount);
+        doppiRouter.deposit(address(btc), depositBTCAmount);
+        vm.stopPrank();
+
+        uint256 depositBTC = 0.01 ether;
+        uint256 totalDeposit = 200;
+        uint256 priceChanges = 50; // Change price 50 times during test
+        uint256 depPerPrice = totalDeposit / priceChanges;
+
+        uint256 currentPrice = (100_000 * 10**8) * (10100 / 10000);
+        for (uint256 priceChange = 0; priceChange < priceChanges; priceChange++) {
+            
+            int256 startPrice = int256(currentPrice);
+            _manipulateRealChainlink(startPrice, address(oracle));            
+            
+            // Perform swaps at this price
+            for (uint256 swapNum = 0; swapNum < depPerPrice; swapNum++) {
+                address l1 = address(uint160(0x110 + priceChange));
+                uint256 swapAmount = _generateRandomAmount(swapNum);
+                
+                bool isBuy = swapNum % 2 == 0;
+                uint32 day = swapNum % 2 != 0 ? 1 : 3;
+                
+                if(!isBuy){
+                    DualAssetOffer memory sellOffer = impliedVol.getOffer(false, day, 1);
+                    uint256 amountinBTC = swapAmount * 1e8 / uint256(startPrice);
+                    vm.startPrank(l1);
+                    deal(BTC, l1, amountinBTC);  
+                    btc.approve(address(doppiCore), amountinBTC);
+                    // console.log(sellOffer.strikePrice, isBuy, day);
+                    doppiCore.deposit_sell(DepositParams({
+                        amount: amountinBTC,
+                        strikeZone: 1,
+                        strikePrice: sellOffer.strikePrice,
+                        numDays: day,
+                        apr: sellOffer.apr,
+                        expiry: sellOffer.expiry
+                    }));
+                    vm.stopPrank(); 
+                }else{
+
+                    DualAssetOffer memory buyOffer = impliedVol.getOffer(true, day, 1);
+                    vm.startPrank(l1);
+                    deal(USDT, l1, swapAmount);  
+                    usdt.approve(address(doppiCore), swapAmount);
+                    // console.log(buyOffer.strikePrice, isBuy, day);
+                    doppiCore.deposit_buy(DepositParams({
+                        amount: swapAmount,
+                        strikeZone: 1,
+                        strikePrice: buyOffer.strikePrice,
+                        numDays: day,
+                        apr: buyOffer.apr,
+                        expiry: buyOffer.expiry
+                    }));
+                    vm.stopPrank();
+                }
+            }
+
+            // Generate random price between 100000 and 120000 
+            if(priceChange > 10 && priceChange <= 15){
+                currentPrice = currentPrice * 9950 / 10000;
+            }else if(priceChange > 15 && priceChange <= 20){
+                currentPrice = currentPrice * 10050 / 10000;
+            }else if(priceChange > 20 && priceChange <= 25){
+                currentPrice = currentPrice * 9910 / 10000;
+            }else{
+                currentPrice = currentPrice * 10010 / 10000;
+            }
+        }
+        
+        int256 newPrice = int256(90556 * 1e8);
+        _manipulateRealChainlink(newPrice, address(oracle));
+        // 1 day fast forward and settle
+        // doppiCore.display();
+        // console.log(doppiCore.lowerBound(), doppiCore.upperBound());
+        assertEq(doppiCore.lowerBound(), 9150000000000);
+        assertEq(doppiCore.upperBound(), 10300000000000);
+
+        vm.warp(block.timestamp + 1 days + 1);
+        (uint64[] memory readyPositionId, SettleAccumulate memory settleAccu) = doppiCore.getReadyAllPositions();
+        console.log(readyPositionId.length, "readyPositionId.length");
+        // assertEq(readyPositionId.length, 50);
+
+        _doppiCoreCheckUpkeep_performUpkeep();
+        _doppiCoreCheckUpkeep_performUpkeep();
+        _doppiCoreCheckUpkeep_performUpkeep();
+
+        vm.warp(block.timestamp + 1 days + 1);
+        (readyPositionId, settleAccu) = doppiCore.getReadyAllPositions();
+        console.log(readyPositionId.length, "readyPositionId.length");
+        // assertEq(readyPositionId.length, 0);
+
+        _doppiCoreCheckUpkeep_performUpkeep();
+        
+        vm.warp(block.timestamp + 2 days + 1);
+        (readyPositionId, settleAccu) = doppiCore.getReadyAllPositions();
+        // assertEq(readyPositionId.length, 50);
+        console.log(readyPositionId.length, "readyPositionId.length");
+
+        _doppiCoreCheckUpkeep_performUpkeep();
+        _doppiCoreCheckUpkeep_performUpkeep();
+
+        console.log(doppiCore.lowerBound(), doppiCore.upperBound());
+        assertEq(doppiCore.lowerBound(), 9050000000000);
+        assertEq(doppiCore.upperBound(), 9100000000000);
+        
+    }
+
     function _depositBTC(uint256 amount) internal returns (DualAssetOffer memory) {
 
         DualAssetOffer memory sellOffer = impliedVol.getOffer(false, 1, 0);
@@ -333,6 +454,8 @@ contract Scenario2Test is Test {
         _doppiPoints.setDoppiCore(address(_doppiCore), true);
         _doppiCore.setTreasury(treasury, 1000);
         _doppiCore.setUpkeeps_per_check(100);
+        _doppiCore.addSupportDay(3);
+        _doppiCore.addSupportDay(7);
         return _doppiCore;
     }
         
@@ -447,6 +570,7 @@ contract Scenario2Test is Test {
         _impliedVol.setRegression(86400, a_buy, b_buy, c_buy, a_sell, b_sell, c_sell);
         _impliedVol.setTwapDuration(3600);
         _impliedVol.setPancakeV3Pool(PCSWAP_V3Pool);
+        _impliedVol.setRegression(86400 * 3, a_buy, b_buy, c_buy, a_sell, b_sell, c_sell);
     }
 
     function _manipulateRealChainlink(int256 newPrice, address _oracle) internal {
@@ -475,7 +599,6 @@ contract Scenario2Test is Test {
 			poolFee: 500,  
 			slippage: 2000,
 			liquidityFee: 1000,
-			swapMargin: 5000,
 			priceDecimals: 8,
 			decimals: 10 ** 8,
 			v3Pool: PCSWAP_V3Pool,

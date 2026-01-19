@@ -160,7 +160,6 @@ contract DoppiLiquidity is ERC20, Ownable, Pausable, IDoppiLiquidity, Automation
     function setConfig(ConfigParam memory _config) external onlyOwner {
 
         require(_config.maxDepositPercentage <= 50000, "Max deposit too high"); // Max 5x of LP capacity
-        require(_config.swapMargin <= 20000, "Swap margin too high"); // Max 2%
         require(_config.liquidityFee <= 5000, "liquidity fee too high"); // Max 0.5%
         
         config.priceDecimals = _config.priceDecimals;
@@ -171,7 +170,6 @@ contract DoppiLiquidity is ERC20, Ownable, Pausable, IDoppiLiquidity, Automation
         config.poolFee = _config.poolFee;
         config.slippage = _config.slippage;
         config.liquidityFee = _config.liquidityFee;
-        config.swapMargin = _config.swapMargin;
         config.v3Pool = _config.v3Pool;
         config.twapDuration = _config.twapDuration;
         config.maxDepositPercentage = _config.maxDepositPercentage;
