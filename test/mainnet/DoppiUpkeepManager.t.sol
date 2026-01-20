@@ -90,8 +90,6 @@ contract DoppiUpkeepManagerTest is Test {
         doppiLP.setDoppiCore(address(doppiCore));
         doppiLP.setEntryPoint(address(doppiRouter.entryPointA()), true);
         doppiLP.setEntryPoint(address(doppiRouter.entryPointB()), true);
-        doppiLP.approveEntryPoint(address(doppiRouter.entryPointA()), address(usdt));
-        doppiLP.approveEntryPoint(address(doppiRouter.entryPointB()), address(btc));
         doppiLP.setDoppiTraderFactory(address(doppiFactory));
         doppiCore.setDoppiTraderFactory(doppiFactory);
 

@@ -12,11 +12,11 @@ import "../../src/mainnet/DoppiOffer.sol";
 contract SettleDoppiCoreOrders is Script {
     
     // Replace with your actual DoppiCore contract address
-    address public constant DOPPI_CORE = 0x7F7e14Ef04fc36cfADd6b02098BFF4746aef8C3b; 
-    address public constant DOPPI_POINTS = 0xa5F4Ba1747abd9BE31dF47719DD0Ffb217567A76; 
-    address public constant DOPPI_TRADER = 0x1B7B5Dd6b859E7AC8B3C06116a936bCDB4091fb8; 
-    address public constant DOPPI_REF = 0x8BD5e48Fe6cFc5d16231f024b20163ED7d83517f; 
-    address public constant DOPPI_OFFER = 0xc255E4AD539FAAe471923e144eeefbA0C61baD1E; 
+    address public constant DOPPI_CORE = 0x7d70ea9a99588bCcC1bEc8561cC34897B532061A; 
+    address public constant DOPPI_POINTS = 0x049910BCbf69ddD95f7523658a1480688f42a2c5; 
+    address public constant DOPPI_TRADER = 0x76ABBbc709694f3529c1194762bd4306Deb62012; 
+    address public constant DOPPI_REF = 0xbBad399F56f98E5882D308870CD957c29cAc2515; 
+    address public constant DOPPI_OFFER = 0x874dCF1969b4bab3c6D7EEA5b22886B2B7Ee0fe4; 
 
     // Replace with the admin address you want to impersonate
     address public constant ADMIN = 0x5D450b7A2bAFbc071cF1313099C3744f91c3BC24; // Add the admin address here
@@ -77,20 +77,20 @@ contract SettleDoppiCoreOrders is Script {
         //     console.log("expiryTimestamp", positions[i].expiryTimestamp, block.timestamp);
         // }
         
-        // (bool upkeepNeeded, bytes memory performData) = doppiCore.checkUpkeep("");
+        (bool upkeepNeeded, bytes memory performData) = doppiCore.checkUpkeep("");
         
-        // console.log("Upkeep needed:", upkeepNeeded);
+        console.log("Upkeep needed:", upkeepNeeded);
         
-        // if (upkeepNeeded) {
-        //     console.log("Performing upkeep...");
+        if (upkeepNeeded) {
+            console.log("Performing upkeep...");
             
-        //     // Perform the upkeep
-        //     doppiCore.performUpkeep(performData);
+            // Perform the upkeep
+            doppiCore.performUpkeep(performData);
             
-        //     console.log("Upkeep performed successfully!");
-        // } else {
-        //     console.log("No upkeep needed at this time");
-        // }
+            console.log("Upkeep performed successfully!");
+        } else {
+            console.log("No upkeep needed at this time");
+        }
         
         vm.stopBroadcast();
     }

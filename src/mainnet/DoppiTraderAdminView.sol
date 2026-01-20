@@ -3,8 +3,13 @@ pragma solidity ^0.8.26;
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {IDoppiCore} from "../Interface/IDoppiCore.sol";
 import {IDoppiLiquidity} from "../Interface/IDoppiLiquidity.sol";
+import {IDoppiOffer} from "../Interface/IDoppiOffer.sol";
+import {IDoppiUpkeepManager} from "../Interface/IDoppiUpkeepManager.sol";
+import {IDoppiLiquidityRouter} from "../Interface/IDoppiLiquidityRouter.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "./DoppiCoreTypes.sol";
+// import "forge-std/console.sol";
+
 
 abstract contract DoppiTraderAdminView is Ownable {
     
@@ -12,14 +17,22 @@ abstract contract DoppiTraderAdminView is Ownable {
     IERC20 public assetB;
     IDoppiLiquidity public doppiLP;
     IDoppiCore public doppiCore;
-    Trade[] public buy_undo_list;
-    Trade[] public sell_undo_list;
+    IDoppiUpkeepManager public doppiUpkeepManager;
+    IDoppiLiquidityRouter public doppiRouter;
+    IDoppiOffer public impliedVol;
+
+    mapping(uint256 => uint256) public unWindBuy;
+    mapping(uint256 => uint256) public unWindSell;
+
     address public validTrader;
     address public s_forwarderAddress;
     uint16 public traderDefaultDay;
     uint24 public maxOrder;
     uint32 public ratioLP;
-    uint32 public tolerance;
+    uint256 public upperBound;
+    uint256 public lowerBound;
+    uint256 public maxSwap;
+
     
     function getTotalBalancesInLP() external view returns (uint256 totalAssetA, uint256 totalAssetB) {
         uint256 totalAssetLP = doppiLP.totalAssetsInAssetA();
@@ -49,55 +62,29 @@ abstract contract DoppiTraderAdminView is Ownable {
         }
     }
 
-    function get_buy_undos() external view returns (Trade[] memory) {
-        if (buy_undo_list.length == 0) return new Trade[](0);
-        return buy_undo_list;
-    }
-
-    function get_sell_undos() external view returns (Trade[] memory) {
-        if (sell_undo_list.length == 0) return new Trade[](0);
-        return sell_undo_list;
-    }
-
-    function get_buy_unrealized_PNL() external view returns (int256) {
-        int256 pnl = 0;
+    function get_unrealized_PNL() external view returns (int256 pnl) {
         uint256 price = doppiLP.getPrice();
-        uint8 priceDecimals = doppiLP.getPriceDecimals();
-        uint256 length = buy_undo_list.length;
-        
-        for (uint256 i = 0; i < length; ) {
-            uint256 currentValue = buy_undo_list[i].payoutAmount * price / (10 ** priceDecimals);
-            pnl += int256(currentValue) - int256(buy_undo_list[i].origAmount);
-            unchecked { ++i; }
-        }
-        return pnl;
-    }
-
-    function get_sell_unrealized_PNL() external view returns (int256) {
-        int256 pnl = 0;
-        uint256 price = doppiLP.getPrice();
-        uint8 priceDecimals = doppiLP.getPriceDecimals();
-        uint256 length = sell_undo_list.length;
-
-        for (uint256 i = 0; i < length; ) {
-            uint256 currentValue = sell_undo_list[i].payoutAmount * (10 ** priceDecimals) / price;
-            pnl += int256(currentValue) - int256(sell_undo_list[i].origAmount);
-            unchecked { ++i; }
-        }
-
-        return pnl;
+        uint256 round = _getLoopRound(price, true);   
+        int256 pnlprofit = _calcPnL(price, round, true);  
+        round = _getLoopRound(price, false);   
+        int256 pnlloss = _calcPnL(price, round, false);  
+        pnl = pnlprofit + pnlloss;  
     }
 
     function get_validTrader() external view returns (address) {
         return validTrader;
     }
 
-    function setDefaultDay(uint16 _day) external onlyTrader {
+    function setDefaultDay(uint16 _day) external onlyOwner {
         traderDefaultDay = _day;
     }
 
     function setMaxOrder(uint24 _maxOrder) external onlyTrader {
         maxOrder = _maxOrder;
+    }
+
+    function setMaxSwap(uint256 _maxSwap) external onlyTrader {
+        maxSwap = _maxSwap;
     }
 
     function setForwarderAddress(address forwarderAddress) external onlyTrader {
@@ -108,8 +95,102 @@ abstract contract DoppiTraderAdminView is Ownable {
         ratioLP = _ratioLP;
     }
 
-    function setTolerance(uint32 _tolerance) external onlyOwner {
-        tolerance = _tolerance;
+    function getUnwindInfo(bool isBuy, uint256 strikePrice) external view returns (uint256) {
+        return isBuy ? unWindBuy[strikePrice] : unWindSell[strikePrice];
+    }
+
+    function _updateBound() internal {
+
+        uint256 priceDecimals = 10 ** doppiLP.getPriceDecimals();
+        uint256 gap = impliedVol.getPriceGapPerOffer() * priceDecimals;
+
+        // ------------------ UPDATE LOWER BOUND ------------------
+        uint256 i = lowerBound;
+        while (true) {
+            if (unWindBuy[i] != 0 || unWindSell[i] != 0) {
+                // Found first valid strike
+                lowerBound = i;
+                break;
+            }
+            // move upward
+            i += gap;
+
+            // no valid strike left
+            if (i > upperBound) {
+                _resetBound();
+                return;
+            }
+        }
+
+        // ------------------ UPDATE UPPER BOUND ------------------
+        i = upperBound;
+        while (true) {
+            if (unWindBuy[i] != 0 || unWindSell[i] != 0) {
+                upperBound = i;
+                break;
+            }
+            // guard underflow
+            if (i < gap) break;
+            i -= gap;
+
+            if (i < lowerBound) {
+                _resetBound();
+                return;
+            }
+        }
+    }
+
+    function _getLoopRound(uint256 _price, bool _isBuy) internal view returns (uint256 round) {
+
+        uint256 firstPrice = _getUnwindTargetPrice(_price, 1, _isBuy);
+        uint256 priceDecimals = 10 ** doppiLP.getPriceDecimals();
+        uint256 priceGapWithDecimals = impliedVol.getPriceGapPerOffer() * priceDecimals;
+        
+        uint256 diff;
+        if(_isBuy){
+            diff = firstPrice > lowerBound ? firstPrice - lowerBound : 0;
+        }else{
+            diff = upperBound > firstPrice ? upperBound - firstPrice : 0;
+        }
+        round = diff / priceGapWithDecimals + 1;
+    }
+
+    function _calcPnL(uint256 price, uint256 round, bool isBuy) 
+        internal view returns (int256 pnl) {
+        
+        uint256 decimals = 10 ** doppiLP.getPriceDecimals();
+        
+        for (uint256 i = round; i > 0; ) {
+            uint256 origStrikeprice = _getUnwindTargetPrice(price, uint8(i), isBuy);
+            uint256 amountOutBuy = unWindBuy[origStrikeprice];
+            uint256 amountOutSell = unWindSell[origStrikeprice];
+            if(amountOutBuy > 0){
+                uint256 currentValueInB = amountOutBuy * price / decimals;
+                uint256 origValueInB = amountOutBuy * origStrikeprice / decimals;
+                pnl += int256(currentValueInB) - int256(origValueInB);
+            }else{
+                if(amountOutSell > 0){
+                    uint256 currentValueInB = amountOutSell * decimals / price;
+                    uint256 origValueInB = amountOutSell * decimals / origStrikeprice;
+                    pnl += int256(currentValueInB) - int256(origValueInB);
+                }
+            }
+            unchecked { --i; }
+        }
+    }
+
+    function _getUnwindTargetPrice(uint256 _price, uint8 _zone, bool _isBuy) internal view returns (uint256) {
+        
+        uint256 priceDecimals = 10 ** doppiLP.getPriceDecimals();
+        uint256 priceGapWithDecimals = impliedVol.getPriceGapPerOffer() * priceDecimals;
+        _price = (_price / priceGapWithDecimals) * priceGapWithDecimals;
+        return _isBuy ? _price - (priceGapWithDecimals * (_zone - 1)) : _price + (priceGapWithDecimals * _zone);
+    }
+
+    function _resetBound() internal {
+        uint256 price = doppiLP.getPrice();
+        lowerBound = _getUnwindTargetPrice(price, 1, true);
+        upperBound = _getUnwindTargetPrice(price, 1, false);
     }
 
     modifier onlyTrader() {

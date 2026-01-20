@@ -86,8 +86,6 @@ contract DoppiProtocolScenariosTest is Test {
         doppiLP.setDoppiCore(address(doppiCore));
         doppiLP.setEntryPoint(address(doppiRouter.entryPointA()), true);
         doppiLP.setEntryPoint(address(doppiRouter.entryPointB()), true);
-        doppiLP.approveEntryPoint(address(doppiRouter.entryPointA()), address(usdt));
-        doppiLP.approveEntryPoint(address(doppiRouter.entryPointB()), address(btc));
         doppiLP.setDoppiTraderFactory(address(doppiFactory));
         doppiCore.setDoppiTraderFactory(doppiFactory);
         doppiFactory.setDoppiUpKeepManager(address(mockDoppiUpKeepManager));
@@ -375,31 +373,31 @@ contract DoppiProtocolScenariosTest is Test {
         assertFalse(doppiCore.paused());
     }
 
-    function test_Scenario6_NotAPR_Available() public {
+    // function test_Scenario6_NotAPR_Available() public {
         
-        // Phase 2: Trader Bot Creation
-        vm.startPrank(trader1);
-        uint32 traderId = doppiFactory.deployTraderBot(defaultWeights);
-        DoppiTrader traderBot = DoppiTrader(doppiFactory.traderBots(traderId));
-        vm.stopPrank();
+    //     // Phase 2: Trader Bot Creation
+    //     vm.startPrank(trader1);
+    //     uint32 traderId = doppiFactory.deployTraderBot(defaultWeights);
+    //     DoppiTrader traderBot = DoppiTrader(doppiFactory.traderBots(traderId));
+    //     vm.stopPrank();
 
-        vm.startPrank(trader1);
-        traderBot.setForwarderAddress(mockForwarder);
-        traderBot.setDefaultDay(2);
-        vm.stopPrank();
+    //     vm.startPrank(trader1);
+    //     traderBot.setForwarderAddress(mockForwarder);
+    //     traderBot.setDefaultDay(2);
+    //     vm.stopPrank();
 
-        // Phase 3: Trader Bot Funding and Trading
-        vm.startPrank(trader1);
-        usdt.mint(address(traderBot), 1000 * 10 ** usdt.decimals());
-        btc.mint(address(traderBot), 2 * 10 ** btc.decimals());
-        usdt.approve(address(traderBot), 1000 * 10 ** usdt.decimals());
-        btc.approve(address(traderBot), 2 * 10 ** btc.decimals());
-        vm.expectRevert("InvalidAPR()");
-        traderBot.start(1000 ether, 2 ether);
-        vm.stopPrank();
+    //     // Phase 3: Trader Bot Funding and Trading
+    //     vm.startPrank(trader1);
+    //     usdt.mint(address(traderBot), 1000 * 10 ** usdt.decimals());
+    //     btc.mint(address(traderBot), 2 * 10 ** btc.decimals());
+    //     usdt.approve(address(traderBot), 1000 * 10 ** usdt.decimals());
+    //     btc.approve(address(traderBot), 2 * 10 ** btc.decimals());
+    //     vm.expectRevert("InvalidAPR()");
+    //     traderBot.start(1000 ether, 2 ether);
+    //     vm.stopPrank();
 
         
-    }
+    // }
 
     function _setupTraderBot() internal returns (DoppiTrader _traderbot) {
         

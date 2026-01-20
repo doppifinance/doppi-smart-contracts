@@ -18,13 +18,14 @@ library TestParamLib {
 			poolFee: 500,  
 			slippage: 100,
 			liquidityFee: 1000,
-			swapMargin: 5000,
 			priceDecimals: 8,
 			decimals: 10 ** 8,
 			v3Pool: PCSWAP_V3Pool,
 			twapDuration: 3600,
 			maxDepositPercentage: 20000,
-			maxDelay: 2 minutes
+			maxDelay: 2 minutes,
+			maxSwap: 100000 ether,
+			priceGap: 500
 		});
 		
         return configLP;

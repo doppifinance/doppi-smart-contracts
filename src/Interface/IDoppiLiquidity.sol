@@ -10,16 +10,18 @@ interface IDoppiLiquidity is IShares {
     function doppiCore() external view returns (address);
     function amountToBuy(uint256 price) external view returns (uint256);
     function amountToSell(uint256 price) external view returns (uint256);
-    function toBuyPrices(uint256 index) external view returns (uint256);
-    function toSellPrices(uint256 index) external view returns (uint256);
-    function hedgeSwap(uint256 _amountIn, uint256 _price, bool _isBuy) external returns (uint256 amountOut, uint256 tradedPrice);
     function swap(uint256 _amountIn, uint256 _price, bool _isBuy) external returns (uint256 amountOut) ;
-    function settle(uint256 _amountIn, uint256 _price, bool _isBuy) external returns (uint256 amountOut);
-    function transfer(IERC20 token, uint256 amount, address recipient) external;
+    function settle(uint256 _amountIn, uint256 _payout, uint256 _price, bool _isBuy) external returns (uint256);
     function getPrice() external view returns (uint256);
     function getPriceDecimals() external view returns (uint8);
     function assetRatio() external view returns (uint256 ratioA, uint256 ratioB);
     function totalAssetsInAssetA() external view returns (uint256);
     function totalAssetsInAssetB() external view returns (uint256);
     function getMaxDepositAmount(bool isBuy) external view returns (uint256);
+    function interestGet(
+        address _interestToken,
+        uint256 interest,
+        uint256 price,
+        bool isBuy
+    ) external;
 }

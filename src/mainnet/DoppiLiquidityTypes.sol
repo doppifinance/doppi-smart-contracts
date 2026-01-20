@@ -6,30 +6,32 @@ struct ConfigParam {
     address chainLinkFeed; 
     address router; 
     address quoter; 
-    uint24 poolFee;  
-    uint24 slippage; 
-    uint24 liquidityFee; 
-    uint32 swapMargin;
+    uint24 poolFee;  // fee for v3 swap
+    uint24 slippage; // use for swap slippage
+    uint24 liquidityFee; // for doppiLP 1000 = 0.10%
     uint8 priceDecimals;
     uint256 decimals;
     address v3Pool; 
     uint32 twapDuration;
     uint24 maxDepositPercentage;
     uint32 maxDelay;
+    uint256 maxSwap;
+    uint256 priceGap;
 }
 
 struct Config {
     AggregatorV3Interface chainLinkFeed; 
     address router; 
     address quoter; 
-    uint24 poolFee;  
-    uint24 slippage; 
-    uint24 liquidityFee; 
-    uint32 swapMargin; 
+    uint24 poolFee;  // fee for v3 swap
+    uint24 slippage; // use for swap slippage
+    uint24 liquidityFee; // for doppiLP 1000 = 0.10%
     uint8 priceDecimals;
     uint256 decimals;
     address v3Pool; 
     uint32 twapDuration;
     uint24 maxDepositPercentage;
     uint32 maxDelay;
+    uint256 maxSwap;
+    uint256 priceGap;
 }

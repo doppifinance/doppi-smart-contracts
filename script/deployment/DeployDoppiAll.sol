@@ -108,6 +108,7 @@ contract DeployDoppiAll is Script {
         _doppiCore.setDoppiTraderFactory(_doppiFactory);
         _doppiCore.setAPRTolerance(500);
         _doppiCore.setTreasury(treasury, 1000);
+        _doppiCore.setUpkeeps_per_check(100);
         
     }
 
@@ -119,14 +120,10 @@ contract DeployDoppiAll is Script {
         ) internal {
         
         console.log("Setting DoppiLiquidity Properties...");
-        // _doppiLP.setForwarderAddress(forwarder);
         _doppiLP.setDoppiCore(_doppiCore);
         _doppiLP.setEntryPoint(address(_doppiRouter.entryPointA()), true);
         _doppiLP.setEntryPoint(address(_doppiRouter.entryPointB()), true);
-        _doppiLP.approveEntryPoint(address(_doppiRouter.entryPointA()), USDT);
-        _doppiLP.approveEntryPoint(address(_doppiRouter.entryPointB()), BTC);
         _doppiLP.setDoppiTraderFactory(_doppiFactory);
-        // doppiCore.setDoppiTraderFactory(doppiFactory);
     }
 
     function _deployDoppiCore(DoppiLiquidity _doppiLP, DoppiOffer _impliedVol, DoppiPoints _doppiPoints) internal returns (DoppiCore) {
@@ -135,7 +132,6 @@ contract DeployDoppiAll is Script {
         DoppiCore doppiCore = new DoppiCore(USDT, BTC, _doppiLP, _impliedVol, address(_doppiPoints));
         console.log("DoppiCore deployed at:", address(doppiCore));
         _doppiPoints.setDoppiCore(address(doppiCore), true);
-        doppiCore.setTreasury(treasury, 1000);
         return doppiCore;
     }
         
@@ -146,7 +142,6 @@ contract DeployDoppiAll is Script {
         DoppiOpportunity doppiOpportunity = new DoppiOpportunity(_doppiCore, _doppiLP);
         console.log("DoppiOpportunity deployed at:", address(doppiOpportunity));
         // doppiOpportunity.setForwarderAddress(forwarder);
-        // doppiOpportunity.setTolerance(100);
         return doppiOpportunity;
     }
 
@@ -213,10 +208,10 @@ contract DeployDoppiAll is Script {
         console.log("Deploying DoppiUpkeepManager...");
         IAutomationRegistrar registrar = IAutomationRegistrar(CHAINLINK_Registrar);
         // IAutomationRegistryConsumer registryConsumer = IAutomationRegistryConsumer(CHAINLINK_RegistryConsumer);
-        MockRegistryConsumer mockRegistryConsumer = new MockRegistryConsumer();
+        MockRegistryConsumer registryConsumer = new MockRegistryConsumer();
 
         DoppiUpkeepManager doppiUpkeepManager = new DoppiUpkeepManager(
-            address(mockRegistryConsumer), 
+            address(registryConsumer), 
             address(registrar), 
             CHAINLINK_LINK_USD, 
             address(PCSWAP_V3_ROUTER),
@@ -228,7 +223,7 @@ contract DeployDoppiAll is Script {
             treasury
         );
         
-        console.log("mockRegistryConsumer deployed at:", address(mockRegistryConsumer));
+        console.log("mockRegistryConsumer deployed at:", address(registryConsumer));
         console.log("DoppiUpkeepManager deployed at:", address(doppiUpkeepManager));
         doppiUpkeepManager.setMaxDelay(10 days);
         _doppiFactory.setDoppiUpKeepManager(address(doppiUpkeepManager));

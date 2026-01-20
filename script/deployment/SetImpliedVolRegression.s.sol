@@ -9,7 +9,7 @@ contract SetImpliedVolRegression is Script {
         uint256 deployerPrivateKey = vm.envUint("PRIVATE_KEY");
 
         // Replace with your deployed ImpliedVol contract address
-        address impliedVolAddress = 0xc255E4AD539FAAe471923e144eeefbA0C61baD1E;
+        address impliedVolAddress = 0x874dCF1969b4bab3c6D7EEA5b22886B2B7Ee0fe4;
 
         vm.startBroadcast(deployerPrivateKey);
 
