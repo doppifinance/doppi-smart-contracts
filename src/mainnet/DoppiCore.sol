@@ -107,6 +107,7 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
             if(param.apr == 0) revert InvalidAPR();
 
             isBuy ? _depositBuy(param, _offers[i]) : _depositSell(param, _offers[i]);
+            _updateLowerUpperBound(_offers[i].strikePrice);
             unchecked { ++i; }
         }
     }
@@ -193,56 +194,6 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
             }
         }
     }
-
-    // function getReadyAllPositions() public view 
-    //     returns (
-    //         uint64[] memory readyPositionId,
-    //         SettleAccumulate memory settleAccu
-    //     ) {
-        
-    //     uint64[] memory tempPositionId = new uint64[](UPKEEPS_PER_CHECK);
-    //     uint256 idx = 0;
-
-    //     uint64 next = nextProcessId[1];
-    //     for(uint8 x=1; x < supportDays.length; ) {
-    //         uint8 day = supportDays[x];
-    //         uint64 tempnext = nextProcessId[day];
-    //         if(tempnext > 0 && tempnext < next) {
-    //             next = tempnext;
-    //         }
-    //         unchecked { ++x; }
-    //     }
-        
-    //     uint64 tempEnd = next + uint64(UPKEEPS_PER_CHECK);
-    //     uint64 end = tempEnd > nextPositionId ? nextPositionId : tempEnd; // uint64(UPKEEPS_PER_CHECK);
-    //     console.log(next, end, "next, end");
-    //     for (uint64 posId = next; posId < end; ) {
-    //         (bool isBuy, DualAssetPosition memory pos, , bool found) = _getPos(posId);
-    //         // console.log(posId, found, pos.expiryTimestamp, "posId, found");
-    //         if (found && pos.expiryTimestamp <= block.timestamp) {
-    //             tempPositionId[idx] = posId;
-    //             if(isBuy){
-    //                 settleAccu.totalInterestA += pos.interest;
-    //             }else {
-    //                 settleAccu.totalInterestB += pos.interest;
-    //             }
-    //             idx++;
-    //         }
-    //         // else{
-    //         //     break;
-    //         // }
-    //         unchecked { ++posId; }
-    //     }
-        
-    //     if(idx > 0) {
-    //         uint256 resultSize = idx < UPKEEPS_PER_CHECK ? idx : UPKEEPS_PER_CHECK;
-    //         readyPositionId = new uint64[](resultSize);
-    //         for (uint64 i = 0; i < resultSize;) {
-    //             readyPositionId[i] = tempPositionId[i];
-    //             unchecked { ++i; }
-    //         }
-    //     }
-    // }
 
     function getDoppiOffer() external view returns (address){
         return address(doppiOffer);

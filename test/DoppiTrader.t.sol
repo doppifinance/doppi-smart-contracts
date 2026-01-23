@@ -527,7 +527,7 @@ contract DoppiTraderTest is Test {
 
     function test_checkUpkeep_buyUndo() public {
         // Create buy unwind position
-        uint256 amount = 10_000 ether;
+        uint256 amount = 0.1 ether;
         uint256 strikePrice = 99_000 * 1e8;
         vm.startPrank(address(doppiCore));
         doppiTrader.createUnwindPosition(amount, strikePrice, true);
@@ -535,8 +535,8 @@ contract DoppiTraderTest is Test {
 
         // Set price to trigger
         oracle.setPrice(int256(103_000 * 1e8));
-        // int256 pnl = doppiTrader.get_buy_unrealized_PNL();
-        // assertEq(pnl, 404040404040404030000);
+        int256 pnl = doppiTrader.get_unrealized_PNL();
+        assertEq(pnl, 400000000000000000000);
         (bool upkeepNeeded, bytes memory performData) = doppiTrader.checkUpkeep("");
         assertTrue(upkeepNeeded);
         assertGt(performData.length, 0);

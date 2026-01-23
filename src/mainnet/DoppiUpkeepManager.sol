@@ -61,10 +61,9 @@ contract DoppiUpkeepManager is Ownable, AutomationCompatibleInterface {
     AggregatorV3Interface immutable chainLinkFeed;
     address public immutable router;
     IPegSwap public immutable pegSwap;
-    uint8 public constant TRIGGER_CONDITION = 0; // Time-based trigger
+    uint8 public constant TRIGGER_CONDITION = 0; // CONDITION trigger
     uint32 public maxDelay = 10 minutes; 
 
-    address public adminAddress;
     uint256 public currentUpkeepIndex;
     uint16 public UPKEEPS_PER_CHECK = 20; // Process 20 upkeeps per check
     uint32 public DEFAULT_GASLIMIT = 5_000_000;
@@ -118,7 +117,6 @@ contract DoppiUpkeepManager is Ownable, AutomationCompatibleInterface {
         address _treasury
     ) Ownable(msg.sender) {
         treasury = _treasury;
-        adminAddress = msg.sender;
         registrar = IAutomationRegistrar(_registrar); 
         registryConsumer = IAutomationRegistryConsumer(_registryConsumer); 
         chainLinkFeed = AggregatorV3Interface(_chainLinkFeed);
@@ -172,6 +170,18 @@ contract DoppiUpkeepManager is Ownable, AutomationCompatibleInterface {
 
     function setSwapPath(bytes calldata _multihopPath) external onlyOwner {
         multihopPath = _multihopPath;
+    }
+
+    function setDefault_GasLimit(uint32 _gasLimit) external onlyOwner {
+        DEFAULT_GASLIMIT = _gasLimit;
+    }
+
+    function setDefault_Amount(uint96 _topUp) external onlyOwner {
+        DEFAULT_AMOUNT = _topUp;
+    }
+
+    function setSlippage(uint24 _slippage) external onlyOwner {
+        slippage = _slippage;
     }
 
     function setupAutomation(address _traderbot) external returns (uint256 upKeepId) {
@@ -375,7 +385,7 @@ contract DoppiUpkeepManager is Ownable, AutomationCompatibleInterface {
             unchecked { ++i; }
         }
     }
-
+ 
     // internal functions
     function _getUnPaidDoppiFee(uint256 _upkeepId) internal view returns (uint96 fee, address trader) {
         
@@ -414,7 +424,7 @@ contract DoppiUpkeepManager is Ownable, AutomationCompatibleInterface {
             encryptedEmail: hex"",
             upkeepContract: _targetContract,
             gasLimit: DEFAULT_GASLIMIT,
-            adminAddress: adminAddress,
+            adminAddress: address(this),
             triggerType: TRIGGER_CONDITION,
             checkData: hex"",
             triggerConfig: hex"",
