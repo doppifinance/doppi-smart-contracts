@@ -36,9 +36,9 @@ contract MyScript is Script {
         doppiLP = DoppiLiquidity(DOPPI_LP);
 
         // _getBuffer();
-        // _getTotalOrders();
-        // _getOpportunityData();
-        // _getDoppiTraderUnwindData();
+        _getTotalOrders();
+        _getOpportunityData();
+        _getDoppiTraderUnwindData();
         _getDoppiLPUnwindData();
         
         // vm.stopBroadcast();
@@ -46,6 +46,7 @@ contract MyScript is Script {
 
     function _getBuffer() internal view {
 
+        console.log("start doppiOffer buffer");
         uint256 price = doppiLP.getPrice();
         uint256 buyBuffer = doppiOffer.getOneDayBuffer(price, true);
         uint256 sellBuffer = doppiOffer.getOneDayBuffer(price, false);
@@ -55,6 +56,7 @@ contract MyScript is Script {
 
     function _getTotalOrders() internal view {
 
+        console.log("start doppi core orders");
         uint64 length = doppiCore.getPositionLength(1);
         uint64 nextId = doppiCore.nextProcessId(1);
         uint64 nextPositionId = doppiCore.nextPositionId();
@@ -78,6 +80,7 @@ contract MyScript is Script {
     
     function _getOpportunityData() internal view {
 
+        console.log("start OpportunityData");
         uint256 lowerBound = doppiCore.lowerBound();
         uint256 upperBound = doppiCore.upperBound();
         console.log(lowerBound, upperBound);
@@ -98,6 +101,7 @@ contract MyScript is Script {
 
     function _getDoppiTraderUnwindData() internal view {
 
+        console.log("start DoppiTraderUnwindData");
         uint256 lowerBound = doppiTrader.lowerBound();
         uint256 upperBound = doppiTrader.upperBound();
         console.log(lowerBound, upperBound);
@@ -118,9 +122,15 @@ contract MyScript is Script {
 
     function _getDoppiLPUnwindData() internal view {
 
+        console.log("start DoppiLPUnwindData");
         uint256 lowerBound = doppiLP.lowerBound();
+        if(lowerBound == 0) {
+            lowerBound = 80000 * 1e8;
+        }
         uint256 upperBound = doppiLP.upperBound();
         console.log(lowerBound, upperBound);
+        upperBound += 1000 * 1e8;
+        lowerBound -= 1000 * 1e8;
         for (uint256 price = upperBound; price > lowerBound; ) {
             bool isBuy = true;
             uint256 amount = doppiLP.amountToBuy(price);

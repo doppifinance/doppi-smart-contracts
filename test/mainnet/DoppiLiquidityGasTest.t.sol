@@ -115,6 +115,77 @@ contract Scenario2Test is Test {
         vm.stopPrank();
     }
 
+    function test_Scenario_CheckUpKeep_DoppiLiquidity_Unwind_Mainnet_Scenario() public {
+        
+        uint256 depositLPAmount = 500 ether;
+        uint256 depositBTCAmount = 0.005 ether;
+
+        deal(USDT, trader, depositLPAmount);            
+        deal(BTC, trader, depositBTCAmount);            
+            
+        vm.startPrank(trader);            
+        usdt.approve(address(doppiRouter), depositLPAmount);        
+        btc.approve(address(doppiRouter), depositBTCAmount);        
+        doppiRouter.deposit(address(usdt), depositLPAmount);
+        doppiRouter.deposit(address(btc), depositBTCAmount);
+        vm.stopPrank();
+
+        uint256 swapAmount = 100 ether;
+        uint256 strikePrice = 89500 * 1e8;
+        int256 newPrice = int256(90000 * 1e8);
+          
+        _manipulateRealChainlink(newPrice, address(oracle));
+
+        DualAssetOffer memory buyOffer = impliedVol.getOffer(true, 1, 1);
+        console.log(buyOffer.strikePrice, buyOffer.apr);
+        
+        deal(USDT, trader, swapAmount);   
+        vm.startPrank(trader);     
+        usdt.approve(address(doppiCore), swapAmount); 
+        doppiCore.deposit_buy(DepositParams({
+            amount: swapAmount,
+            strikeZone: 1,
+            strikePrice: buyOffer.strikePrice,
+            numDays: 1,
+            apr: buyOffer.apr,
+            expiry: buyOffer.expiry
+        }));
+        vm.stopPrank();
+        
+
+        newPrice = int256(89483 * 1e8);
+        _manipulateRealChainlink(newPrice, address(oracle));
+        
+        // 1 day fast forward and settle
+        vm.warp(block.timestamp + 1 days + 1);
+
+        (bool upkeepNeeded, bytes memory performData) = doppiCore.checkUpkeep("");
+        vm.prank(forwarder);
+        doppiCore.performUpkeep(performData);  
+        vm.stopPrank();
+
+        uint256 lowerBound = 88000 * 1e8;
+        uint256 upperBound = 90000 * 1e8;
+                
+        for (uint256 price = upperBound; price >= lowerBound; ) {
+            uint256 amount = doppiLP.amountToBuy(price);
+            console.log(price, amount);
+            price -= (500 * 1e8); 
+        }
+        console.log(doppiLP.lowerBound(), doppiLP.upperBound());
+
+        newPrice = int256(88483 * 1e8);
+        _manipulateRealChainlink(newPrice, address(oracle));
+        _doppiLPCheckUpkeep_performUpkeep();
+        
+        for (uint256 price = upperBound; price >= lowerBound; ) {
+            uint256 amount = doppiLP.amountToBuy(price);
+            console.log(price, amount);
+            price -= (500 * 1e8); 
+        }
+
+    }
+
     function test_Scenario_CheckUpKeep_DoppiLiquidity_GasMax_Buy() public {
         
         uint256 depositLPAmount = 100_000_000 ether;
@@ -142,9 +213,11 @@ contract Scenario2Test is Test {
             // Perform swaps at this price
             for (uint256 swapNum = 0; swapNum < swapsPerPrice; swapNum++) {
                 uint256 swapAmount = _generateRandomAmount(swapNum);
+                uint256 amountinBTC = swapAmount * 1e8 / uint256(startPrice);
                 vm.startPrank(address(doppiCore));
-                deal(USDT, address(doppiCore), swapAmount);  
-                doppiLP.swap(swapAmount, uint256(startPrice), true);
+                deal(USDT, address(doppiCore), swapAmount);
+                doppiLP.settle(swapAmount, amountinBTC, uint256(startPrice), true);
+                // doppiLP.swap(swapAmount, uint256(startPrice), true);
                 vm.stopPrank();
             }
 
@@ -215,16 +288,18 @@ contract Scenario2Test is Test {
             for (uint256 swapNum = 0; swapNum < swapsPerPrice; swapNum++) {
                 bool isBuy = swapNum % 2 == 0;
                 uint256 swapAmount = _generateRandomAmount(swapNum);
+                uint256 amountinBTC = swapAmount * 1e8 / uint256(startPrice);
                 if(!isBuy){
-                    uint256 amountinBTC = swapAmount * 1e8 / uint256(startPrice);
                     vm.startPrank(address(doppiCore));
                     deal(BTC, address(doppiCore), amountinBTC);  
-                    doppiLP.swap(amountinBTC, uint256(startPrice), false);
+                    doppiLP.settle(amountinBTC, swapAmount, uint256(startPrice), false);
+                    // doppiLP.swap(amountinBTC, uint256(startPrice), false);
                     vm.stopPrank();
                 }else{
                     vm.startPrank(address(doppiCore));
                     deal(USDT, address(doppiCore), swapAmount);  
-                    doppiLP.swap(swapAmount, uint256(startPrice), true);
+                    doppiLP.settle(swapAmount, amountinBTC, uint256(startPrice), true);
+                    // doppiLP.swap(swapAmount, uint256(startPrice), true);
                     vm.stopPrank(); 
                 }
             }
@@ -339,7 +414,7 @@ contract Scenario2Test is Test {
                 uint256 amountinBTC = swapAmount * 1e8 / uint256(startPrice);
                 vm.startPrank(address(doppiCore));
                 deal(BTC, address(doppiCore), amountinBTC);  
-                doppiLP.swap(amountinBTC, uint256(startPrice), false);
+                doppiLP.settle(amountinBTC, swapAmount, uint256(startPrice), false);
                 vm.stopPrank();
             }
             // Generate random price between 100000 and 120000 

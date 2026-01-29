@@ -809,7 +809,7 @@ contract DoppiTraderTest is Test {
             address(doppiTrader),
             false,
             151008832038982792, // amountIn
-            15538355790315212430000 // amountOut
+            15382972232412060305700 // amountOut
         );    
         vm.prank(mockForwarder);
         doppiTrader.performUpkeep(performData);

@@ -37,7 +37,7 @@ contract DoppiLiquidity is ERC20, Ownable, Pausable, IDoppiLiquidity, Automation
     uint256 public lowerBound;
 
 
-    event Swapped(address indexed trader, address assetIn, address assetOut, uint256 amountIn, uint256 amountOut, uint256 price, bool isDEX);
+    event Swapped(address indexed trader, address assetIn, address assetOut, uint256 amountIn, uint256 amountOut, uint256 price);
     event UnwindPerformed(bool isNetBuy, uint256 totalAmount, uint256 totalAmountOut);
     
     modifier onlyDoppiCore() {
@@ -97,6 +97,9 @@ contract DoppiLiquidity is ERC20, Ownable, Pausable, IDoppiLiquidity, Automation
             assetOut.safeTransfer(msg.sender, _payout);
         } else {
             assetOut.safeTransfer(msg.sender, _payout);
+            if(upperBound == 0 && lowerBound == 0){
+                _resetBound(_price);
+            } 
             _updateUnwindTarget(_amountIn, _price, _isBuy);
         }
         return _payout;
@@ -229,9 +232,7 @@ contract DoppiLiquidity is ERC20, Ownable, Pausable, IDoppiLiquidity, Automation
         
         if (totalBuyAmount > 0 || totalSellAmount > 0) {
             (bool isNetBuy, uint256 netAmount) = _netoutBuySell(totalSellAmount, totalBuyAmount, currentPrice);
-            if(netAmount > 0){
-                return (true, abi.encode(isNetBuy, buyindexes, sellindexes, netAmount, totalBuyAmount, totalSellAmount));
-            }
+            return (true, abi.encode(isNetBuy, buyindexes, sellindexes, netAmount, totalBuyAmount, totalSellAmount));
         }
 
         return (false, bytes(""));
@@ -243,18 +244,22 @@ contract DoppiLiquidity is ERC20, Ownable, Pausable, IDoppiLiquidity, Automation
         (bool isNetBuy, uint256[] memory buyindexes, uint256[] memory sellindexes, uint256 totalAmount, uint256 totalBuyAmount, uint256 totalSellAmount) = 
             abi.decode(performData, (bool, uint256[], uint256[], uint256, uint256, uint256));
         
-        uint256 totalAmountOut;
-        uint256 currentPrice = DALiquidityLib.getPriceWithFallback(config.chainLinkFeed, config.v3Pool, config.twapDuration, config.maxDelay);
-        if (isNetBuy) {
-            totalAmountOut = totalAmount * config.decimals / currentPrice;
-        } else {
-            totalAmountOut = totalAmount * currentPrice / config.decimals;
-        }        
-        uint256 out = _swapPancake(totalAmount, totalAmountOut, isNetBuy);
+        uint256 bal = isNetBuy ? assetA.balanceOf(address(this)) : assetB.balanceOf(address(this));
+          
+        if(bal >= totalAmount && totalAmount > 0){
+            uint256 totalAmountOut;
+            uint256 currentPrice = DALiquidityLib.getPriceWithFallback(config.chainLinkFeed, config.v3Pool, config.twapDuration, config.maxDelay);
+            if (isNetBuy) {
+                totalAmountOut = totalAmount * config.decimals / currentPrice;
+            } else {
+                totalAmountOut = totalAmount * currentPrice / config.decimals;
+            }        
+            uint256 out = _swapPancake(totalAmount, totalAmountOut, isNetBuy);
+            emit UnwindPerformed(isNetBuy, totalAmount, out);
+        }
         _clearOrders(buyindexes, true, totalBuyAmount);
         _clearOrders(sellindexes, false, totalSellAmount);
         _updateBound();
-        emit UnwindPerformed(isNetBuy, totalAmount, out);
     }
 
     function getUnwindInfo(bool isBuy, uint256 strikePrice) external view returns (uint256) {
@@ -311,9 +316,11 @@ contract DoppiLiquidity is ERC20, Ownable, Pausable, IDoppiLiquidity, Automation
         if(_totalSellAmount > totalAmountOutBuy){
             isNetBuy = false;
             netSellOrBuy = _totalSellAmount - totalAmountOutBuy;
+            // check if balance available asset B
         } else if(_totalBuyAmount > totalAmountOutSell){
             isNetBuy = true;
             netSellOrBuy = _totalBuyAmount - totalAmountOutSell;
+            // check if balance available asset A
         }
     }
 
@@ -354,6 +361,7 @@ contract DoppiLiquidity is ERC20, Ownable, Pausable, IDoppiLiquidity, Automation
 
             uint256 price = _getUnwindTargetPrice(currentPrice, uint8(i), !isBuy);
             uint256 amount = amountMap[price];
+            
             if(totalAmount >= maxSwapInLocal){
                 break;
             }
@@ -408,7 +416,7 @@ contract DoppiLiquidity is ERC20, Ownable, Pausable, IDoppiLiquidity, Automation
             fee: config.poolFee,
             recipient: _recipient,
             amountIn: _amount,
-            amountOutMinimum: amountOutQuote * (10000 - config.slippage) / 10000,
+            amountOutMinimum: amountOutQuote.mulDiv(10000 - config.slippage, 10000),
             sqrtPriceLimitX96: 0
         });
         return ISwapRouter(config.router).exactInputSingle(params);
@@ -423,9 +431,7 @@ contract DoppiLiquidity is ERC20, Ownable, Pausable, IDoppiLiquidity, Automation
     ) internal returns (uint256) {
         
         require(_amountIn > _fee, "Insufficient amount after fee");
-        uint256 price = DALiquidityLib.getPriceWithFallback(config.chainLinkFeed, config.v3Pool, config.twapDuration, config.maxDelay);
-        require(_price == price, "Price mismatch");
-
+        
         IERC20 assetIn = _isBuy ? assetA : assetB;
         IERC20 assetOut = _isBuy ? assetB : assetA;
 
@@ -435,30 +441,28 @@ contract DoppiLiquidity is ERC20, Ownable, Pausable, IDoppiLiquidity, Automation
         uint256 amountOut = _isBuy
             ? (amountInAfterfee * config.decimals) / _price
             : (amountInAfterfee * _price) / config.decimals;
-
-        uint256 balance = assetOut.balanceOf(address(this));
-        bool isDEX = false;
-        uint256 tradedPrice = _price;
-        if(amountOut > balance){
-            isDEX = true;
-            
-            if(exact){
-                uint256 actualAmountIn = _swapExactOutputV3(amountOut, address(assetIn), address(assetOut), msg.sender, _amountIn); 
+        
+        uint256 tradedPrice;    
+        if(exact){
+            uint256 actualAmountIn = _swapExactOutputV3(amountOut, address(assetIn), address(assetOut), msg.sender, _amountIn); 
+            if(amountOut > 0){
                 tradedPrice = _isBuy
                     ? (actualAmountIn * config.decimals) / amountOut 
                     : (amountOut * config.decimals) / actualAmountIn;
-            } else {
-                amountOut = _swapExactInputV3(amountInAfterfee, address(assetIn), address(assetOut), msg.sender, amountOut);
+            }
+        } else {
+            amountOut = _swapExactInputV3(amountInAfterfee, address(assetIn), address(assetOut), msg.sender, amountOut);
+            if(amountOut > 0){
                 tradedPrice = _isBuy
                     ? (amountInAfterfee * config.decimals) / amountOut 
                     : (amountOut * config.decimals) / amountInAfterfee;
             }
-        } else {
-            assetOut.safeTransfer(msg.sender, amountOut);
-            _updateUnwindTarget(_amountIn, _price, _isBuy);
+            
         }
-
-        emit Swapped(msg.sender, address(assetIn), address(assetOut), _amountIn, amountOut, tradedPrice, isDEX);
+        if(upperBound == 0 && lowerBound == 0){
+            _resetBound(_price);
+        }
+        emit Swapped(msg.sender, address(assetIn), address(assetOut), _amountIn, amountOut, tradedPrice);
         return amountOut;
     }
 
@@ -474,11 +478,16 @@ contract DoppiLiquidity is ERC20, Ownable, Pausable, IDoppiLiquidity, Automation
         uint256 priceGapWithDecimals = config.priceGap * config.decimals;
         _price = (_price / priceGapWithDecimals) * priceGapWithDecimals;
         return _isBuy ? _price - (priceGapWithDecimals * (_zone - 1)) : _price + (priceGapWithDecimals * _zone);
+        // return _isBuy ? _price - (priceGapWithDecimals * _zone) : _price + (priceGapWithDecimals * (_zone + 1));
+    }
+
+    function _resetBound(uint256 price) internal {
+        lowerBound = _getUnwindTargetPrice(price, 1, true);
+        upperBound = _getUnwindTargetPrice(price, 1, false);
     }
 
     function _updateUnwindTarget(uint256 _amountIn, uint256 _price, bool _isBuy) internal {
         uint256 targetPrice = _getUnwindTargetPrice(_price, 1, _isBuy);
-
         if(targetPrice > upperBound){
             upperBound = targetPrice;
         }else if (targetPrice < lowerBound || lowerBound == 0){
@@ -493,7 +502,7 @@ contract DoppiLiquidity is ERC20, Ownable, Pausable, IDoppiLiquidity, Automation
 
     function _getLoopRound(uint256 _price, bool _isBuy) internal view returns (uint256 round) {
 
-        if(lowerBound == 0 && upperBound == 0) return 1;
+        // if(lowerBound == 0 && upperBound == 0) return 1;
         uint256 firstPrice = _getUnwindTargetPrice(_price, 1, !_isBuy);
         uint256 priceGapWithDecimals = config.priceGap * config.decimals;
         

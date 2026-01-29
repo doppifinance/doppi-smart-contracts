@@ -29,8 +29,7 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
     uint256 public lowerBound;
     
     event Deposited(address indexed trader, uint64 positionId, address asset, uint256 amount, uint256 interest, uint256 strikePrice, uint32 apr, uint32 numDays);
-    event Settled(address indexed trader, uint64 positionId, bool striked, bool isProfit, uint256 profitLoss, uint256 payout, uint256 interest, address profitToken, address payoutToken, address interestToken);
-    event HedgeSettled(address indexed trader, uint64 positionId, bool isProfit, uint256 profitLoss, address profitToken);
+    event Settled(address indexed trader, uint64 positionId, bool striked, uint256 strikePrice, uint256 marketPrice, bool isProfit, uint256 profitLoss, uint256 payout, uint256 interest, address payoutToken, address interestToken);
     event EmergencyWithdraw(bool isBuy, address indexed trader, uint64 positionId, uint256 amount);
     event OppPerformed(bool isBuy, uint256 price, uint256 amount, uint256 amountOut);
     event OppUnwindPerformed(bool isBuy, uint256 price, uint256 swappedAmount, uint256 amountOut, uint256 profit, address profitToken);
@@ -407,16 +406,17 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
         if (p.interest > 0) {
             _safeTransferWithFee(interestToken, p.owner, p.interest);
         }
-        
+
         emit Settled(
             p.owner,
             posId,
             payout > 0, // in-the-money if payout > 0
+            p.strikePrice,
+            price,
             isProfit,
             profitLoss,
             payout,
             p.interest,
-            address(payoutToken),
             address(payoutToken),
             address(interestToken)
         );
@@ -449,7 +449,6 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
         OpportunityOrders storage order = opporMap[p.strikePrice];
         uint256 swappedAmount = order.swappedAmount;
         uint256 amountOut = _isBuy ? (p.amount * priceDecimal) / _price : (p.amount * _price) / priceDecimal;
-        
         // not traded case
         if(!_isPosTraded(p.strikePrice, p.amount, _isBuy)){
             payoutToken.safeTransfer(p.owner, p.payout);
@@ -569,6 +568,7 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
         uint256 triggerPrice = _isBuy ? price + buffer : price - buffer;
         uint256 triggerUnwindPrice = _isBuy ? price - buffer : price + buffer;
         uint256 maxSwapInLocal = (_isBuy == _unwind) ? maxSwap * priceDecimal / price : maxSwap;
+
         for (uint256 i = round; i > 0; ) {
             if (totalAmount >= maxSwapInLocal) break;
             uint256 strikeprice = _getTargetPrice(price, uint8(i), direction);
@@ -576,9 +576,11 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
             uint256 totalAmountPost;
             uint256 comparedAmount;
 
+            
             if(_unwind){
                 comparedAmount = opporMap[strikeprice].outAmount; // get traded amount for unwind
                 uint256 unwindSwappedAmount = opporMap[strikeprice].swappedAmount;
+                
                 if(comparedAmount > 0){
                     uint256 costPrice = _isBuy ? unwindSwappedAmount * priceDecimal / comparedAmount : comparedAmount * priceDecimal / unwindSwappedAmount;
                     isTriggered = _isBuy ? costPrice < triggerUnwindPrice : costPrice > triggerUnwindPrice;
@@ -599,7 +601,6 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
             }
             unchecked { --i; }   
         }
-
         targetPrices = _createResultArrays(tempTargetPrice, count);
     }
 
@@ -744,7 +745,7 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
             order.outAmount += myAmountOut;
             order.swappedAmount += unTrade;
             reducedUpdated -= unTrade;
-            reducedoutUpdated -= myAmountOut;
+            reducedoutUpdated = reducedoutUpdated > myAmountOut ? reducedoutUpdated - myAmountOut : 0; 
         }else{
             order.outAmount += reducedout;
             order.swappedAmount += reduced;
@@ -770,21 +771,22 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
         uint256 myAmountOut;
         reducedUpdated = reduced;
         reducedoutUpdated = reducedout;
+        
         if(reducedUpdated >= unwind){
             ratio = unwind * 1e18 / totalAmountUnwind;
             myAmountOut = amountOutUnwind * ratio / 1e18;
             order.outAmount -= unwind;
             order.swappedAmount -= swappedAmount;
             reducedUpdated -= unwind;
-            reducedoutUpdated -= swappedAmount;
+            reducedoutUpdated = reducedoutUpdated >= swappedAmount ? reducedoutUpdated - swappedAmount : 0;
         }else{
             uint256 unwindTotal = unwind;
             unwind = unwind - reducedUpdated; 
             ratio = (unwindTotal - reducedUpdated) * 1e18 / unwindTotal; // get not inclusion portion
             uint256 newSwappedAmount = swappedAmount * ratio / 1e18; // 100% unwind amount
-            swappedAmount = swappedAmount - newSwappedAmount;
+            swappedAmount = swappedAmount > newSwappedAmount ? swappedAmount - newSwappedAmount : 0;
             myAmountOut = reducedoutUpdated;
-            order.outAmount -= reducedUpdated;
+            order.outAmount = order.outAmount > reducedUpdated ? order.outAmount - reducedUpdated : 0;
             order.swappedAmount = newSwappedAmount;
         }
         // Calculate and transfer profit if any
@@ -815,6 +817,10 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
                 if(isInTheMoney){
                     if(!_isPosTraded(p.strikePrice, p.amount, true)){
                         settleAccu.totalA += p.amount;
+                    }else{
+                        OpportunityOrders memory opp = opportunityBuy[p.strikePrice];
+                        uint256 notenough = p.payout > opp.outAmount ? p.payout - opp.outAmount : 0; 
+                        settleAccu.totalInterestB += notenough;
                     }
                 }
             }else{
@@ -822,12 +828,15 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
                 if(isInTheMoney){
                     if(!_isPosTraded(p.strikePrice, p.amount, false)){
                         settleAccu.totalB += p.amount;
+                    }else{
+                        OpportunityOrders memory opp = opportunitySell[p.strikePrice];
+                        uint256 notenough = p.payout > opp.outAmount ? p.payout - opp.outAmount : 0; 
+                        settleAccu.totalInterestA += notenough;
                     }
                 }
             }
             unchecked { ++i; }
         }
-        
         if(settleAccu.totalA > 0){
             uint256 amountOut = (settleAccu.totalA * priceDecimal) / price;
             _doppiSettleCall(settleAccu.totalA, amountOut, price, true);

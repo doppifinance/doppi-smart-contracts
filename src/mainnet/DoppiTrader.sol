@@ -7,7 +7,7 @@ import {AutomationCompatibleInterface} from "../Interface/AutomationCompatibleIn
 import {DALiquidityLib} from "../Library/DALiquidityLib.sol";
 import "./DoppiTraderTypes.sol";
 import "./DoppiTraderAdminView.sol";
-import "forge-std/console.sol";
+// import "forge-std/console.sol";
 
 contract DoppiTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCompatibleInterface, Initializable {
     using SafeERC20 for IERC20;
@@ -198,6 +198,7 @@ contract DoppiTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCompati
 
         (targetPricesBuy, totalBuyAmountInB) =_checkUndoTrade(true, price);
         (targetPricesSell, totalSellAmountInA) =_checkUndoTrade(false, price);
+        
         if (totalBuyAmountInB > 0 || totalSellAmountInA > 0) {
             (bool isNetBuy, uint256 netAmount) = _netoutBuySell(totalSellAmountInA, totalBuyAmountInB, price);
             if(netAmount > 0){
@@ -424,16 +425,18 @@ contract DoppiTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCompati
         mapping(uint256 => uint256) storage unwindMap = _isBuy ? unWindBuy : unWindSell; 
         
         uint256 round = _getLoopRound(_price, _isBuy);
-        
         uint256[] memory tempTargetPrice = new uint256[](round);
         uint256 count = 0;
         uint256 priceDecimals = 10 ** doppiLP.getPriceDecimals();
         uint256 maxSwapInLocal = _isBuy ? maxSwap * priceDecimals / _price : maxSwap;
+        uint256 priceGapWithDecimals = impliedVol.getPriceGapPerOffer() * priceDecimals;
+        uint256 sPrice = (_price / priceGapWithDecimals) * priceGapWithDecimals;
 
         for (uint256 i = round; i > 0; ) {
 
-            uint256 origStrikeprice = _getUnwindTargetPrice(_price, uint8(i), _isBuy);
+            uint256 origStrikeprice =  _isBuy ? sPrice - (priceGapWithDecimals * uint8(i) ) : sPrice + (priceGapWithDecimals * (uint8(i) + 1));
             uint256 amount = unwindMap[origStrikeprice];
+        
             if(totalAmount >= maxSwapInLocal){
                 break;
             }

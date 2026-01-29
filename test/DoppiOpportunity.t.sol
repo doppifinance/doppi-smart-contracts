@@ -37,6 +37,8 @@ contract DoppiOpportunityTest is Test {
     address user2 = address(0x2);
     address treasury = address(0x3);
     address mockForwarder = address(0x5);
+    address trader = address(0x6);
+    
 
     event OppPerformed(bool isBuy, uint256 price, uint256 amount, uint256 amountOut);
     event OppUnwindPerformed(bool isBuy, uint256 price, uint256 swappedAmount, uint256 amountOut, uint256 profit, address profitToken);
@@ -151,9 +153,9 @@ contract DoppiOpportunityTest is Test {
         emit OppUnwindPerformed(
             false,
             98_500 * 1e8,
-            110389500000000000000000,
-            1119584878172588832,
-            119584878172588832, // profit
+            109285605000000000000000,
+            1097305139096954314,
+            97305139096954314, // profit
             address(btc) // profit in asset A
         );
         vm.prank(mockForwarder);
@@ -174,9 +176,9 @@ contract DoppiOpportunityTest is Test {
         emit OppUnwindPerformed(
             true,
             100_500 * 1e8,
-            523036649214659685,
-            52512618062827225113000,
-            2512618062827225113000, // profit
+            517806282722513088,
+            51467616963376963259625,
+            1467616963376963259625,
             address(usdt) // profit in asset A
         );
 
@@ -195,7 +197,7 @@ contract DoppiOpportunityTest is Test {
             true,
             95_500 * 1e8,
             50_000 ether,
-            523036649214659685
+            517806282722513088
         );    
         vm.prank(mockForwarder);
         doppiOpportunity.performUpkeep(performData);
@@ -219,9 +221,9 @@ contract DoppiOpportunityTest is Test {
         emit OppUnwindPerformed(
             true,
             100_500 * 1e8,
-            523036649214659685,
-            52512618062827225113000,
-            2512618062827225113000,
+            517806282722513088,
+            51467616963376963259625,
+            1467616963376963259625,
             address(usdt)
         );    
 
@@ -229,7 +231,497 @@ contract DoppiOpportunityTest is Test {
         doppiOpportunity.performUpkeep(performData);
     }
 
+    // Gas Limit Test
+    function test_Scenario_CheckUpKeep_DoppiOpportunity_GasMaxOnePrice_Sell() public {
+        
+        int256 startPrice = int256(9151519000000);
+        oracle.setPrice(startPrice);
+        
+        uint256 depositLPAmount = 10_000_000 ether;
+        uint256 depositBTCAmount = 10.0000 ether;
+
+        usdt.mint(trader, depositLPAmount);
+        btc.mint(trader, depositBTCAmount);
+            
+        vm.startPrank(trader);            
+        usdt.approve(address(doppiRouter), depositLPAmount);        
+        btc.approve(address(doppiRouter), depositBTCAmount);        
+        doppiRouter.deposit(address(usdt), depositLPAmount);
+        // doppiRouter.deposit(address(btc), depositBTCAmount);
+        vm.stopPrank();
+
+        DualAssetOffer memory sellOffer = impliedVol.getOffer(false, 1, 1);
+        uint256 depositBTC = 0.01 ether;
+        // console.log(sellOffer.strikePrice, "sellOffer.strikePrice");
+        for (uint256 i = 0; i < 1000; i++) {
+            address l1 = address(uint160(0x110 + i));
+            vm.startPrank(l1);
+            btc.mint(l1, 1 ether);
+            btc.approve(address(doppiCore), depositBTC);
+            doppiCore.deposit_sell(DepositParams({
+                amount: depositBTC,
+                strikeZone: 1,
+                strikePrice: sellOffer.strikePrice,
+                numDays: 1,
+                apr: sellOffer.apr,
+                expiry: sellOffer.expiry
+            }));
+            vm.stopPrank();
+        }
+
+        startPrice = int256(9742000000000);
+        oracle.setPrice(startPrice);
+        
+        _doppiOpportunityCheckUpkeep_performUpkeep();
+        OpportunityOrders memory sell = doppiCore.getOpportunityOrders(false, 9250000000000);
+        assertEq(sell.swappedAmount, 1026483268322726339);
+        assertEq(sell.outAmount, 98900999999999999978675);
+        // console.log(sell.swappedAmount, sell.outAmount, "sell.swappedAmount, sell.outAmount");
+
+        // Not able to perform for now after changing swap logic with DEX
+        // ************************************************************
+        startPrice = int256(9142000000000);
+        oracle.setPrice(startPrice);
+        
+        _doppiOpportunityCheckUpkeep_performUpkeep();
+        sell = doppiCore.getOpportunityOrders(false, 9250000000000);
+        // console.log(sell.swappedAmount, sell.outAmount, "sell.swappedAmount, sell.outAmount");
+        assertEq(sell.swappedAmount, 0);
+        assertEq(sell.outAmount, 0);
+
+    }
+
+    function test_Scenario_CheckUpKeep_DoppiOpportunity_GasMaxMultiplePrice() public {
+        
+        // int256 startPrice = int256(9151519000000);
+        // oracle.setPrice(startPrice);
+        
+        uint256 depositLPAmount = 10_000_000 ether;
+        uint256 depositBTCAmount = 10.0000 ether;
+
+        usdt.mint(trader, depositLPAmount);
+        btc.mint(trader, depositBTCAmount);
+                  
+            
+        vm.startPrank(trader);            
+        usdt.approve(address(doppiRouter), depositLPAmount);        
+        btc.approve(address(doppiRouter), depositBTCAmount);        
+        doppiRouter.deposit(address(usdt), depositLPAmount);
+        doppiRouter.deposit(address(btc), depositBTCAmount);
+        vm.stopPrank();
+
+        vm.startPrank(doppiCore.owner());            
+        doppiCore.setMaxSwap(100000 ether);
+        vm.stopPrank();
+
+        uint256 depositUSDT = 1000 ether;
+        uint256 totalDeposit = 500;
+        uint256 priceChanges = 50; // Change price 50 times during test
+        uint256 depPerPrice = totalDeposit / priceChanges;
+
+        uint256 currentPrice = (100_000 * 10**8) * (10100 / 10000);
+        for (uint256 priceChange = 0; priceChange < priceChanges; priceChange++) {
+            
+            int256 startPrice = int256(currentPrice);
+            oracle.setPrice(startPrice);
+        
+            DualAssetOffer memory buyOffer = impliedVol.getOffer(true, 1, 1);
+
+            // Perform swaps at this price
+            for (uint256 swapNum = 0; swapNum < depPerPrice; swapNum++) {
+                address l1 = address(uint160(0x110 + priceChange));
+                uint256 swapAmount = _generateRandomAmount(swapNum);
+                vm.startPrank(l1);
+                // deal(USDT, l1, swapAmount);  
+                usdt.mint(l1, swapAmount);
+        
+                usdt.approve(address(doppiCore), swapAmount);
+                doppiCore.deposit_buy(DepositParams({
+                    amount: swapAmount,
+                    strikeZone: 1,
+                    strikePrice: buyOffer.strikePrice,
+                    numDays: 1,
+                    apr: buyOffer.apr,
+                    expiry: buyOffer.expiry
+                }));
+                vm.stopPrank();                
+            }
+
+            // Generate random price between 100000 and 120000 
+            if(priceChange > 10 && priceChange <= 15){
+                currentPrice = currentPrice * 9950 / 10000;
+            }else if(priceChange > 15 && priceChange <= 20){
+                currentPrice = currentPrice * 10050 / 10000;
+            }else if(priceChange > 20 && priceChange <= 25){
+                currentPrice = currentPrice * 9910 / 10000;
+            }else{
+                currentPrice = currentPrice * 10010 / 10000;
+            }
+        }
+        
+        int256 newPrice = int256(90556 * 1e8);
+        oracle.setPrice(newPrice);
+        // _manipulateRealChainlink(newPrice, address(oracle));
+
+        _doppiOpportunityCheckUpkeep_performUpkeep();
+        _doppiOpportunityCheckUpkeep_performUpkeep();
+
+        OpportunityOrders memory buy = doppiCore.getOpportunityOrders(true, 10100000000000);
+        assertEq(buy.amount, 385000000000000000000000);
+        assertEq(buy.swappedAmount, 35000000000000000000000);
+        assertEq(buy.outAmount, 382253522682097266);
+        
+        buy = doppiCore.getOpportunityOrders(true, 10150000000000);
+        assertEq(buy.amount, 165000000000000000000000);
+        assertEq(buy.swappedAmount, 165000000000000000000000);
+        assertEq(buy.outAmount, 1802052321215601394);
+
+        newPrice = int256(102556 * 1e8);
+        oracle.setPrice(newPrice);
+        // _manipulateRealChainlink(newPrice, address(oracle));
+
+        _doppiOpportunityCheckUpkeep_performUpkeep();
+        _doppiOpportunityCheckUpkeep_performUpkeep();
+        
+        buy = doppiCore.getOpportunityOrders(true, 10100000000000);
+        assertEq(buy.amount, 385000000000000000000000);
+        assertEq(buy.swappedAmount, 0);
+        assertEq(buy.outAmount, 0);
+        // console.log(buy.amount, buy.swappedAmount, buy.outAmount);
+
+        buy = doppiCore.getOpportunityOrders(true, 10150000000000);
+        assertEq(buy.amount, 165000000000000000000000);
+        assertEq(buy.swappedAmount, 0);
+        assertEq(buy.outAmount, 0);
+        
+    }
+
+    function test_Scenario_CheckUpKeep_DoppiOpportunity_GasMaxMultiplePrice_Sell() public {
+        
+        uint256 depositLPAmount = 10_000_000 ether;
+        uint256 depositBTCAmount = 30.0000 ether;
+
+        usdt.mint(trader, depositLPAmount);
+        btc.mint(trader, depositBTCAmount);
+
+        vm.startPrank(doppiCore.owner());            
+        doppiCore.setMaxSwap(100000 ether);
+        vm.stopPrank();
+
+        vm.startPrank(trader);            
+        usdt.approve(address(doppiRouter), depositLPAmount);        
+        btc.approve(address(doppiRouter), depositBTCAmount);        
+        doppiRouter.deposit(address(usdt), depositLPAmount);
+        // doppiRouter.deposit(address(btc), depositBTCAmount);
+        vm.stopPrank();
+
+        uint256 depositBTC = 0.01 ether;
+        uint256 totalDeposit = 500;
+        uint256 priceChanges = 50; // Change price 50 times during test
+        uint256 depPerPrice = totalDeposit / priceChanges;
+
+        uint256 currentPrice = (100_000 * 10**8) * (10100 / 10000);
+        for (uint256 priceChange = 0; priceChange < priceChanges; priceChange++) {
+            
+            int256 startPrice = int256(currentPrice);
+            oracle.setPrice(startPrice);
+                  
+            DualAssetOffer memory sellOffer = impliedVol.getOffer(false, 1, 1);
+
+            // Perform swaps at this price
+            for (uint256 swapNum = 0; swapNum < depPerPrice; swapNum++) {
+                address l1 = address(uint160(0x110 + priceChange));
+                uint256 swapAmount = _generateRandomAmount(swapNum);
+                uint256 amountinBTC = swapAmount * 1e8 / uint256(startPrice);
+                vm.startPrank(l1);
+                // deal(BTC, l1, amountinBTC);  
+                btc.mint(l1, amountinBTC);
+                btc.approve(address(doppiCore), amountinBTC);
+                doppiCore.deposit_sell(DepositParams({
+                    amount: amountinBTC,
+                    strikeZone: 1,
+                    strikePrice: sellOffer.strikePrice,
+                    numDays: 1,
+                    apr: sellOffer.apr,
+                    expiry: sellOffer.expiry
+                }));
+                vm.stopPrank();                
+            }
+
+            // Generate random price between 100000 and 120000 
+            if(priceChange > 10 && priceChange <= 15){
+                currentPrice = currentPrice * 9950 / 10000;
+            }else if(priceChange > 15 && priceChange <= 20){
+                currentPrice = currentPrice * 10050 / 10000;
+            }else if(priceChange > 20 && priceChange <= 25){
+                currentPrice = currentPrice * 9910 / 10000;
+            }else{
+                currentPrice = currentPrice * 10010 / 10000;
+            }
+        }
+        
+        int256 newPrice = int256(10242000000000);
+        oracle.setPrice(newPrice);
+        
+        _doppiOpportunityCheckUpkeep_performUpkeep();
+        _doppiOpportunityCheckUpkeep_performUpkeep();
+        _doppiOpportunityCheckUpkeep_performUpkeep();
+        _doppiOpportunityCheckUpkeep_performUpkeep();
+        _doppiOpportunityCheckUpkeep_performUpkeep();
+        _doppiOpportunityCheckUpkeep_performUpkeep();
+        _doppiOpportunityCheckUpkeep_performUpkeep();
+
+        OpportunityOrders memory sell = doppiCore.getOpportunityOrders(false, 9850000000000);
+        assertEq(sell.swappedAmount, 2812255415357036449);
+        assertEq(sell.outAmount, 284865736756814537390787);
+        
+        sell = doppiCore.getOpportunityOrders(false, 9900000000000);
+        assertEq(sell.swappedAmount, 3356740024692983644);
+        assertEq(sell.outAmount, 340018980855569066339898);
+
+        newPrice = int256(93556 * 1e8);
+        oracle.setPrice(newPrice);
+        
+        _doppiOpportunityCheckUpkeep_performUpkeep();
+        _doppiOpportunityCheckUpkeep_performUpkeep();
+        _doppiOpportunityCheckUpkeep_performUpkeep();
+        _doppiOpportunityCheckUpkeep_performUpkeep();
+        _doppiOpportunityCheckUpkeep_performUpkeep();
+        _doppiOpportunityCheckUpkeep_performUpkeep();
+        
+        sell = doppiCore.getOpportunityOrders(false, 9850000000000);
+        assertEq(sell.swappedAmount, 0);
+        assertEq(sell.outAmount, 0);
+        
+        sell = doppiCore.getOpportunityOrders(false, 9900000000000);
+        assertEq(sell.swappedAmount, 0);
+        assertEq(sell.outAmount, 0);
+    }
+
+    function test_Scenario_CheckUpKeep_DoppiOpportunity_GasMaxBuySell() public {
+        
+        uint256 depositLPAmount = 10_000_000 ether;
+        uint256 depositBTCAmount = 30.0000 ether;
+
+        usdt.mint(trader, depositLPAmount);
+        btc.mint(trader, depositBTCAmount);
+        
+            
+        vm.startPrank(trader);            
+        usdt.approve(address(doppiRouter), depositLPAmount);        
+        btc.approve(address(doppiRouter), depositBTCAmount);        
+        doppiRouter.deposit(address(usdt), depositLPAmount);
+        doppiRouter.deposit(address(btc), depositBTCAmount);
+        vm.stopPrank();
+
+        uint256 depositBTC = 0.01 ether;
+        uint256 totalDeposit = 500;
+        uint256 priceChanges = 50; // Change price 50 times during test
+        uint256 depPerPrice = totalDeposit / priceChanges;
+
+        uint256 currentPrice = (100_000 * 10**8) * (10100 / 10000);
+        for (uint256 priceChange = 0; priceChange < priceChanges; priceChange++) {
+            
+            int256 startPrice = int256(currentPrice);
+            oracle.setPrice(startPrice);
+
+            // Perform swaps at this price
+            for (uint256 swapNum = 0; swapNum < depPerPrice; swapNum++) {
+                address l1 = address(uint160(0x110 + priceChange));
+                uint256 swapAmount = _generateRandomAmount(swapNum);
+                
+                bool isBuy = swapNum % 2 == 0;
+                if(!isBuy){
+                    DualAssetOffer memory sellOffer = impliedVol.getOffer(false, 1, 1);
+                    uint256 amountinBTC = swapAmount * 1e8 / uint256(startPrice);
+                    vm.startPrank(l1);
+                    btc.mint(l1, amountinBTC);
+                    btc.approve(address(doppiCore), amountinBTC);
+                    doppiCore.deposit_sell(DepositParams({
+                        amount: amountinBTC,
+                        strikeZone: 1,
+                        strikePrice: sellOffer.strikePrice,
+                        numDays: 1,
+                        apr: sellOffer.apr,
+                        expiry: sellOffer.expiry
+                    }));
+                    vm.stopPrank(); 
+                }else{
+
+                    DualAssetOffer memory buyOffer = impliedVol.getOffer(true, 1, 1);
+                    vm.startPrank(l1);
+                    usdt.mint(l1, swapAmount);
+                    usdt.approve(address(doppiCore), swapAmount);
+                    doppiCore.deposit_buy(DepositParams({
+                        amount: swapAmount,
+                        strikeZone: 1,
+                        strikePrice: buyOffer.strikePrice,
+                        numDays: 1,
+                        apr: buyOffer.apr,
+                        expiry: buyOffer.expiry
+                    }));
+                    vm.stopPrank();
+                }
+            }
+
+            // Generate random price between 100000 and 120000 
+            if(priceChange > 10 && priceChange <= 15){
+                currentPrice = currentPrice * 9950 / 10000;
+            }else if(priceChange > 15 && priceChange <= 20){
+                currentPrice = currentPrice * 10050 / 10000;
+            }else if(priceChange > 20 && priceChange <= 25){
+                currentPrice = currentPrice * 9910 / 10000;
+            }else{
+                currentPrice = currentPrice * 10010 / 10000;
+            }
+        }
+        
+        int256 newPrice = int256(90556 * 1e8);
+        oracle.setPrice(newPrice);
+
+        assertEq(doppiCore.lowerBound(), 9700000000000);
+        assertEq(doppiCore.upperBound(), 10300000000000);
+
+        _doppiOpportunityCheckUpkeep_performUpkeep();
+        
+        OpportunityOrders memory buy = doppiCore.getOpportunityOrders(true, 10100000000000);
+        assertEq(buy.amount, 175000000000000000000000);
+        assertEq(buy.swappedAmount, 25000000000000000000000);
+        assertEq(buy.outAmount, 273038230487212333);
+        
+        buy = doppiCore.getOpportunityOrders(true, 10150000000000);
+        assertEq(buy.amount, 75000000000000000000000);
+        assertEq(buy.swappedAmount, 75000000000000000000000);
+        assertEq(buy.outAmount, 819114691461636997);
+        
+        newPrice = int256(102556 * 1e8);
+        oracle.setPrice(newPrice);
+        
+        _doppiOpportunityCheckUpkeep_performUpkeep();
+        _doppiOpportunityCheckUpkeep_performUpkeep();
+
+        buy = doppiCore.getOpportunityOrders(true, 10100000000000);
+        assertEq(buy.swappedAmount, 0);
+        assertEq(buy.outAmount, 0);
+        buy = doppiCore.getOpportunityOrders(true, 10150000000000);
+        assertEq(buy.swappedAmount, 0);
+        assertEq(buy.outAmount, 0);
+
+        OpportunityOrders memory sell = doppiCore.getOpportunityOrders(false, 9850000000000);
+        assertEq(sell.swappedAmount, 1533957499285656245);
+        assertEq(sell.outAmount, 155587636463928591937079);
+        
+        sell = doppiCore.getOpportunityOrders(false, 9900000000000);
+        assertEq(sell.swappedAmount, 416196562885255257);
+        assertEq(sell.outAmount, 42214363536071408214541);
+        
+        newPrice = int256(95556 * 1e8);
+        oracle.setPrice(newPrice);
+
+        _doppiOpportunityCheckUpkeep_performUpkeep();
+        _doppiOpportunityCheckUpkeep_performUpkeep();
+
+        sell = doppiCore.getOpportunityOrders(false, 9850000000000);
+        assertEq(sell.swappedAmount, 0);
+        assertEq(sell.outAmount, 0);
+        
+        sell = doppiCore.getOpportunityOrders(false, 9900000000000);
+        assertEq(sell.swappedAmount, 0);
+        assertEq(sell.outAmount, 0);
+
+        buy = doppiCore.getOpportunityOrders(true, 10100000000000);
+        assertEq(buy.swappedAmount, 125000000000000000000000);
+        assertEq(buy.outAmount, 1293757063920632927);
+        
+        buy = doppiCore.getOpportunityOrders(true, 10150000000000);
+        assertEq(buy.swappedAmount, 75000000000000000000000);
+        assertEq(buy.outAmount, 776254238352379755);
+        
+        // console.log(doppiCore.lowerBound(), doppiCore.upperBound());
+        assertEq(doppiCore.lowerBound(), 9700000000000);
+        assertEq(doppiCore.upperBound(), 10300000000000);
+
+        
+    }
+
+    function test_Scenario_CheckUpKeep_DoppiOpportunity_GasMaxOnePrice() public {
+        
+        int256 startPrice = int256(9151519000000);
+        oracle.setPrice(startPrice);
+
+        uint256 depositLPAmount = 10_000_000 ether;
+        uint256 depositBTCAmount = 10.0000 ether;
+
+        usdt.mint(trader, depositLPAmount);
+        btc.mint(trader, depositBTCAmount);     
+            
+        vm.startPrank(trader);            
+        usdt.approve(address(doppiRouter), depositLPAmount);        
+        btc.approve(address(doppiRouter), depositBTCAmount);        
+        doppiRouter.deposit(address(usdt), depositLPAmount);
+        // doppiRouter.deposit(address(btc), depositBTCAmount);
+        vm.stopPrank();
+
+        DualAssetOffer memory buyOffer = impliedVol.getOffer(true, 1, 1);
+        uint256 depositUSDT = 1000 ether;
+        for (uint256 i = 0; i < 1000; i++) {
+            address l1 = address(uint160(0x110 + i));
+            vm.startPrank(l1);
+            usdt.mint(l1, 100_000 ether);
+            usdt.approve(address(doppiCore), depositUSDT);
+            doppiCore.deposit_buy(DepositParams({
+                amount: depositUSDT,
+                strikeZone: 1,
+                strikePrice: buyOffer.strikePrice,
+                numDays: 1,
+                apr: buyOffer.apr,
+                expiry: buyOffer.expiry
+            }));
+            vm.stopPrank();
+        }
+
+        startPrice = int256(8542000000000);
+        oracle.setPrice(startPrice);
+        
+        _doppiOpportunityCheckUpkeep_performUpkeep();
+
+        OpportunityOrders memory buy = doppiCore.getOpportunityOrders(true, 9100000000000);
+        assertEq(buy.amount, 1000000000000000000000000);
+        assertEq(buy.swappedAmount, 100000000000000000000000);
+        assertEq(buy.outAmount, 1157820182627019432);
+        
+        startPrice = int256(9942000000000);
+        oracle.setPrice(startPrice);
+
+        _doppiOpportunityCheckUpkeep_performUpkeep();
+
+        buy = doppiCore.getOpportunityOrders(true, 9100000000000);
+        assertEq(buy.amount, 1000000000000000000000000);
+        assertEq(buy.swappedAmount, 13126938764525657300000);
+        assertEq(buy.outAmount, 151986346376767974);
+        
+        _doppiOpportunityCheckUpkeep_performUpkeep();
+        
+        buy = doppiCore.getOpportunityOrders(true, 9100000000000);
+        assertEq(buy.amount, 1000000000000000000000000);
+        assertEq(buy.swappedAmount, 0);
+        assertEq(buy.outAmount, 0);
+
+    }
+
     // internal function
+    function _generateRandomAmount(uint256 seed) internal pure returns (uint256) {
+        // Generate amount between 1000 and 5000 tokens
+        uint256 base = 1000 * 10**18;
+        if(seed > 15){
+            seed -= 5;
+        }else if(seed > 25){
+            seed -= 10;
+        }  
+        // uint256 variation = (uint256(keccak256(abi.encodePacked(seed))) % 4990) + 10;
+        return base * (seed + 1);
+    }
+
     function depositUSDT() internal {
         DualAssetOffer memory buyOffer = impliedVol.getOffer(true, 1, 1);
         DepositParams memory params = DepositParams({
@@ -262,6 +754,26 @@ contract DoppiOpportunityTest is Test {
         btc.approve(address(doppiCore), params.amount);
         doppiCore.deposit_sell(params);
         vm.stopPrank();
+    }
+
+    function _doppiOpportunityCheckUpkeep_performUpkeep() internal {
+        
+        uint256 gasBefore = gasleft();
+        (bool upkeepNeeded, bytes memory performData) = doppiOpportunity.checkUpkeep("");
+        uint256 gasUsed = gasBefore - gasleft();
+        console.log(upkeepNeeded, gasUsed, "gasUsed in doppiOpportunity.checkUpkeep");
+        assertLt(gasUsed, 500_000, "Gas usage too high");
+
+        if(upkeepNeeded){
+            vm.prank(mockForwarder);
+            gasBefore = gasleft();
+            doppiOpportunity.performUpkeep(performData);
+            gasUsed = gasBefore - gasleft();
+            console.log(gasUsed, "gasUsed in doppiOpportunity.performUpkeep");
+            assertLt(gasUsed, 2_000_000, "Gas usage too high");
+            vm.stopPrank();
+        }
+        
     }
 
     function _deployDoppiPoints() internal returns (DoppiPoints) {

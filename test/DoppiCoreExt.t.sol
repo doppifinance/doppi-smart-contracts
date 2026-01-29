@@ -45,9 +45,8 @@ contract DoppiCoreExtTest is Test {
     uint256 constant INITIAL_PRICE = 100_000 * 1e8;
 
     event Deposited(address indexed trader, uint64 positionId, address asset, uint256 amount, uint256 interest, uint256 strikePrice, uint32 apr, uint32 numDays);
-    event Settled(address indexed trader, uint64 positionId, bool striked, bool isProfit, uint256 profitLoss, uint256 payout, uint256 interest, address profitToken, address payoutToken, address interestToken);
-    event HedgeSettled(address indexed trader, uint64 positionId, bool isProfit, uint256 profitLoss, address profitToken);
-
+    event Settled(address indexed trader, uint64 positionId, bool striked, uint256 strikePrice, uint256 marketPrice, bool isProfit, uint256 profitLoss, uint256 payout, uint256 interest, address payoutToken, address interestToken);
+    
     function setUp() public {
         vm.warp(1735689600);
         int256 a_buy = 0.0000000807142857142833 * 1e27;
@@ -219,15 +218,17 @@ contract DoppiCoreExtTest is Test {
         vm.prank(owner);
         // Expect Settled event for in-the-money position
         vm.expectEmit(true, true, true, true);
+
         emit Settled(
             user1,
             1, // positionId
             true, // striked
+            99500 * 1e8, // strike price
+            INITIAL_PRICE - 2000 * 1e8, // market price
             false, // isProfit (varies based on implementation)
             0, // profitLoss
             expectedPayout, // expected payout
             usdtInterestReceived, // interest
-            address(btc), // profitToken
             address(btc), // payoutToken
             address(usdt)  // interestToken
         );
@@ -260,11 +261,12 @@ contract DoppiCoreExtTest is Test {
             user1,
             1, // positionId
             true, // striked
+            100500 * 1e8, // strike price
+            INITIAL_PRICE + 2000 * 1e8, // market price
             false, // isProfit (varies based on implementation)
             0, // profitLoss
             expectedPayout, // expected payout
             btcInterestReceived, // interest
-            address(usdt), // profitToken
             address(usdt), // payoutToken
             address(btc)  // interestToken
         );
@@ -297,11 +299,12 @@ contract DoppiCoreExtTest is Test {
             user1,
             1, // positionId
             false, // striked
+            99500 * 1e8, // strike price
+            INITIAL_PRICE + 1 * 1e8, // market price
             false, // isProfit (varies based on implementation)
             0, // profitLoss
             0, // expected payout
             usdtInterestReceived, // interest
-            address(usdt), // profitToken
             address(usdt), // payoutToken
             address(usdt)  // interestToken
         );
@@ -334,11 +337,12 @@ contract DoppiCoreExtTest is Test {
             user1,
             1, // positionId
             false, // striked
+            100500 * 1e8, // strike price
+            INITIAL_PRICE, // market price
             false, // isProfit (varies based on implementation)
             0, // profitLoss
             0, // expected payout
             btcInterestReceived, // interest
-            address(btc), // profitToken
             address(btc), // payoutToken
             address(btc)  // interestToken
         );
@@ -348,7 +352,7 @@ contract DoppiCoreExtTest is Test {
         doppiCore.settleOrders(readyPositions, settleAccu);
     }
 
-    function test_SettleSellStrikedTraded_EmitsSettledEvent() public {
+    function test_SettleSellStrikedTraded_EmitsSettledEvent_NotEnoughOutAmountCase() public {
         
         DualAssetOffer memory sellOffer = _depositBTC();
         uint256 APR_BASIS_POINTS = 35700;
@@ -368,6 +372,9 @@ contract DoppiCoreExtTest is Test {
         doppiCore.performOpportunity(targetprices, targetPricesUnwind, totalAmount, totalAmountUnwind, false);
         vm.stopPrank();
 
+        OpportunityOrders memory opp = doppiCore.getOpportunityOrders(false, sellOffer.strikePrice);
+        console.log(opp.amount, opp.outAmount, opp.swappedAmount);
+        
         uint256 btcInterestReceived = APR_BASIS_POINTS * PRINCIPAL / BASIS_POINTS_DENOMINATOR / DAYS_IN_YEAR;
         uint256 expectedPayout = PRINCIPAL * sellOffer.strikePrice / 1e8;
 
@@ -382,11 +389,12 @@ contract DoppiCoreExtTest is Test {
             user1,
             1, // positionId
             true, // striked
-            true, // isProfit (varies based on implementation)
-            499200000000000000000, // profitLoss
+            100500 * 1e8, // strike price
+            101900 * 1e8, // market price
+            false, // isProfit (varies based on implementation)
+            0, // profitLoss
             expectedPayout, // expected payout
             btcInterestReceived, // interest
-            address(usdt), // profitToken
             address(usdt), // payoutToken
             address(btc)  // interestToken
         );
@@ -430,11 +438,12 @@ contract DoppiCoreExtTest is Test {
             user1,
             1, // positionId
             true, // striked
+            99500 * 1e8, // strike price
+            INITIAL_PRICE - 1000 * 1e8, // market price
             true, // isProfit (varies based on implementation)
-            7181314736950057, // profitLoss
+            2084375961439852, // profitLoss
             expectedPayout, // expected payout
             usdtInterestReceived, // interest
-            address(btc), // profitToken
             address(btc), // payoutToken
             address(usdt)  // interestToken
         );

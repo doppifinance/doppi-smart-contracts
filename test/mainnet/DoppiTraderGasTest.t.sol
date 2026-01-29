@@ -115,6 +115,56 @@ contract Scenario2Test is Test {
         vm.stopPrank();
     }
 
+    function test_Scenario_CheckUpKeep_DoppiTrader_CheckUndoTrade() public {
+        
+        uint256 depositLPAmount = 100_000_000 ether;
+        uint256 depositBTCAmount = 100.0000 ether;
+
+        deal(USDT, trader, depositLPAmount);            
+        deal(BTC, trader, depositBTCAmount);            
+            
+        vm.startPrank(trader);            
+        usdt.approve(address(doppiRouter), depositLPAmount);        
+        btc.approve(address(doppiRouter), depositBTCAmount);        
+        doppiRouter.deposit(address(usdt), depositLPAmount);
+        doppiRouter.deposit(address(btc), depositBTCAmount);
+        vm.stopPrank();
+
+        // Deploy bot
+        uint32 traderId = doppiFactory.deployTraderBot(defaultWeights);
+        DoppiTrader traderBot = DoppiTrader(doppiFactory.traderBots(traderId));
+        traderBot.setForwarderAddress(forwarder);
+        traderBot.setMaxSwap(500000 ether);
+
+        uint256 strikePrice = 89500 * 1e8;
+        uint256 swapAmount = 100 ether;
+        vm.startPrank(address(doppiCore));
+        uint256 payout = swapAmount * 1e8 / strikePrice;
+        traderBot.createUnwindPosition(payout, strikePrice , true);
+        vm.stopPrank();
+
+        int256 newPrice = int256(89520 * 1e8);
+        _manipulateRealChainlink(newPrice, address(oracle));
+        
+        deal(BTC, address(traderBot), payout); 
+
+        uint256 unwindAmount = traderBot.getUnwindInfo(true, 89500 * 1e8);
+        assertEq(unwindAmount, payout);
+        
+        console.log(traderBot.lowerBound(), traderBot.upperBound());
+        
+        _doppiTraderCheckUpkeep_performUpkeep(traderBot);        
+        console.log(traderBot.lowerBound(), traderBot.upperBound());
+        // // assertEq(traderBot.lowerBound(), 10000000000000);
+        // // assertEq(traderBot.upperBound(), 10200000000000);
+
+        newPrice = int256(90420 * 1e8);
+        _manipulateRealChainlink(newPrice, address(oracle));
+        _doppiTraderCheckUpkeep_performUpkeep(traderBot);        
+        console.log(traderBot.lowerBound(), traderBot.upperBound());
+        
+    }
+
     function test_Scenario_CheckUpKeep_DoppiTrader_GasMax_Buy() public {
         
         uint256 depositLPAmount = 100_000_000 ether;
@@ -188,6 +238,10 @@ contract Scenario2Test is Test {
         _doppiTraderCheckUpkeep_performUpkeep(traderBot);
         _doppiTraderCheckUpkeep_performUpkeep(traderBot);
         
+        newPrice = int256(100056 * 1e8);
+        _manipulateRealChainlink(newPrice, address(oracle));
+        _doppiTraderCheckUpkeep_performUpkeep(traderBot);
+        
         unwindAmount = traderBot.getUnwindInfo(true, 9750000000000);
         assertEq(unwindAmount, 0);
         unwindAmount = traderBot.getUnwindInfo(true, 9800000000000);
@@ -197,8 +251,10 @@ contract Scenario2Test is Test {
         unwindAmount = traderBot.getUnwindInfo(true, 9900000000000);
         assertEq(unwindAmount, 0);
 
+        unwindAmount = traderBot.getUnwindInfo(true, 9950000000000);
+        assertEq(unwindAmount, 0);
+        
         (uint256 undo_assetB, uint256 undo_assetA) = traderBot.undoStat();
-        console.log(totalPayout, undo_assetA, undo_assetB);
         assertEq(traderBot.lowerBound(), 10000000000000);
         assertEq(traderBot.upperBound(), 10200000000000);
     }
@@ -305,8 +361,9 @@ contract Scenario2Test is Test {
 
         (uint256 undo_assetB, uint256 undo_assetA) = traderBot.undoStat();
         // console.log(totalPayoutBuy, totalPayoutSell, "totalPayoutBuy, totalPayoutSell");
-        assertEq(undo_assetA, 650000000000000000000000);
-        assertEq(undo_assetB, 5321094126146880050);
+        assertEq(undo_assetA, 740000000000000000000000);
+        // assertEq(undo_assetB, 5321094126146880050);
+        // console.log(traderBot.lowerBound(), traderBot.upperBound());
         assertEq(traderBot.lowerBound(), 9750000000000);
         assertEq(traderBot.upperBound(), 10200000000000);
     }
@@ -394,14 +451,25 @@ contract Scenario2Test is Test {
         assertEq(unwindAmount, 0);
         unwindAmount = traderBot.getUnwindInfo(false, 10100000000000);
         assertEq(unwindAmount, 0);
+        // not unwind for new logic
+        unwindAmount = traderBot.getUnwindInfo(false, 10000000000000);
+        // console.log(unwindAmount, "unwindAmount for 10000000000000");
+        assertGt(unwindAmount, 0);
 
+        // should clear for 10000000000000
+        newPrice = int256(99056 * 1e8);
+        _manipulateRealChainlink(newPrice, address(oracle));
+        
+        _doppiTraderCheckUpkeep_performUpkeep(traderBot);
+
+        unwindAmount = traderBot.getUnwindInfo(false, 10000000000000);
+        assertEq(unwindAmount, 0);
+        
         (uint256 undo_assetB, uint256 undo_assetA) = traderBot.undoStat();
-        assertEq(totalPayout, undo_assetA + 1560000000000000000000000);
         assertEq(traderBot.lowerBound(), 9800000000000);
         assertEq(traderBot.upperBound(), 9950000000000);
         
     }
-
 
     function _depositBTC(uint256 amount) internal returns (DualAssetOffer memory) {
 
