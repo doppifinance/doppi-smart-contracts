@@ -115,8 +115,8 @@ contract DoppiLiquidity is ERC20, Ownable, Pausable, IDoppiLiquidity, Automation
         uint256 assetBInAValue = assetB.balanceOf(address(this)) * price / config.decimals;
         uint256 assetAvalue = assetA.balanceOf(address(this));
         uint256 total = assetBInAValue + assetAvalue;
-        ratioA = total > 0 ? assetAvalue * 1e18 / total : 0;
-        ratioB = total > 0 ? 1e18 - ratioA : 0;
+        ratioA = total > 0 ? assetAvalue * 1e27 / total : 0;
+        ratioB = total > 0 ? 1e27 - ratioA : 0;
     }
 
     function totalAssetsInAssetA() public view override returns (uint256) {
@@ -179,6 +179,7 @@ contract DoppiLiquidity is ERC20, Ownable, Pausable, IDoppiLiquidity, Automation
         config.maxDelay = _config.maxDelay;
         config.maxSwap = _config.maxSwap;
         config.priceGap = _config.priceGap;
+        _updateBound();
     }
 
     function setDoppiTraderFactory(address _traderFactory) external onlyOwner {
@@ -245,7 +246,6 @@ contract DoppiLiquidity is ERC20, Ownable, Pausable, IDoppiLiquidity, Automation
             abi.decode(performData, (bool, uint256[], uint256[], uint256, uint256, uint256));
         
         uint256 bal = isNetBuy ? assetA.balanceOf(address(this)) : assetB.balanceOf(address(this));
-          
         if(bal >= totalAmount && totalAmount > 0){
             uint256 totalAmountOut;
             uint256 currentPrice = DALiquidityLib.getPriceWithFallback(config.chainLinkFeed, config.v3Pool, config.twapDuration, config.maxDelay);
@@ -262,13 +262,20 @@ contract DoppiLiquidity is ERC20, Ownable, Pausable, IDoppiLiquidity, Automation
         _updateBound();
     }
 
+    function cleanUpUnwind(uint256 toClearAmountBuy, uint256 toClearAmountSell) external {
+        _getRemovingPrices(toClearAmountBuy, toClearAmountSell);
+        _updateBound();
+    }
+        
+
     function getUnwindInfo(bool isBuy, uint256 strikePrice) external view returns (uint256) {
         return isBuy ? amountToBuy[strikePrice] : amountToSell[strikePrice];
     }
 
     function _updateBound() internal {
         uint256 gap = config.priceGap * config.decimals;
-
+        uint256 price = DALiquidityLib.getPriceWithFallback(config.chainLinkFeed, config.v3Pool, config.twapDuration, config.maxDelay);
+                
         // ------------------ UPDATE LOWER BOUND ------------------
         uint256 i = lowerBound;
         while (true) {
@@ -282,8 +289,7 @@ contract DoppiLiquidity is ERC20, Ownable, Pausable, IDoppiLiquidity, Automation
 
             // no valid strike left
             if (i > upperBound) {
-                lowerBound = 0;
-                upperBound = 0;
+                _resetBound(price);
                 return;
             }
         }
@@ -300,8 +306,7 @@ contract DoppiLiquidity is ERC20, Ownable, Pausable, IDoppiLiquidity, Automation
             i -= gap;
 
             if (i < lowerBound) {
-                lowerBound = 0;
-                upperBound = 0;
+                _resetBound(price);
                 return;
             }
         }
@@ -342,6 +347,38 @@ contract DoppiLiquidity is ERC20, Ownable, Pausable, IDoppiLiquidity, Automation
             }
             unchecked { --i; }
         }
+    }
+
+    function _getRemovingPrices(
+        uint256 removeAmountBuy,
+        uint256 removeAmountSell
+    ) internal {
+
+        uint256 priceGap = config.priceGap * config.decimals;
+        console.log(upperBound, lowerBound, "upperBound, lowerBound");
+        for (uint256 price = upperBound; price >= lowerBound; ) {
+            uint256 amountBuy = amountToBuy[price];
+            if(removeAmountBuy > amountBuy){
+                delete amountToBuy[price];
+                removeAmountBuy -=  amountBuy;
+            }else{
+                amountToBuy[price] = amountBuy - removeAmountBuy;
+                removeAmountBuy = 0;
+            }
+            unchecked { price -= priceGap; }
+        }   
+
+        for (uint256 price = lowerBound; price <= upperBound; ) {
+            uint256 amountSell = amountToSell[price];
+            if(removeAmountSell > amountSell){
+                delete amountToSell[price];
+                removeAmountSell -=  amountSell;
+            }else{
+                amountToSell[price] = amountSell - removeAmountSell;
+                removeAmountSell = 0;
+            } 
+            unchecked { price += priceGap; }
+        }        
     }
 
     function _getAccumulatedPrices(
@@ -502,10 +539,8 @@ contract DoppiLiquidity is ERC20, Ownable, Pausable, IDoppiLiquidity, Automation
 
     function _getLoopRound(uint256 _price, bool _isBuy) internal view returns (uint256 round) {
 
-        // if(lowerBound == 0 && upperBound == 0) return 1;
         uint256 firstPrice = _getUnwindTargetPrice(_price, 1, !_isBuy);
         uint256 priceGapWithDecimals = config.priceGap * config.decimals;
-        
         uint256 diff;
         if(_isBuy){
             diff = upperBound > firstPrice ? upperBound - firstPrice : 0;

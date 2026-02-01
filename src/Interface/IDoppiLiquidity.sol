@@ -18,6 +18,7 @@ interface IDoppiLiquidity is IShares {
     function totalAssetsInAssetA() external view returns (uint256);
     function totalAssetsInAssetB() external view returns (uint256);
     function getMaxDepositAmount(bool isBuy) external view returns (uint256);
+    function cleanUpUnwind(uint256 toClearAmountBuy, uint256 toClearAmountSell) external;
     function interestGet(
         address _interestToken,
         uint256 interest,

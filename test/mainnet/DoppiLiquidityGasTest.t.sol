@@ -380,8 +380,8 @@ contract Scenario2Test is Test {
         unwindAmount = doppiLP.getUnwindInfo(false, 10250000000000);
         assertEq(unwindAmount, 0);
         
-        assertEq(doppiLP.lowerBound(), 0);
-        assertEq(doppiLP.upperBound(), 0);        
+        assertEq(doppiLP.lowerBound(), 103000 * 1e8);
+        assertEq(doppiLP.upperBound(), 103500 * 1e8);        
     }
 
     function test_Scenario_CheckUpKeep_DoppiLiquidity_GasMax_Sell() public {
@@ -456,6 +456,126 @@ contract Scenario2Test is Test {
         
     }
 
+    function test_Scenario_DoppiLiquidity_RemoveUnwind() public {
+        
+        uint256 depositLPAmount = 2_000_000 ether;
+        uint256 depositBTCAmount = 16.0000 ether;
+
+        deal(USDT, trader, depositLPAmount);            
+        deal(BTC, trader, depositBTCAmount);            
+            
+        vm.startPrank(trader);            
+        usdt.approve(address(doppiRouter), depositLPAmount);        
+        btc.approve(address(doppiRouter), depositBTCAmount);        
+        doppiRouter.deposit(address(usdt), depositLPAmount);
+        doppiRouter.deposit(address(btc), depositBTCAmount);
+        vm.stopPrank();
+
+        uint256 totalSwaps = 500;
+        uint256 priceChanges = 50; // Change price 50 times during test
+        uint256 swapsPerPrice = totalSwaps / priceChanges;
+        uint256 totalUSDT = 0;
+        uint256 totalBTC = 0;
+        
+        uint256 currentPrice = (100_000 * 10**8) * (10100 / 10000);
+        for (uint256 priceChange = 0; priceChange < priceChanges; priceChange++) {
+            
+            int256 startPrice = int256(currentPrice);
+            _manipulateRealChainlink(startPrice, address(oracle));            
+            // Perform swaps at this price
+            for (uint256 swapNum = 0; swapNum < swapsPerPrice; swapNum++) {
+                bool isBuy = swapNum % 2 == 0;
+                uint256 swapAmount = _generateRandomAmount(swapNum);
+                uint256 amountinBTC = swapAmount * 1e8 / uint256(startPrice);
+                if(!isBuy){
+                    vm.startPrank(address(doppiCore));
+                    deal(BTC, address(doppiCore), amountinBTC);  
+                    totalBTC += amountinBTC;
+                    doppiLP.settle(amountinBTC, swapAmount, uint256(startPrice), false);
+                    vm.stopPrank();
+                }else{
+                    vm.startPrank(address(doppiCore));
+                    deal(USDT, address(doppiCore), swapAmount);  
+                    totalUSDT += swapAmount;
+                    doppiLP.settle(swapAmount, amountinBTC, uint256(startPrice), true);
+                    vm.stopPrank(); 
+                }
+            }
+
+            // Generate random price between 100000 and 120000 
+            if(priceChange > 10 && priceChange <= 15){
+                currentPrice = currentPrice * 9950 / 10000;
+            }else if(priceChange > 15 && priceChange <= 20){
+                currentPrice = currentPrice * 10050 / 10000;
+            }else if(priceChange > 20 && priceChange <= 25){
+                currentPrice = currentPrice * 9910 / 10000;
+            }else{
+                currentPrice = currentPrice * 10010 / 10000;
+            }
+        }
+
+        console.log(totalUSDT, totalBTC, "totalUSDT, totalBTC");
+        int256 newPrice = int256(96556 * 1e8);
+        _manipulateRealChainlink(newPrice, address(oracle));
+        
+        _getDoppiLPUnwindData();
+
+        uint256 unwindAmount = doppiLP.getUnwindInfo(true, 10200000000000);
+        assertEq(unwindAmount, 75000000000000000000000);
+        unwindAmount = doppiLP.getUnwindInfo(true, 10150000000000);
+        assertEq(unwindAmount, 175000000000000000000000);
+
+        unwindAmount = doppiLP.getUnwindInfo(false, 10200000000000);
+        assertEq(unwindAmount, 2065341308902808235);
+        unwindAmount = doppiLP.getUnwindInfo(false, 10150000000000);
+        assertEq(unwindAmount, 2372177200776137987);
+
+        vm.startPrank(trader);            
+        uint256 bal = doppiLP.balanceOf(trader);
+        doppiLP.approve(address(doppiRouter), bal);        
+        doppiRouter.redeem(bal/2);
+        vm.stopPrank();
+
+        _getDoppiLPUnwindData();
+
+        console.log(doppiLP.lowerBound(), doppiLP.upperBound());
+
+        vm.startPrank(trader);            
+        bal = doppiLP.balanceOf(trader);
+        doppiLP.approve(address(doppiRouter), bal);        
+        doppiRouter.redeem(bal);
+        vm.stopPrank();
+
+        _getDoppiLPUnwindData();
+
+        unwindAmount = doppiLP.getUnwindInfo(true, 10200000000000);
+        assertEq(unwindAmount, 0);
+        unwindAmount = doppiLP.getUnwindInfo(true, 10150000000000);
+        assertEq(unwindAmount, 0);
+
+        unwindAmount = doppiLP.getUnwindInfo(false, 10200000000000);
+        assertEq(unwindAmount, 0);
+        unwindAmount = doppiLP.getUnwindInfo(false, 10150000000000);
+        assertEq(unwindAmount, 0);
+
+        // console.log(doppiLP.lowerBound(), doppiLP.upperBound());
+        assertEq(doppiLP.lowerBound(), 9650000000000);
+        assertEq(doppiLP.upperBound(), 9700000000000);        
+    }
+
+    function _getDoppiLPUnwindData() internal view {
+
+        console.log("start DoppiLPUnwindData");
+        uint256 lowerBound = 97000 * 1e8;
+        uint256 upperBound = 103000 * 1e8;
+        for (uint256 price = upperBound; price > lowerBound; ) {
+            uint256 amountBuy = doppiLP.amountToBuy(price);
+            uint256 amountSell = doppiLP.amountToSell(price);
+            console.log(price, amountBuy, amountSell);
+            price -= (500 * 1e8); 
+        }
+        
+    }
     
     function _depositBTC(uint256 amount) internal returns (DualAssetOffer memory) {
 
@@ -616,12 +736,22 @@ contract Scenario2Test is Test {
         assertLt(gasUsed, 200_000, "Gas usage too high");
 
         if(upkeepNeeded){
+            uint256 balbeforeUSDT = usdt.balanceOf(address(doppiLP));
+            uint256 balbeforeBTC = btc.balanceOf(address(doppiLP));
+            console.log(balbeforeUSDT, balbeforeBTC, "balbeforeUSDT, balbeforeBTC before");
             vm.prank(forwarder);
             gasBefore = gasleft();
             doppiLP.performUpkeep(performData);
+            vm.stopPrank();
             gasUsed = gasBefore - gasleft();
             console.log(gasUsed, "gasUsed in doppiLP.performUpkeep");
             assertLt(gasUsed, 1_000_000, "Gas usage too high");
+
+            balbeforeUSDT = usdt.balanceOf(address(doppiLP));
+            balbeforeBTC = btc.balanceOf(address(doppiLP));
+            console.log(balbeforeUSDT, balbeforeBTC, "balbeforeUSDT, balbeforeBTC after");
+            
+            
         }
     }
 

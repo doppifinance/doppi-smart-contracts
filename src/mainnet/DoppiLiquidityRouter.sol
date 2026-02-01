@@ -147,6 +147,7 @@ contract DoppiLiquidityRouter is Ownable, Pausable, ReentrancyGuard {
         uint256 secondHalf = _shares - firstHalf;        
         assetsA = entryPointA.redeem(firstHalf, msg.sender, address(this));
         assetsB = entryPointB.redeem(secondHalf, msg.sender, address(this));
+        doppiLP.cleanUpUnwind(assetsA, assetsB);
     }
 }
 
