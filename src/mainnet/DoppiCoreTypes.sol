@@ -45,7 +45,7 @@ struct DepositParams {
     uint256 amount;
     uint8 strikeZone;
     uint256 strikePrice;
-    uint32 numDays;
+    uint8 numDays;
     uint32 apr;
     uint32 expiry; 
 }

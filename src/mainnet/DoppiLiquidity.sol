@@ -355,7 +355,6 @@ contract DoppiLiquidity is ERC20, Ownable, Pausable, IDoppiLiquidity, Automation
     ) internal {
 
         uint256 priceGap = config.priceGap * config.decimals;
-        console.log(upperBound, lowerBound, "upperBound, lowerBound");
         for (uint256 price = upperBound; price >= lowerBound; ) {
             uint256 amountBuy = amountToBuy[price];
             if(removeAmountBuy > amountBuy){

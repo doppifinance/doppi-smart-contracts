@@ -26,7 +26,7 @@ abstract contract DoppiTraderAdminView is Ownable {
 
     address public validTrader;
     address public s_forwarderAddress;
-    uint16 public traderDefaultDay;
+    uint8 public traderDefaultDay;
     uint24 public maxOrder;
     uint32 public ratioLP;
     uint256 public upperBound;
@@ -75,8 +75,19 @@ abstract contract DoppiTraderAdminView is Ownable {
         return validTrader;
     }
 
-    function setDefaultDay(uint16 _day) external onlyOwner {
-        traderDefaultDay = _day;
+    function setDefaultDay(uint8 _day) external onlyOwner {
+
+        bool valid;
+        uint8[] memory supportDays = doppiCore.getSupportDays();
+        for (uint8 x = 0; x < supportDays.length; ) {
+            if(supportDays[x] == _day){
+                valid = true;
+                break;
+            }
+        }
+        if(valid){
+            traderDefaultDay = _day;
+        }
     }
 
     function setMaxOrder(uint24 _maxOrder) external onlyTrader {
@@ -87,7 +98,7 @@ abstract contract DoppiTraderAdminView is Ownable {
         maxSwap = _maxSwap;
     }
 
-    function setForwarderAddress(address forwarderAddress) external onlyTrader {
+    function setForwarderAddress(address forwarderAddress) external onlyUpkeepOrTrader {
         s_forwarderAddress = forwarderAddress;
     }
 
@@ -195,6 +206,12 @@ abstract contract DoppiTraderAdminView is Ownable {
 
     modifier onlyTrader() {
         require(msg.sender == validTrader, "invalid trader");
+        _;
+    }
+
+    modifier onlyUpkeepOrTrader() {
+        require(
+            msg.sender == address(doppiUpkeepManager) || msg.sender == validTrader, "invalid trader or doppiUpkeepManager");
         _;
     }
 

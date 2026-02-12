@@ -28,7 +28,7 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
     uint256 public upperBound;
     uint256 public lowerBound;
     
-    event Deposited(address indexed trader, uint64 positionId, address asset, uint256 amount, uint256 interest, uint256 strikePrice, uint32 apr, uint32 numDays);
+    event Deposited(address indexed trader, uint64 positionId, address asset, uint256 amount, uint256 interest, uint256 strikePrice, uint32 apr, uint8 numDays);
     event Settled(address indexed trader, uint64 positionId, bool striked, uint256 strikePrice, uint256 marketPrice, bool isProfit, uint256 profitLoss, uint256 payout, uint256 interest, address payoutToken, address interestToken);
     event EmergencyWithdraw(bool isBuy, address indexed trader, uint64 positionId, uint256 amount);
     event OppPerformed(bool isBuy, uint256 price, uint256 amount, uint256 amountOut);
@@ -289,7 +289,7 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
 
     function _depositBuy(DepositParams calldata params, DualAssetOffer memory _buyOffer) internal {
         uint256 amount = params.amount;
-        uint32 numDays = params.numDays;
+        uint8 numDays = params.numDays;
         address sender = msg.sender;
 
         assetA.safeTransferFrom(sender, address(this), amount);
@@ -325,7 +325,7 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
     function _depositSell(DepositParams calldata params, DualAssetOffer memory _sellOffer) internal {
         
         uint256 amount = params.amount;
-        uint32 numDays = params.numDays;
+        uint8 numDays = params.numDays;
         address sender = msg.sender;
 
         assetB.safeTransferFrom(sender, address(this), params.amount);

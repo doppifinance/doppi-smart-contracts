@@ -149,7 +149,7 @@ contract DoppiOffer is IDoppiOffer, Ownable {
         buyapr = SafeCast.toUint32((data.putPrice - hedgeCost) * 10000 * SECONDS_PER_YEAR / timeToExpiry / _spot);
     }
 
-    function getSingleOffer(bool _isBuy, uint32 _numDays, uint8 _strikeZone, uint256 _price)
+    function getSingleOffer(bool _isBuy, uint8 _numDays, uint8 _strikeZone, uint256 _price)
         external
         view
         returns (DualAssetOffer memory offer)
@@ -157,7 +157,7 @@ contract DoppiOffer is IDoppiOffer, Ownable {
         return _getOffer(_isBuy, _numDays, _strikeZone, _price);
     }
 
-    function getOffer(bool _isBuy, uint32 _numDays, uint8 _strikeZone)
+    function getOffer(bool _isBuy, uint8 _numDays, uint8 _strikeZone)
         external
         view
         returns (DualAssetOffer memory offer)
@@ -166,7 +166,7 @@ contract DoppiOffer is IDoppiOffer, Ownable {
         return _getOffer(_isBuy, _numDays, _strikeZone, price);
     }
 
-    function getBuyOffers(uint32 _numDays) 
+    function getBuyOffers(uint8 _numDays) 
         external 
         view 
         returns (DualAssetOffer[] memory buyoffers) 
@@ -180,7 +180,7 @@ contract DoppiOffer is IDoppiOffer, Ownable {
         return buyoffers;
     }
 
-    function getSellOffers(uint32 _numDays) 
+    function getSellOffers(uint8 _numDays) 
         external 
         view 
         returns (DualAssetOffer[] memory selloffers) 
@@ -194,7 +194,7 @@ contract DoppiOffer is IDoppiOffer, Ownable {
         return selloffers;
     }
 
-    function getAllOffers(uint32 _numDays)
+    function getAllOffers(uint8 _numDays)
         external
         view
         returns (DualAssetOffer[] memory buyoffers, DualAssetOffer[] memory selloffers)
@@ -229,7 +229,7 @@ contract DoppiOffer is IDoppiOffer, Ownable {
         admins[_admin] = _status;
     }
 
-    function _getOffer(bool _isBuy, uint32 _numDays, uint8 _strikeZone, uint256 _price)
+    function _getOffer(bool _isBuy, uint8 _numDays, uint8 _strikeZone, uint256 _price)
         internal view returns (DualAssetOffer memory offer)
     {
         uint256 duration = SECONDS_PER_DAY * _numDays;

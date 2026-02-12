@@ -14,7 +14,7 @@ import {DALiquidityLib} from "../Library/DALiquidityLib.sol";
 import {AggregatorV3Interface} from "../Interface/AggregatorV3Interface.sol";
 import {AutomationCompatibleInterface} from "../Interface/AutomationCompatibleInterface.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
-// import "forge-std/console.sol";
+import "forge-std/console.sol";
 
 contract DoppiUpkeepManager is Ownable, AutomationCompatibleInterface {
     using SafeERC20 for IERC20;
@@ -63,7 +63,9 @@ contract DoppiUpkeepManager is Ownable, AutomationCompatibleInterface {
     IPegSwap public immutable pegSwap;
     uint8 public constant TRIGGER_CONDITION = 0; // CONDITION trigger
     uint32 public maxDelay = 10 minutes; 
-
+    uint32 public registedBotId = 0; 
+    uint32 public forwardUpdatedBotId = 0; 
+    
     uint256 public currentUpkeepIndex;
     uint16 public UPKEEPS_PER_CHECK = 20; // Process 20 upkeeps per check
     uint32 public DEFAULT_GASLIMIT = 5_000_000;
@@ -72,22 +74,17 @@ contract DoppiUpkeepManager is Ownable, AutomationCompatibleInterface {
     uint24 public doppiBotFee = 2000; // 20% of chainlink fee
     uint256 public MINSPENT = 0.1 ether; // in link token
     uint256 public priceDecimals; 
-    bytes public multihopPath;
+    bytes public multihopPathFrom;
+    bytes public multihopPathTo;
     address public treasury;
     address public s_forwarderAddress;
         
     // Events
     event UpkeepRegistered(uint256 indexed upkeepId, address targetContract, uint256 fundTokenAmount, uint256 linkAmount);
-    
     event UpkeepFunded(uint256 indexed upkeepId, uint256 fundTokenAmount, uint256 linkAmount, uint256 fee);
-    
-    event UpkeepCanceled(
-        uint256 indexed upkeepId
-    );
-    
-    event UpkeepPerformed(
-        uint256 indexed upkeepId
-    );
+    event UpkeepCanceled(uint256 indexed upkeepId);
+    event UpkeepPaused(uint256 indexed upkeepId);
+    event UpkeepPerformed(uint256 indexed upkeepId);
     
     modifier onlyTrader(uint256 _upkeepId) {
         require(doppiUpkeeps[doppiUpKeepsId[_upkeepId]].trader == msg.sender, "only trader");
@@ -128,16 +125,24 @@ contract DoppiUpkeepManager is Ownable, AutomationCompatibleInterface {
         linkToken = LinkTokenInterface(_linkToken);
         link = IERC20(_link); 
         
-        multihopPath = abi.encodePacked(
-            fundToken, // USDT
+        multihopPathFrom = abi.encodePacked(
+            address(fundToken), // USDT
             uint24(100),                                       // fee
             address(0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c), // WBNB
             uint24(2500),                                       // fee
             address(link) // LINK
         );
 
+        multihopPathTo = abi.encodePacked(
+            address(link), // LINK
+            uint24(2500),     
+            address(0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c), // WBNB
+            uint24(100),                                       // fee
+            address(fundToken) // USDT                                  // fee
+        );
         IERC20(fundToken).approve(router, type(uint256).max);
         IERC20(link).approve(address(pegSwap), type(uint256).max);
+        linkToken.approve(address(pegSwap), type(uint256).max);
     }
     
     function setMaxDelay(uint32 _maxDelay) external onlyOwner {
@@ -168,8 +173,12 @@ contract DoppiUpkeepManager is Ownable, AutomationCompatibleInterface {
         treasury = _treasury;
     }
 
-    function setSwapPath(bytes calldata _multihopPath) external onlyOwner {
-        multihopPath = _multihopPath;
+    function setSwapPathFrom(bytes calldata _multihopPath) external onlyOwner {
+        multihopPathFrom = _multihopPath;
+    }
+
+    function setSwapPathTo(bytes calldata _multihopPath) external onlyOwner {
+        multihopPathTo = _multihopPath;
     }
 
     function setDefault_GasLimit(uint32 _gasLimit) external onlyOwner {
@@ -188,19 +197,8 @@ contract DoppiUpkeepManager is Ownable, AutomationCompatibleInterface {
         
         require(doppiUpkeeps[_traderbot].upkeepId == 0, "already exists");
         require(fundToken.transferFrom(msg.sender, address(this), DEFAULT_AMOUNT), "fundToken transfer failed");
-        uint256 linkAmount = _swapToLinkERC677(DEFAULT_AMOUNT);
-        // call registerUpkeep
-        upKeepId = _registerUpkeep(_traderbot, uint96(linkAmount));
-        
-        doppiUpkeepPayment[upKeepId].lastBlockCharged = block.number;
-        doppiUpkeepPayment[upKeepId].lastPaidAmount = 0;
-        doppiUpkeepPayment[upKeepId].trader = msg.sender;
-
         traderToBot[msg.sender].push(_traderbot);
-        
-        emit UpkeepRegistered(upKeepId, _traderbot, DEFAULT_AMOUNT, linkAmount);
-    
-        return upKeepId;
+        return _setupAutomation(_traderbot);
     }
 
     function stopWithdraw(uint256 _upkeepId) external onlyTrader(_upkeepId) validUpkeepId(_upkeepId) {
@@ -218,17 +216,22 @@ contract DoppiUpkeepManager is Ownable, AutomationCompatibleInterface {
         // reset 
         address targetContract = doppiUpKeepsId[_upkeepId];
         doppiUpkeeps[targetContract].upkeepId = 0;
-        doppiUpkeeps[targetContract].targetContract = address(0);
+        // doppiUpkeeps[targetContract].targetContract = address(0);
         doppiUpkeeps[targetContract].isRegistered = false;
-        doppiUpkeeps[targetContract].trader = address(0);
+        // doppiUpkeeps[targetContract].trader = address(0);
         doppiUpkeepPayment[_upkeepId].lastBlockCharged = block.number;
         doppiUpkeepPayment[_upkeepId].lastPaidAmount = 0;
         doppiUpkeepPayment[_upkeepId].trader = address(0);
         
         if(finalBal >= fee) linkToken.transfer(treasury, fee);
-        if(refund > 0) linkToken.transfer(trader, refund);
+        console.log(refund, "refund");
+        if(refund > 0) {
+            uint256 fundTokenOut = _swapERC677ToFundToken(refund);
+            console.log(fundTokenOut, "fundTokenOut");
+            linkToken.transfer(trader, fundTokenOut);
+        }
     }
-    
+
     // trader top up using USDT manually
     function fundUpkeep(uint256 _upkeepId, uint96 _amount) external onlyTrader(_upkeepId) validUpkeepId(_upkeepId) {
         
@@ -245,6 +248,11 @@ contract DoppiUpkeepManager is Ownable, AutomationCompatibleInterface {
         
         registryConsumer.cancelUpkeep(_upkeepId);
         emit UpkeepCanceled(_upkeepId);
+    }
+
+    function pauseUpkeep(uint256 _upkeepId) external onlyTrader(_upkeepId) validUpkeepId(_upkeepId) {
+        registryConsumer.pauseUpkeep(_upkeepId);
+        emit UpkeepPaused(_upkeepId);
     }
     
     function getUpkeep(uint256 _upkeepId) external view returns (
@@ -288,13 +296,39 @@ contract DoppiUpkeepManager is Ownable, AutomationCompatibleInterface {
         return _getUnPaidDoppiFee(_upkeepId);
     }
 
+    function getDefault_Amount() external view returns (uint256) {
+        return DEFAULT_AMOUNT;
+    }
     
     function withdrawLINK(uint96 _amount) external onlyOwner {
         require(linkToken.transfer(msg.sender, _amount), "LINK transfer failed");
     }
 
+    function insertNewBot(address trader, address bot) external {
+
+        require(doppiTraderFactory.isTraderBot(msg.sender), "only traderbot can call");
+        traderToBot[trader].push(bot);
+        doppiUpkeeps[bot] = DoppiUpkeepInfo({
+            upkeepId: 0,
+            targetContract: bot,
+            isRegistered: false,
+            trader: trader
+        });
+    }
+
     function checkUpkeep(bytes calldata) external view override returns (bool upkeepNeeded, bytes memory performData) {
         
+        // check if there is new unregistered bot
+        uint32 nextBotId = doppiTraderFactory.getNextBotId();
+        if(nextBotId > registedBotId + 1){
+            return (true, abi.encode(true, registedBotId + 1, false, 0, new CheckUpKeepStorage[](0), 0));
+        }
+
+        if(registedBotId > forwardUpdatedBotId){
+            return (true, abi.encode(false, 0, true, forwardUpdatedBotId + 1, new CheckUpKeepStorage[](0), 0));
+        }
+
+        // check payment for existing bot upkeep
         DoppiUpkeepInfo[] memory all = this.getAllUpkeeps();
         uint256 totalUpkeeps = all.length;
         if (totalUpkeeps == 0) {
@@ -319,6 +353,9 @@ contract DoppiUpkeepManager is Ownable, AutomationCompatibleInterface {
             DoppiUpkeepPayment memory p = doppiUpkeepPayment[upkeepId];
             uint96 amountSpent = result.amountSpent;
             uint96 amountLastSpent = amountSpent - p.lastPaidAmount;
+            
+            // console.log(p.lastBlockCharged, block.number, amountSpent, amountLastSpent);
+
             if(p.lastBlockCharged < block.number && amountLastSpent >= MINSPENT){
                 uint256 allowance = fundToken.allowance(p.trader, address(this));
                 uint96 minBalance = registryConsumer.getMinBalance(upkeepId);
@@ -327,8 +364,9 @@ contract DoppiUpkeepManager is Ownable, AutomationCompatibleInterface {
                 uint256 price = DALiquidityLib.getPrice(chainLinkFeed, maxDelay);
                 uint256 feeInfundToken = (fee * price) / priceDecimals;
                 bool needTopUp = result.balance < topUpBorder;
+                // console.log(allowance, result.balance, topUpBorder, "result.balance, topUpBorder");
                 if((needTopUp && allowance >= DEFAULT_AMOUNT) || (!needTopUp && allowance >= feeInfundToken)){
-                    checkUpKeeps[count].topUp = result.balance < topUpBorder;
+                    checkUpKeeps[count].topUp = needTopUp;
                     checkUpKeeps[count].tobepaid = amountLastSpent;
                     checkUpKeeps[count].upkeepId = upkeepId;
                     checkUpKeeps[count].fee = fee;
@@ -344,7 +382,8 @@ contract DoppiUpkeepManager is Ownable, AutomationCompatibleInterface {
         if (nextIndex >= totalUpkeeps) {
             nextIndex = 0;
         }
-
+        // console.log(nextIndex, checkUpKeeps.length, "checkUpKeeps.length");
+        
         if (count > 0) {
             CheckUpKeepStorage[] memory checkUpKeepsTrimmed = new CheckUpKeepStorage[](count);
             for (uint256 i = 0; i < count;) {
@@ -352,15 +391,30 @@ contract DoppiUpkeepManager is Ownable, AutomationCompatibleInterface {
                 unchecked { ++i; }
             }
             // Include the next index in the performData for state update
-            return (true, abi.encode(checkUpKeepsTrimmed, nextIndex));
+            return (true, abi.encode(false, 0, false, 0, checkUpKeepsTrimmed, nextIndex));
         }
         return (false, bytes(""));
     }
 
     function performUpkeep(bytes calldata performData) external onlyForwarder override {
         
-        (CheckUpKeepStorage[] memory checkUpKeeps, uint256 nextIndex) = abi.decode(performData, (CheckUpKeepStorage[], uint256));
+        (
+            bool registerNewBot, uint32 botId, 
+            bool updateForwarder, uint32 botIdforward,
+            CheckUpKeepStorage[] memory checkUpKeeps, uint256 nextIndex
+        ) = abi.decode(performData, (bool, uint32, bool, uint32, CheckUpKeepStorage[], uint256));
+        
+        // console.log(registerNewBot, updateForwarder, nextIndex, "registerNewBot, updateForwarder");
 
+        if(registerNewBot){
+            _performRegistration(botId);
+            return;
+        }
+        if(updateForwarder){
+            _performForwarderUpdate(botIdforward);
+            return;
+        }
+        
         // Update the current index for the next check
         currentUpkeepIndex = nextIndex;
 
@@ -370,14 +424,16 @@ contract DoppiUpkeepManager is Ownable, AutomationCompatibleInterface {
             DoppiUpkeepPayment storage p = doppiUpkeepPayment[upkeepId];
             p.lastPaidAmount = checkUpKeeps[i].amountSpent;
             p.lastBlockCharged = block.number;
-
+            // console.log(checkUpKeeps[i].topUp, "checkUpKeeps[i].topUp");
+            // console.log(checkUpKeeps[i].amountSpent, checkUpKeeps[i].tobepaid, checkUpKeeps[i].feeInfundToken);
             if(checkUpKeeps[i].topUp){
                 fundToken.transferFrom(p.trader, address(this), DEFAULT_AMOUNT);
                 uint256 linkOut = _swapToLinkERC677(DEFAULT_AMOUNT);
+                // console.log(linkOut, checkUpKeeps[i].fee, "linkOut, checkUpKeeps[i].fee");
                 _fundUpkeep(upkeepId, uint96(linkOut - checkUpKeeps[i].fee));
                 linkToken.transfer(treasury, checkUpKeeps[i].fee);
             }else{
-                // convert link to fundToken
+                // no need top up but to pay fee with fund token
                 fundToken.transferFrom(p.trader, treasury, checkUpKeeps[i].feeInfundToken);
             }
             emit UpkeepPerformed(upkeepId);
@@ -387,6 +443,37 @@ contract DoppiUpkeepManager is Ownable, AutomationCompatibleInterface {
     }
  
     // internal functions
+    function _performRegistration(uint32 botId) internal {
+        address bot = doppiTraderFactory.traderBots(botId);
+        if(!doppiUpkeeps[bot].isRegistered){
+            _setupAutomation(bot);
+            registedBotId = botId;
+        }
+    }
+
+    function _performForwarderUpdate(uint32 botId) internal {
+        address bot = doppiTraderFactory.traderBots(botId);
+        address forwarder = registryConsumer.getForwarder(doppiUpkeeps[bot].upkeepId);
+        IDoppiTrader(bot).setForwarderAddress(forwarder);
+        forwardUpdatedBotId = botId;
+    }
+
+    function _setupAutomation(address _traderbot) internal returns (uint256 upKeepId) {
+        
+        DoppiUpkeepInfo storage info = doppiUpkeeps[_traderbot];
+        require(!info.isRegistered, "already register");
+        
+        uint256 linkAmount = _swapToLinkERC677(DEFAULT_AMOUNT);
+        upKeepId = _registerUpkeep(info, uint96(linkAmount));
+        
+        doppiUpkeepPayment[upKeepId].lastBlockCharged = block.number;
+        doppiUpkeepPayment[upKeepId].lastPaidAmount = 0;
+        doppiUpkeepPayment[upKeepId].trader = info.trader;
+
+        emit UpkeepRegistered(upKeepId, _traderbot, DEFAULT_AMOUNT, linkAmount);
+        return upKeepId;
+    }
+
     function _getUnPaidDoppiFee(uint256 _upkeepId) internal view returns (uint96 fee, address trader) {
         
         IAutomationRegistryConsumer.UpkeepInfo memory result = this.getUpkeep(_upkeepId);
@@ -408,12 +495,22 @@ contract DoppiUpkeepManager is Ownable, AutomationCompatibleInterface {
         uint256 price = DALiquidityLib.getPrice(chainLinkFeed, maxDelay);
         uint256 amountOut = (_amount * priceDecimals) / price;
         // bridge link to erc677 link
-        linkOut = _swapExactInputV3(_amount, address(this), amountOut);
+        linkOut = _swapExactInputV3(_amount, address(this), amountOut, true);
         pegSwap.swap(linkOut, address(link), address(linkToken));
     }
 
+    function _swapERC677ToFundToken(uint256 linkIn) internal returns (uint256 fundTokenOut) {
+        // bridge erc677 link to link
+        pegSwap.swap(linkIn, address(linkToken), address(link));
+        console.log(linkIn, "linkIn from pegSwap");
+        uint256 price = DALiquidityLib.getPrice(chainLinkFeed, maxDelay);
+        // swap link to fundToken 
+        uint256 amountOut = (linkIn * price) / priceDecimals;
+        fundTokenOut = _swapExactInputV3(linkIn, address(this), amountOut, false);
+    }
+
     function _registerUpkeep(
-        address _targetContract,
+        DoppiUpkeepInfo storage info,
         uint96 _linkAmount 
     ) internal returns (uint256) {
         
@@ -422,7 +519,7 @@ contract DoppiUpkeepManager is Ownable, AutomationCompatibleInterface {
         IAutomationRegistrar.RegistrationParams memory params = IAutomationRegistrar.RegistrationParams({
             name: "Doppi TraderBot",
             encryptedEmail: hex"",
-            upkeepContract: _targetContract,
+            upkeepContract: info.targetContract,
             gasLimit: DEFAULT_GASLIMIT,
             adminAddress: address(this),
             triggerType: TRIGGER_CONDITION,
@@ -433,26 +530,21 @@ contract DoppiUpkeepManager is Ownable, AutomationCompatibleInterface {
         });        
         // Register the upkeep
         uint256 upkeepId = registrar.registerUpkeep(params);
-        // Store upkeep information
-        doppiUpkeeps[_targetContract] = DoppiUpkeepInfo({
-            upkeepId: upkeepId,
-            targetContract: _targetContract,
-            isRegistered: true,
-            trader: msg.sender
-        });
+        info.upkeepId = upkeepId;
+        info.isRegistered = true;
         
-        doppiUpKeepsId[upkeepId] = _targetContract;
-        upkeepIds.push(_targetContract);
+        doppiUpKeepsId[upkeepId] = info.targetContract;
+        upkeepIds.push(info.targetContract);
         return upkeepId;
     }
 
-    function _swapExactInputV3(uint256 _amount, address _recipient, uint256 amountOutQuote)
+    function _swapExactInputV3(uint256 _amount, address _recipient, uint256 amountOutQuote, bool toLink)
         internal
         returns (uint256)
     {
         ISwapRouter.ExactInputParams memory params = ISwapRouter
             .ExactInputParams({
-                path: multihopPath,
+                path: toLink ? multihopPathFrom : multihopPathTo,
                 recipient: _recipient,
                 amountIn: _amount,
                 amountOutMinimum: amountOutQuote * (10000 - slippage) / 10000

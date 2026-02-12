@@ -9,20 +9,20 @@ interface IDoppiOffer {
     ) external view returns (uint256 onedayVol);
     function getOffer(
         bool _isBuy,
-        uint32 _numDays,
+        uint8 _numDays,
         uint8 _strikeZone
     ) external view returns (DualAssetOffer memory offer);
 
     function getBuyOffers(
-        uint32 _numDays
+        uint8 _numDays
     ) external view returns (DualAssetOffer[] memory buyoffers);
 
     function getSellOffers(
-        uint32 _numDays
+        uint8 _numDays
     ) external view returns (DualAssetOffer[] memory selloffers);
 
     function getAllOffers(
-        uint32 _numDays
+        uint8 _numDays
     )
         external
         view
@@ -58,7 +58,7 @@ interface IDoppiOffer {
 
     function getSingleOffer(
         bool _isBuy,
-        uint32 _numDays,
+        uint8 _numDays,
         uint8 _strikeZone,
         uint256 _price
     ) external view returns (DualAssetOffer memory offer);

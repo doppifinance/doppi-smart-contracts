@@ -7,7 +7,7 @@ import {AutomationCompatibleInterface} from "../Interface/AutomationCompatibleIn
 import {DALiquidityLib} from "../Library/DALiquidityLib.sol";
 import "./DoppiTraderTypes.sol";
 import "./DoppiTraderAdminView.sol";
-// import "forge-std/console.sol";
+import "forge-std/console.sol";
 
 contract DoppiTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCompatibleInterface, Initializable {
     using SafeERC20 for IERC20;
@@ -77,9 +77,19 @@ contract DoppiTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCompati
 
     function start(uint256 _amountA, uint256 _amountB) external onlyTrader nonReentrant {
         require(_amountA > 0 || _amountB > 0, "amount not specified");
-        _updateForwarder();
         _processDeposit(_amountA, _amountB);
         _placeBulk(doppiLP.getPrice());
+    }
+
+    function startWithUpKeep(uint256 _amountA, uint256 _amountB) external onlyTrader nonReentrant {
+        require(_amountA > 0 || _amountB > 0, "amount not specified");
+        uint256 forUpkeep = doppiUpkeepManager.getDefault_Amount();
+        require(_amountA > forUpkeep, "amount must greater than fee for upkeep");
+        _amountA = _amountA - forUpkeep;
+        _processDeposit(_amountA, _amountB);
+        _placeBulk(doppiLP.getPrice());
+        assetA.safeTransferFrom(msg.sender, address(doppiUpkeepManager), forUpkeep);
+        doppiUpkeepManager.insertNewBot(msg.sender, address(this));
     }
 
     function placeOrders() external onlyTrader nonReentrant {
@@ -224,11 +234,6 @@ contract DoppiTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCompati
             _updateBound();
             emit UnwindPerformed(address(this), isNetBuy, totalAmount, amountOut);
         }
-    }
-
-    function _updateForwarder() internal {
-        uint256 upKeepId = doppiUpkeepManager.getUpkeepIdByBot(address(this));
-        s_forwarderAddress = doppiUpkeepManager.getForwarder(upKeepId);
     }
 
     function _clearUnwindMap(uint256[] memory prices, bool isBuy, uint256 totalpayout) internal {

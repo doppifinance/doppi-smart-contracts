@@ -301,7 +301,7 @@ contract Scenario2Test is Test {
                 uint256 swapAmount = _generateRandomAmount(swapNum);
                 
                 bool isBuy = swapNum % 2 == 0;
-                uint32 day = swapNum % 2 != 0 ? 1 : 3;
+                uint8 day = swapNum % 2 != 0 ? 1 : 3;
                 
                 if(!isBuy){
                     DualAssetOffer memory sellOffer = impliedVol.getOffer(false, day, 1);
