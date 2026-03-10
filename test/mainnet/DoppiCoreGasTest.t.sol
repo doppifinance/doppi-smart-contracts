@@ -407,21 +407,6 @@ contract Scenario2Test is Test {
         return sellOffer;
     }
 
-    function _setupAutomation(DoppiTrader traderBot) internal returns (uint256 upkeepId) {
-        // Setup Automation
-        upkeepId = doppiUpkeepManager.setupAutomation(address(traderBot));
-
-        // Setup forwarder address
-        address forwarder_ = doppiUpkeepManager.getForwarder(upkeepId);
-        traderBot.setForwarderAddress(forwarder_);
-
-        // Fund and start
-        usdt.approve(address(traderBot), 10000 ether);
-        btc.approve(address(traderBot), 0.2 ether);
-        traderBot.start(10000 ether, 0.1 ether);
-        
-    }
-
     function _setDoppiCoreProperties(
         DoppiCore _doppiCore, 
         DoppiTraderFactory _doppiFactory,
@@ -606,7 +591,8 @@ contract Scenario2Test is Test {
 			maxDepositPercentage: 20000,
 			maxDelay: 2 minutes,
 			maxSwap: 500000 ether,
-            priceGap: 500
+            priceGap: 500,
+            unwindGapMultiplier: 1
 		});
     }
 

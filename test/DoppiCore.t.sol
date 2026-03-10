@@ -163,7 +163,7 @@ contract DoppiCoreTest is Test {
 
         vm.startPrank(user1);
         usdt.approve(address(doppiCore), params.amount);
-        vm.expectRevert("not open");
+        vm.expectRevert("NotOpen()");
         doppiCore.deposit_buy(params);
         vm.stopPrank();
     }

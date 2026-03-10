@@ -134,9 +134,12 @@ contract Scenario2Test is Test {
         uint32 traderId = doppiFactory.deployTraderBot(defaultWeights);
         DoppiTrader traderBot = DoppiTrader(doppiFactory.traderBots(traderId));
         traderBot.setForwarderAddress(forwarder);
+        
+        vm.startPrank(traderBot.owner());            
         traderBot.setMaxSwap(500000 ether);
+        vm.stopPrank();
 
-        uint256 strikePrice = 89500 * 1e8;
+        uint256 strikePrice = 89500 * 1e8;        
         uint256 swapAmount = 100 ether;
         vm.startPrank(address(doppiCore));
         uint256 payout = swapAmount * 1e8 / strikePrice;
@@ -149,16 +152,22 @@ contract Scenario2Test is Test {
         deal(BTC, address(traderBot), payout); 
 
         uint256 unwindAmount = traderBot.getUnwindInfo(true, 89500 * 1e8);
+        // console.log(unwindAmount, payout, "before upkeep");
         assertEq(unwindAmount, payout);
         
         console.log(traderBot.lowerBound(), traderBot.upperBound());
         
         _doppiTraderCheckUpkeep_performUpkeep(traderBot);        
         console.log(traderBot.lowerBound(), traderBot.upperBound());
-        // // assertEq(traderBot.lowerBound(), 10000000000000);
-        // // assertEq(traderBot.upperBound(), 10200000000000);
+        assertEq(traderBot.lowerBound(), 8950000000000);
+        assertEq(traderBot.upperBound(), 9200000000000);
 
-        newPrice = int256(90420 * 1e8);
+        newPrice = int256(90020 * 1e8);
+        _manipulateRealChainlink(newPrice, address(oracle));
+        _doppiTraderCheckUpkeep_performUpkeep(traderBot);        
+        console.log(traderBot.lowerBound(), traderBot.upperBound());
+
+        newPrice = int256(90520 * 1e8);
         _manipulateRealChainlink(newPrice, address(oracle));
         _doppiTraderCheckUpkeep_performUpkeep(traderBot);        
         console.log(traderBot.lowerBound(), traderBot.upperBound());
@@ -184,7 +193,10 @@ contract Scenario2Test is Test {
         uint32 traderId = doppiFactory.deployTraderBot(defaultWeights);
         DoppiTrader traderBot = DoppiTrader(doppiFactory.traderBots(traderId));
         traderBot.setForwarderAddress(forwarder);
+        vm.startPrank(traderBot.owner());            
         traderBot.setMaxSwap(500000 ether);
+        traderBot.setUnwindGapMultiplier(0);
+        vm.stopPrank();
 
         uint256 totalSwaps = 500;
         uint256 priceChanges = 50; // Change price 50 times during test
@@ -282,7 +294,10 @@ contract Scenario2Test is Test {
         uint32 traderId = doppiFactory.deployTraderBot(defaultWeights);
         DoppiTrader traderBot = DoppiTrader(doppiFactory.traderBots(traderId));
         traderBot.setForwarderAddress(forwarder);
+         vm.startPrank(traderBot.owner());            
         traderBot.setMaxSwap(500000 ether);
+        traderBot.setUnwindGapMultiplier(0);
+        vm.stopPrank();
 
 
         uint256 totalSwaps = 500;
@@ -388,7 +403,10 @@ contract Scenario2Test is Test {
         uint32 traderId = doppiFactory.deployTraderBot(defaultWeights);
         DoppiTrader traderBot = DoppiTrader(doppiFactory.traderBots(traderId));
         traderBot.setForwarderAddress(forwarder);
+         vm.startPrank(traderBot.owner());            
         traderBot.setMaxSwap(500000 ether);
+        traderBot.setUnwindGapMultiplier(0);
+        vm.stopPrank();
 
         uint256 totalSwaps = 500;
         uint256 priceChanges = 50; // Change price 50 times during test
@@ -673,7 +691,8 @@ contract Scenario2Test is Test {
 			maxDepositPercentage: 20000,
 			maxDelay: 2 minutes,
 			maxSwap: 500000 ether,
-            priceGap: 500
+            priceGap: 500,
+            unwindGapMultiplier: 1
 		});
     }
 

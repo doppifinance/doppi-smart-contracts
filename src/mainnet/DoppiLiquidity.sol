@@ -179,6 +179,7 @@ contract DoppiLiquidity is ERC20, Ownable, Pausable, IDoppiLiquidity, Automation
         config.maxDelay = _config.maxDelay;
         config.maxSwap = _config.maxSwap;
         config.priceGap = _config.priceGap;
+        config.unwindGapMultiplier = _config.unwindGapMultiplier;
         _updateBound();
     }
 
@@ -514,7 +515,6 @@ contract DoppiLiquidity is ERC20, Ownable, Pausable, IDoppiLiquidity, Automation
         uint256 priceGapWithDecimals = config.priceGap * config.decimals;
         _price = (_price / priceGapWithDecimals) * priceGapWithDecimals;
         return _isBuy ? _price - (priceGapWithDecimals * (_zone - 1)) : _price + (priceGapWithDecimals * _zone);
-        // return _isBuy ? _price - (priceGapWithDecimals * _zone) : _price + (priceGapWithDecimals * (_zone + 1));
     }
 
     function _resetBound(uint256 price) internal {
@@ -523,7 +523,7 @@ contract DoppiLiquidity is ERC20, Ownable, Pausable, IDoppiLiquidity, Automation
     }
 
     function _updateUnwindTarget(uint256 _amountIn, uint256 _price, bool _isBuy) internal {
-        uint256 targetPrice = _getUnwindTargetPrice(_price, 1, _isBuy);
+        uint256 targetPrice = _getUnwindTargetPrice(_price, config.unwindGapMultiplier, _isBuy);
         if(targetPrice > upperBound){
             upperBound = targetPrice;
         }else if (targetPrice < lowerBound || lowerBound == 0){

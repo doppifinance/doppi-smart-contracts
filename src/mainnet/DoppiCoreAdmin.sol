@@ -14,7 +14,6 @@ abstract contract DoppiCoreAdmin is Ownable, Pausable {
     bool public publicOpen = true;
     address public s_forwarderAddress;
     uint16 public UPKEEPS_PER_CHECK = 20; 
-    // uint32 public tolerance = 100;
     mapping(address => bool) public opportunityBots;
     uint16 public aprToleranceBP = 0; 
     uint256 public maxSwap = 100000 ether;
@@ -26,10 +25,6 @@ abstract contract DoppiCoreAdmin is Ownable, Pausable {
         maxSwap = _maxSwap;
     }
 
-    // function setTolerance(uint32 _tolerance) external onlyOwner {
-    //     tolerance = _tolerance;
-    // }
-    
     function setTreasury(address _treasury, uint24 _treasury_fee) external onlyOwner {
         treasury_fee = _treasury_fee;
         treasury = _treasury;
@@ -74,9 +69,5 @@ abstract contract DoppiCoreAdmin is Ownable, Pausable {
 
     function setUnPause() external onlyOwner {
         _unpause();
-    }
-
-    function getMinOrder() external view returns (uint256, uint256) {
-        return (minOrderA, minOrderB);
     }
 }

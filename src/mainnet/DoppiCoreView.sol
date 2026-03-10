@@ -118,12 +118,6 @@ abstract contract DoppiCoreView {
         return isBuy ? opportunityBuy[strikePrice] : opportunitySell[strikePrice];
     }
 
-    function getSupportDays() external view returns (uint8[] memory) {
-        return supportDays;
-    }
-
-    
-
     function _getBuyPositionCount(address _owner) internal view returns (uint256 count) {
 
         for (uint8 x = 0; x < supportDays.length; ) {

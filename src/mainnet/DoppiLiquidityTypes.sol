@@ -17,6 +17,7 @@ struct ConfigParam {
     uint32 maxDelay;
     uint256 maxSwap;
     uint256 priceGap;
+    uint8 unwindGapMultiplier;
 }
 
 struct Config {
@@ -34,4 +35,5 @@ struct Config {
     uint32 maxDelay;
     uint256 maxSwap;
     uint256 priceGap;
+    uint8 unwindGapMultiplier;
 }

@@ -134,7 +134,7 @@ contract Scenario2Test is Test {
         uint256 strikePrice = 89500 * 1e8;
         int256 newPrice = int256(90000 * 1e8);
           
-        _manipulateRealChainlink(newPrice, address(oracle));
+        _manipulateRealChainlink(newPrice, address(oracle), true);
 
         DualAssetOffer memory buyOffer = impliedVol.getOffer(true, 1, 1);
         console.log(buyOffer.strikePrice, buyOffer.apr);
@@ -154,7 +154,7 @@ contract Scenario2Test is Test {
         
 
         newPrice = int256(89483 * 1e8);
-        _manipulateRealChainlink(newPrice, address(oracle));
+        _manipulateRealChainlink(newPrice, address(oracle), true);
         
         // 1 day fast forward and settle
         vm.warp(block.timestamp + 1 days + 1);
@@ -172,10 +172,11 @@ contract Scenario2Test is Test {
             console.log(price, amount);
             price -= (500 * 1e8); 
         }
-        console.log(doppiLP.lowerBound(), doppiLP.upperBound());
-
+        uint256 amount = doppiLP.amountToBuy(8850000000000);
+        assertGt(amount, 0, "There should be unwind amount at this price");
+        
         newPrice = int256(88483 * 1e8);
-        _manipulateRealChainlink(newPrice, address(oracle));
+        _manipulateRealChainlink(newPrice, address(oracle), true);
         _doppiLPCheckUpkeep_performUpkeep();
         
         for (uint256 price = upperBound; price >= lowerBound; ) {
@@ -183,6 +184,9 @@ contract Scenario2Test is Test {
             console.log(price, amount);
             price -= (500 * 1e8); 
         }
+
+        amount = doppiLP.amountToBuy(8850000000000);
+        assertEq(amount, 0, "There should be no unwind amount at this price");
 
     }
 
@@ -209,7 +213,7 @@ contract Scenario2Test is Test {
         for (uint256 priceChange = 0; priceChange < priceChanges; priceChange++) {
             
             int256 startPrice = int256(currentPrice);
-            _manipulateRealChainlink(startPrice, address(oracle));                        
+            _manipulateRealChainlink(startPrice, address(oracle), false);                        
             // Perform swaps at this price
             for (uint256 swapNum = 0; swapNum < swapsPerPrice; swapNum++) {
                 uint256 swapAmount = _generateRandomAmount(swapNum);
@@ -233,7 +237,7 @@ contract Scenario2Test is Test {
             }
         }
         int256 newPrice = int256(98556 * 1e8);
-        _manipulateRealChainlink(newPrice, address(oracle));
+        _manipulateRealChainlink(newPrice, address(oracle), false);
         
         uint256 unwindAmount = doppiLP.getUnwindInfo(true, 10200000000000);
         assertEq(unwindAmount, 165000000000000000000000);
@@ -283,7 +287,7 @@ contract Scenario2Test is Test {
         for (uint256 priceChange = 0; priceChange < priceChanges; priceChange++) {
             
             int256 startPrice = int256(currentPrice);
-            _manipulateRealChainlink(startPrice, address(oracle));            
+            _manipulateRealChainlink(startPrice, address(oracle), false);            
             // Perform swaps at this price
             for (uint256 swapNum = 0; swapNum < swapsPerPrice; swapNum++) {
                 bool isBuy = swapNum % 2 == 0;
@@ -317,7 +321,7 @@ contract Scenario2Test is Test {
         }
 
         int256 newPrice = int256(96556 * 1e8);
-        _manipulateRealChainlink(newPrice, address(oracle));
+        _manipulateRealChainlink(newPrice, address(oracle), false);
         
         uint256 unwindAmount = doppiLP.getUnwindInfo(true, 10200000000000);
         assertEq(unwindAmount, 75000000000000000000000);
@@ -352,7 +356,7 @@ contract Scenario2Test is Test {
         assertEq(doppiLP.upperBound(), 10250000000000);
         
         newPrice = int256(103056 * 1e8);
-        _manipulateRealChainlink(newPrice, address(oracle));
+        _manipulateRealChainlink(newPrice, address(oracle), false);
         
         unwindAmount = doppiLP.getUnwindInfo(false, 9800000000000);
         assertEq(unwindAmount, 1533957499285656245);
@@ -407,7 +411,7 @@ contract Scenario2Test is Test {
         for (uint256 priceChange = 0; priceChange < priceChanges; priceChange++) {
             
             int256 startPrice = int256(currentPrice);
-            _manipulateRealChainlink(startPrice, address(oracle));                        
+            _manipulateRealChainlink(startPrice, address(oracle), false);                        
             // Perform swaps at this price
             for (uint256 swapNum = 0; swapNum < swapsPerPrice; swapNum++) {
                 uint256 swapAmount = _generateRandomAmount(swapNum);
@@ -430,7 +434,7 @@ contract Scenario2Test is Test {
         }
 
         int256 newPrice = int256(101556 * 1e8);
-        _manipulateRealChainlink(newPrice, address(oracle));
+        _manipulateRealChainlink(newPrice, address(oracle), false);
         
         uint256 unwindAmount = doppiLP.getUnwindInfo(false, 9800000000000);
         assertEq(unwindAmount, 2812255415357036449);
@@ -481,7 +485,7 @@ contract Scenario2Test is Test {
         for (uint256 priceChange = 0; priceChange < priceChanges; priceChange++) {
             
             int256 startPrice = int256(currentPrice);
-            _manipulateRealChainlink(startPrice, address(oracle));            
+            _manipulateRealChainlink(startPrice, address(oracle), false);            
             // Perform swaps at this price
             for (uint256 swapNum = 0; swapNum < swapsPerPrice; swapNum++) {
                 bool isBuy = swapNum % 2 == 0;
@@ -516,7 +520,7 @@ contract Scenario2Test is Test {
 
         console.log(totalUSDT, totalBTC, "totalUSDT, totalBTC");
         int256 newPrice = int256(96556 * 1e8);
-        _manipulateRealChainlink(newPrice, address(oracle));
+        _manipulateRealChainlink(newPrice, address(oracle), false);
         
         _getDoppiLPUnwindData();
 
@@ -594,21 +598,6 @@ contract Scenario2Test is Test {
         doppiCore.deposit_sell(params);
         vm.stopPrank();
         return sellOffer;
-    }
-
-    function _setupAutomation(DoppiTrader traderBot) internal returns (uint256 upkeepId) {
-        // Setup Automation
-        upkeepId = doppiUpkeepManager.setupAutomation(address(traderBot));
-
-        // Setup forwarder address
-        address forwarder_ = doppiUpkeepManager.getForwarder(upkeepId);
-        traderBot.setForwarderAddress(forwarder_);
-
-        // Fund and start
-        usdt.approve(address(traderBot), 10000 ether);
-        btc.approve(address(traderBot), 0.2 ether);
-        traderBot.start(10000 ether, 0.1 ether);
-        
     }
 
     function _setDoppiCoreProperties(
@@ -747,9 +736,11 @@ contract Scenario2Test is Test {
             console.log(gasUsed, "gasUsed in doppiLP.performUpkeep");
             assertLt(gasUsed, 1_000_000, "Gas usage too high");
 
-            balbeforeUSDT = usdt.balanceOf(address(doppiLP));
-            balbeforeBTC = btc.balanceOf(address(doppiLP));
-            console.log(balbeforeUSDT, balbeforeBTC, "balbeforeUSDT, balbeforeBTC after");
+            uint256 balAfterUSDT = usdt.balanceOf(address(doppiLP));
+            uint256 balAfterBTC = btc.balanceOf(address(doppiLP));
+            // assertGt(balbeforeUSDT, balAfterUSDT, "USDT balance should decrease after sell unwind");
+            // assertGt(balbeforeBTC, balAfterBTC, "BTC balance should decrease after buy unwind");
+            console.log(balAfterUSDT, balAfterBTC, "balAfterUSDT, balAfterBTC after");
             
             
         }
@@ -770,13 +761,16 @@ contract Scenario2Test is Test {
         _impliedVol.setPancakeV3Pool(PCSWAP_V3Pool);
     }
 
-    function _manipulateRealChainlink(int256 newPrice, address _oracle) internal {
+    function _manipulateRealChainlink(int256 newPrice, address _oracle, bool updateUnwindGapMultiplier) internal {
         
         // Then override the feed address
         vm.prank(owner);
         MockOracle(_oracle).setPrice(newPrice);
         vm.stopPrank();
         configLP = _getConfigLP();
+        if(updateUnwindGapMultiplier){
+            configLP.unwindGapMultiplier = 2;
+        }
         configLP.chainLinkFeed = _oracle;
         vm.prank(doppiLP.owner());
         doppiLP.setConfig(configLP); 
@@ -803,7 +797,8 @@ contract Scenario2Test is Test {
 			maxDepositPercentage: 20000,
 			maxDelay: 2 minutes,
 			maxSwap: 500000 ether,
-            priceGap: 500
+            priceGap: 500,
+            unwindGapMultiplier: 1
 		});
     }
 

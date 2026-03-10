@@ -23,7 +23,7 @@ contract EmergencyWithdrawAndSetup is Script {
         DoppiCore doppiCore = DoppiCore(DOPPI_CORE);
         DoppiLiquidityRouter doppiRouter = DoppiLiquidityRouter(DOPPI_LP_ROUTER);
         
-        console.log(doppiCore.isEmergency(), doppiCore.paused());
+        console.log(doppiCore.emergencyMode(), doppiCore.paused());
         
         // doppiCore.setPause();
         // doppiCore.setEmergencyMode(true);

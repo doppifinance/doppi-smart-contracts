@@ -292,7 +292,7 @@ contract DoppiTraderTest is Test {
     function test_stop_not_yet_settle() public {
         _start();
         vm.prank(trader);
-        vm.expectRevert("active orders");
+        vm.expectRevert("ActiveOrders()");
         doppiTrader.stop();
         vm.stopPrank();
     }
@@ -423,7 +423,7 @@ contract DoppiTraderTest is Test {
     }
 
     function test_createUnwindPosition_onlyDoppiCore() public {
-        vm.expectRevert("only doppicore");
+        vm.expectRevert("OnlyDoppiCore()");
         doppiTrader.createUnwindPosition(100_000 ether, 99_000 * 1e8, true);
     }
 
@@ -830,12 +830,12 @@ contract DoppiTraderTest is Test {
         _start();
 
         vm.startPrank(trader);
-        vm.expectRevert("only for emergency");
+        vm.expectRevert("NotEmergency()");
         doppiTrader.emergencyWithdraw();
         vm.stopPrank();
         
         vm.startPrank(trader);
-        vm.expectRevert("only for emergency in LP");
+        vm.expectRevert("NotEmergency()");
         doppiTrader.emergencyWithdrawLP();
         vm.stopPrank();
         

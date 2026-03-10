@@ -32,6 +32,7 @@ abstract contract DoppiTraderAdminView is Ownable {
     uint256 public upperBound;
     uint256 public lowerBound;
     uint256 public maxSwap;
+    uint8 public unwindGapMultiplier;
 
     
     function getTotalBalancesInLP() external view returns (uint256 totalAssetA, uint256 totalAssetB) {
@@ -71,14 +72,10 @@ abstract contract DoppiTraderAdminView is Ownable {
         pnl = pnlprofit + pnlloss;  
     }
 
-    function get_validTrader() external view returns (address) {
-        return validTrader;
-    }
-
     function setDefaultDay(uint8 _day) external onlyOwner {
 
         bool valid;
-        uint8[] memory supportDays = doppiCore.getSupportDays();
+        uint8[] memory supportDays = doppiCore.supportDays();
         for (uint8 x = 0; x < supportDays.length; ) {
             if(supportDays[x] == _day){
                 valid = true;
@@ -94,8 +91,12 @@ abstract contract DoppiTraderAdminView is Ownable {
         maxOrder = _maxOrder;
     }
 
-    function setMaxSwap(uint256 _maxSwap) external onlyTrader {
+    function setMaxSwap(uint256 _maxSwap) external onlyOwner {
         maxSwap = _maxSwap;
+    }
+
+    function setUnwindGapMultiplier(uint8 _multiplier) external onlyOwner {
+        unwindGapMultiplier = _multiplier;
     }
 
     function setForwarderAddress(address forwarderAddress) external onlyUpkeepOrTrader {

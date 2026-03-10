@@ -132,7 +132,7 @@ contract DoppiPoints is Ownable, Pausable {
             address(doppiTraderFactory) != address(0) &&
             doppiTraderFactory.isTraderBot(positionOwner)
         ) {
-            owner = IDoppiTrader(positionOwner).get_validTrader();
+            owner = IDoppiTrader(positionOwner).validTrader();
         }else{
             owner = positionOwner;
         }

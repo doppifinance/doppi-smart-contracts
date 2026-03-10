@@ -16,15 +16,21 @@ import "./DoppiCoreView.sol";
 contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, AutomationCompatibleInterface {
     using SafeERC20 for IERC20;
 
+    bytes4 constant SWAP_SELECTOR = bytes4(keccak256("swap(uint256,uint256,bool)"));
+    bytes4 constant PRICE_SELECTOR = bytes4(keccak256("getPrice()"));
+    bytes4 constant SETTLE_SELECTOR = bytes4(keccak256("settle(uint256,uint256,uint256,bool)"));
+    bytes4 constant INTEREST_SELECTOR = bytes4(keccak256("interestGet(address,uint256,uint256,bool)"));
+    bytes4 constant RECORD_SELECTOR = bytes4(keccak256("recordTrade(address,uint256)"));
+
     IERC20 public immutable assetA; // Made immutable
     IERC20 public immutable assetB; // Made immutable
     IDoppiOffer public immutable doppiOffer; // Made immutable
     IDoppiPoints public immutable doppiPoints;
 
     uint256 public priceDecimal;
-    uint32 public constant SECONDS_PER_YEAR = 31536000;
-    uint24 public constant SECONDS_PER_DAY = 86400;
-    uint16 public constant BASIS_POINTS = 10000;
+    uint32 private constant SECONDS_PER_YEAR = 31536000;
+    uint24 private constant SECONDS_PER_DAY = 86400;
+    uint16 private constant BASIS_POINTS = 10000;
     uint256 public upperBound;
     uint256 public lowerBound;
     
@@ -42,6 +48,17 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
     error NotExpired();
     error NoPosition();
     error ExceedsPoolCap();
+    error SwapFailed();
+    error PriceFailed();
+    error SettleFailed();
+    error InterestGetFailed();
+    error EmergencyModeActive();
+    error RecordTradeFailed();
+    error OnlyOpportunityBot();
+    error OnlyForwarder();
+    error OnlyTraderBot();
+    error NotOpen();
+
 
     constructor(address _assetA, address _assetB, IDoppiLiquidity _doppiLP, IDoppiOffer _doppiOffer, address _doppiPoints)
         Ownable(msg.sender)
@@ -56,7 +73,7 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
         assetA.safeIncreaseAllowance(address(doppiLP), type(uint256).max);
         assetB.safeIncreaseAllowance(address(doppiLP), type(uint256).max);
 
-        uint256 price = doppiLP.getPrice();
+        uint256 price = _getPriceFromLP();
         lowerBound = _getTargetPrice(price, 1, true);
         upperBound = _getTargetPrice(price, 1, false);
         supportDays.push(1);
@@ -66,9 +83,10 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
 
     // Single deposit functionality
     function deposit_buy(DepositParams calldata params) 
-        external nonReentrant whenNotPaused whenOpen {
+        external nonReentrant whenNotPaused {
         
-        require(!emergencyMode, "Emergency mode active");
+        _whenOpen();
+        if (emergencyMode) revert EmergencyModeActive();
         if(params.amount < minOrderA) revert InvalidAmount(); 
         if (!canAcceptDeposit(true, params.amount)) {
             revert ExceedsPoolCap();
@@ -82,9 +100,10 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
     }
 
     function deposit_sell(DepositParams calldata params) 
-        external nonReentrant whenNotPaused whenOpen {
+        external nonReentrant whenNotPaused {
         
-        require(!emergencyMode, "Emergency mode active");
+        _whenOpen();
+        if (emergencyMode) revert EmergencyModeActive();
         if(params.amount < minOrderB) revert InvalidAmount(); 
         if (!canAcceptDeposit(false, params.amount)) {
             revert ExceedsPoolCap();
@@ -96,7 +115,9 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
         _updateLowerUpperBound(sellOffer.strikePrice);
     }
 
-    function bulkDeposit(bool isBuy, DepositParams[] calldata params, DualAssetOffer[] memory _offers) external onlyTraderBot whenNotPaused {
+    function bulkDeposit(bool isBuy, DepositParams[] calldata params, DualAssetOffer[] memory _offers) external whenNotPaused {
+        
+        _onlyTraderBot();
         uint256 length = params.length;
         if(length != _offers.length) revert InvalidOfferLength();
         
@@ -125,8 +146,9 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
         return (false, bytes(""));
     }
 
-    function performUpkeep(bytes calldata performData) external nonReentrant onlyForwarder {
+    function performUpkeep(bytes calldata performData) external nonReentrant {
         
+        _onlyForwarder();
         if(paused()) return;
         
         (uint64[] memory allPositions, SettleAccumulate memory settleAccu) = abi.decode(performData, (uint64[], SettleAccumulate));
@@ -137,7 +159,9 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
         _processNewSettlements(allPositions, settleAccu);
     }
 
-    function emergencyWithdraw() external whenEmergency whenPaused nonReentrant {
+    function emergencyWithdraw() external whenPaused nonReentrant {
+        
+        if (!emergencyMode) revert EmergencyModeActive();
         _emergencyWithdrawAll();
     }
 
@@ -623,8 +647,9 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
         uint256 totalAmount,
         uint256 totalAmountUnwind,
         bool isBuy
-    ) external onlyOpportunityBot nonReentrant {
+    ) external nonReentrant {
         
+        _checkOpportunityBot();
         uint256 price = _getPriceFromLP();
         mapping(uint256 => OpportunityOrders) storage opporMap = isBuy ? opportunityBuy : opportunitySell; 
         
@@ -690,7 +715,7 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
     }
 
     function _resetBound() internal {
-        uint256 price = doppiLP.getPrice();
+        uint256 price = _getPriceFromLP();
         lowerBound = _getTargetPrice(price, 1, true);
         upperBound = _getTargetPrice(price, 1, false);
     }
@@ -773,8 +798,8 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
         reducedoutUpdated = reducedout;
         
         if(reducedUpdated >= unwind){
-            ratio = unwind * 1e18 / totalAmountUnwind;
-            myAmountOut = amountOutUnwind * ratio / 1e18;
+            ratio = unwind * 1e27 / totalAmountUnwind;
+            myAmountOut = amountOutUnwind * ratio / 1e27;
             order.outAmount -= unwind;
             order.swappedAmount -= swappedAmount;
             reducedUpdated -= unwind;
@@ -782,8 +807,8 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
         }else{
             uint256 unwindTotal = unwind;
             unwind = unwind - reducedUpdated; 
-            ratio = (unwindTotal - reducedUpdated) * 1e18 / unwindTotal; // get not inclusion portion
-            uint256 newSwappedAmount = swappedAmount * ratio / 1e18; // 100% unwind amount
+            ratio = (unwindTotal - reducedUpdated) * 1e27 / unwindTotal; // get not inclusion portion
+            uint256 newSwappedAmount = swappedAmount * ratio / 1e27; // 100% unwind amount
             swappedAmount = swappedAmount > newSwappedAmount ? swappedAmount - newSwappedAmount : 0;
             myAmountOut = reducedoutUpdated;
             order.outAmount = order.outAmount > reducedUpdated ? order.outAmount - reducedUpdated : 0;
@@ -890,8 +915,9 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
     
     // Helpers interacting via low-level calls (to avoid interface in module)
     function _recordTradePoints(address trader, uint256 volume) internal {
-        (bool ok,) = address(doppiPoints).call(abi.encodeWithSignature("recordTrade(address,uint256)", trader, volume));
-        require(ok, "record point failed");
+
+        (bool ok, ) = address(doppiPoints).call(abi.encodeWithSelector(RECORD_SELECTOR, trader, volume));
+        if (!ok) revert RecordTradeFailed();
     }
 
     function _swapLowLevel(
@@ -899,23 +925,34 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
         uint256 price,
         bool isBuy
     ) internal returns (uint256 amountOut) {
-        bytes memory callData = abi.encodeWithSignature("swap(uint256,uint256,bool)", amountIn, price, isBuy);
 
+        bytes memory callData = abi.encodeWithSelector(SWAP_SELECTOR, amountIn, price, isBuy);
         (bool success, bytes memory result) = address(doppiLP).call(callData);
-        require(success && result.length >= 32, "doppiLP: call failed");
+        if (!(success && result.length >= 32)) revert SwapFailed();
 
         amountOut = abi.decode(result, (uint256));
     }
 
     function _getPriceFromLP() internal view returns (uint256 price) {
-        (bool ok, bytes memory ret) = address(doppiLP).staticcall(abi.encodeWithSignature("getPrice()"));
-        require(ok && ret.length >= 32, "price failed");
+
+        bytes memory callData = abi.encodeWithSelector(PRICE_SELECTOR);
+        (bool ok, bytes memory ret) = address(doppiLP).staticcall(callData);
+        if (!(ok && ret.length >= 32)) revert PriceFailed();
         price = abi.decode(ret, (uint256));
     }
 
     function _doppiSettleCall(uint256 amount, uint256 payout, uint256 price, bool isBuy) internal returns (uint256 out) {
-        (bool ok, bytes memory ret) = address(doppiLP).call(abi.encodeWithSignature("settle(uint256,uint256,uint256,bool)", amount, payout, price, isBuy));
-        require(ok, "settle failed");
+
+        (bool ok, bytes memory ret) = address(doppiLP).call(
+            abi.encodeWithSelector(
+                SETTLE_SELECTOR,
+                amount,
+                payout,
+                price,
+                isBuy
+            )
+        );
+        if (!(ok && ret.length >= 32)) revert SettleFailed();
         out = abi.decode(ret, (uint256));
     }
 
@@ -925,32 +962,26 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
             uint256 price,
             bool isBuy
         ) internal {
-        (bool ok, ) = address(doppiLP).call(abi.encodeWithSignature("interestGet(address,uint256,uint256,bool)", address(interestToken), interest, price, isBuy));
-        require(ok, "_doppiInterestGet failed");
+
+        (bool ok, ) = address(doppiLP).call(
+            abi.encodeWithSelector(INTEREST_SELECTOR, address(interestToken), interest, price, isBuy)
+        );
+        if (!ok) revert InterestGetFailed();
     }
 
-    modifier onlyOpportunityBot() {
-        require(opportunityBots[msg.sender], "only opportunityBot");
-        _;
+    function _checkOpportunityBot() internal view {
+        if (!opportunityBots[msg.sender]) revert OnlyOpportunityBot();
     }
 
-    modifier onlyForwarder() {
-        require(msg.sender == s_forwarderAddress, "invalid forwarder");
-        _;
+    function _onlyForwarder() internal view {
+        if (msg.sender != s_forwarderAddress) revert OnlyForwarder();
     }
 
-    modifier onlyTraderBot() {
-        require(doppiTraderFactory.isTraderBot(msg.sender), "only trader bot");
-        _;
+    function _onlyTraderBot() internal view {
+        if (!doppiTraderFactory.isTraderBot(msg.sender)) revert OnlyTraderBot();
     }
 
-    modifier whenOpen() {
-        require(publicOpen == true, "not open");
-        _;
-    }
-
-    modifier whenEmergency() {
-        require(emergencyMode, "Not in emergency mode");
-        _;
+    function _whenOpen() internal view {
+        if (!publicOpen) revert NotOpen();
     }
 }

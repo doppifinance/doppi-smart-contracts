@@ -25,7 +25,8 @@ library TestParamLib {
 			maxDepositPercentage: 20000,
 			maxDelay: 2 minutes,
 			maxSwap: 100000 ether,
-			priceGap: 500
+			priceGap: 500,
+			unwindGapMultiplier: 1
 		});
 		
         return configLP;
@@ -49,10 +50,11 @@ library TestParamLib {
 			decimals: 10 ** 8,
 			v3Pool: PCSWAP_V3Pool,
 			twapDuration: 3600,
-			maxDepositPercentage: 20000, // 2x
+			maxDepositPercentage: 12500, // 2x
 			maxDelay: 2 minutes,
-			maxSwap: 50000 ether, // maxswap per once for unwinding 
-			priceGap: 500
+			maxSwap: 25000 ether, // maxswap per once for unwinding 
+			priceGap: 500,
+			unwindGapMultiplier: 2
 		});
 		
         return configLP;

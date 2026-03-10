@@ -697,7 +697,7 @@ contract DoppiOpportunityTest is Test {
 
         buy = doppiCore.getOpportunityOrders(true, 9100000000000);
         assertEq(buy.amount, 1000000000000000000000000);
-        assertEq(buy.swappedAmount, 13126938764525657300000);
+        assertEq(buy.swappedAmount, 13126938764525657328685);
         assertEq(buy.outAmount, 151986346376767974);
         
         _doppiOpportunityCheckUpkeep_performUpkeep();
