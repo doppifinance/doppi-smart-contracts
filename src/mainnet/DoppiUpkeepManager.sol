@@ -15,7 +15,7 @@ import {DALiquidityLib} from "../Library/DALiquidityLib.sol";
 import {AggregatorV3Interface} from "../Interface/AggregatorV3Interface.sol";
 import {AutomationCompatibleInterface} from "../Interface/AutomationCompatibleInterface.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
-import "forge-std/console.sol";
+// import "forge-std/console.sol";
 
 contract DoppiUpkeepManager is Ownable, AutomationCompatibleInterface {
     using SafeERC20 for IERC20;
@@ -58,7 +58,6 @@ contract DoppiUpkeepManager is Ownable, AutomationCompatibleInterface {
     event UpkeepRegistered(uint256 indexed upkeepId, address targetContract, uint256 fundTokenAmount, uint256 linkAmount);
     event UpkeepFunded(uint256 indexed upkeepId, uint256 fundTokenAmount, uint256 linkAmount, uint256 fee);
     event UpkeepCanceled(uint256 indexed upkeepId);
-    event UpkeepPaused(uint256 indexed upkeepId);
     event TopUpPerformed(uint256 indexed upkeepId, address bot, uint256 topUpAmountInfundToken, uint256 linkOut, uint256 fee);
 
     
@@ -186,6 +185,9 @@ contract DoppiUpkeepManager is Ownable, AutomationCompatibleInterface {
         doppiUpkeepPayment[_upkeepId].lastPaidAmount = 0;
         doppiUpkeepPayment[_upkeepId].trader = address(0);
         
+        // reset forwarder in trader bot 
+        IDoppiTrader(targetContract).setForwarderAddress(address(0));
+
         if(finalBal >= fee) linkToken.transfer(treasury, fee);
         if(refund > 0) {
             uint256 fundTokenOut = _swapERC677ToFundToken(refund);
@@ -211,11 +213,6 @@ contract DoppiUpkeepManager is Ownable, AutomationCompatibleInterface {
         emit UpkeepCanceled(_upkeepId);
     }
 
-    function pauseUpkeep(uint256 _upkeepId) external onlyTrader(_upkeepId) validUpkeepId(_upkeepId) {
-        registryConsumer.pauseUpkeep(_upkeepId);
-        emit UpkeepPaused(_upkeepId);
-    }
-    
     function getUpkeep(uint256 _upkeepId) external view returns (
         IAutomationRegistryConsumer.UpkeepInfo memory result) {
         result = registryConsumer.getUpkeep(_upkeepId);
@@ -251,9 +248,9 @@ contract DoppiUpkeepManager is Ownable, AutomationCompatibleInterface {
         return DEFAULT_AMOUNT;
     }
     
-    function withdrawLINK(uint96 _amount) external onlyOwner {
-        require(linkToken.transfer(msg.sender, _amount), "LINK transfer failed");
-    }
+    // function withdrawLINK(uint96 _amount) external onlyOwner {
+    //     require(linkToken.transfer(msg.sender, _amount), "LINK transfer failed");
+    // }
 
     function insertNewBot(address trader, address bot) external {
 

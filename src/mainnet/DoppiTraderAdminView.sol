@@ -34,6 +34,9 @@ abstract contract DoppiTraderAdminView is Ownable {
     uint256 public maxSwap;
     uint8 public unwindGapMultiplier;
 
+    error NotValidTrader();
+    error NotValidTraderOrUpkeep();
+
     
     function getTotalBalancesInLP() external view returns (uint256 totalAssetA, uint256 totalAssetB) {
         uint256 totalAssetLP = doppiLP.totalAssetsInAssetA();
@@ -87,7 +90,8 @@ abstract contract DoppiTraderAdminView is Ownable {
         }
     }
 
-    function setMaxOrder(uint24 _maxOrder) external onlyTrader {
+    function setMaxOrder(uint24 _maxOrder) external {
+        _onlyTrader();
         maxOrder = _maxOrder;
     }
 
@@ -99,7 +103,8 @@ abstract contract DoppiTraderAdminView is Ownable {
         unwindGapMultiplier = _multiplier;
     }
 
-    function setForwarderAddress(address forwarderAddress) external onlyUpkeepOrTrader {
+    function setForwarderAddress(address forwarderAddress) external {
+        _onlyUpkeepOrTrader();
         s_forwarderAddress = forwarderAddress;
     }
 
@@ -205,15 +210,12 @@ abstract contract DoppiTraderAdminView is Ownable {
         upperBound = _getUnwindTargetPrice(price, 1, false);
     }
 
-    modifier onlyTrader() {
-        require(msg.sender == validTrader, "invalid trader");
-        _;
+    function _onlyTrader() internal view {
+        if(msg.sender != validTrader) revert NotValidTrader();
     }
 
-    modifier onlyUpkeepOrTrader() {
-        require(
-            msg.sender == address(doppiUpkeepManager) || msg.sender == validTrader, "invalid trader or doppiUpkeepManager");
-        _;
+    function _onlyUpkeepOrTrader() internal view {
+        if(msg.sender != address(doppiUpkeepManager) && msg.sender != validTrader) revert NotValidTraderOrUpkeep();
     }
 
 }

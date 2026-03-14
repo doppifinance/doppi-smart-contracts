@@ -14,8 +14,6 @@ import {TickMath} from "../Library/TickMath.sol";
 library DALiquidityLib {
     using SafeCast for int256;
 
-    error OUTOFBOUNDS();
-
     function getPriceWithFallback(
         AggregatorV3Interface chainLinkFeed,
         address _v3Pool,

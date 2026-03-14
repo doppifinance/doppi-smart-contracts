@@ -6,27 +6,53 @@ import "../../src/mainnet/DoppiOffer.sol";
 import "../../src/mainnet/DoppiLiquidity.sol";
 import "../../src/mainnet/DoppiCore.sol";
 import "../../src/mainnet/DoppiOpportunity.sol";
+import "../../src/mainnet/DoppiUpkeepManager.sol";
+import "../../src/mainnet/DoppiTrader.sol";
 import {DoppiTraderFactory} from "../../src/mainnet/DoppiTraderFactory.sol";
 
 contract MyScript is Script {
 
-    address DOPPI_OFFER = address(0xe8e7Bb547C8E09b314C7ddDFFFaEd0652aA03ff9);
-    address DOPPI_LP = address(0xc7D5CB3567CbB2f52189C64e0067Bf9B2c2ab0eB);
-    address DOPPI_CORE = address(0x4Fe2973Df9c541c23Ce0C1e8752D16E797920d99);
-    address DOPPI_OPPO = address(0xA5bBf8eB82EA8a0E13f6A071073f6CFD8A57fd7f);
+    address DOPPI_OFFER = address(0x17F38AB89496E10E34268bDc66ae48D50Fb4A227);
+    address DOPPI_LP = address(0x4793A63Fbc11d79Bd72C362AFA5a9C04Bc55Fb65);
+    address DOPPI_CORE = address(0x15c07435B0B38b075E28B1D7969e3C87FBCDDC49);
+    address DOPPI_OPPO = address(0xa3A3e161b73Ec6535927E7c77b901db80B100852);
+    address DOPPI_UPKEEP = address(0x0909645Fb7a98594836279d08c45C5b4f946c2A4);
     
     function run() external {
         
-        uint256 deployerPrivateKey = vm.envUint("PRIVATE_KEY_MAINNET");
+        uint256 deployerPrivateKey = vm.envUint("PRIVATE_KEY");
         
         // Start broadcasting transactions
         vm.startBroadcast(deployerPrivateKey);
 
+        // _traderBotInfo();
+        _getUpkeepData();
         // _getBuffer();
-        _getTotalOrders();
-        _getOpportunityData();
+        // _getTotalOrders();
+        // _getOpportunityData();
         
         vm.stopBroadcast();
+    }
+
+    function _traderBotInfo() internal view {
+        DoppiTrader bot = DoppiTrader(address(0x234765F220DB7F6C062Bc552AAfe0005Cc8Ce04a));
+        (uint256 totalAssetA, uint256 totalAssetB, uint256 price) = bot.getTotalBalances();
+        console.log("Total Asset A:", totalAssetA);
+        console.log("Total Asset B:", totalAssetB); 
+        console.log("Current Price:", price);
+    }
+
+    function _getUpkeepData() internal view {
+
+        DoppiUpkeepManager doppiUpkeepManager = DoppiUpkeepManager(DOPPI_UPKEEP);
+        uint256 keepId = doppiUpkeepManager.getUpkeepIdByBot(address(0x344F302F0c7609FF9526AB7ceF2a9e62d8991431));
+        IAutomationRegistryConsumer.UpkeepInfo memory result = doppiUpkeepManager.getUpkeep(keepId);
+        console.log(result.admin, result.balance);
+        console.log(result.maxValidBlocknumber, result.paused, result.target);
+
+        uint256 upkeepBalance = doppiUpkeepManager.getUpkeepBalance(keepId);
+        console.log("Upkeep ID for bot:", keepId);
+        console.log("Upkeep balance:", doppiUpkeepManager.getUpkeepBalance(keepId));
     }
 
     function _getBuffer() internal view {
@@ -46,10 +72,14 @@ contract MyScript is Script {
         uint64 length = doppiCore.getPositionLength(1);
         uint64 nextId = doppiCore.nextProcessId(1);
         uint64 end = nextId + length;
+        
+        if(length == 0){
+            console.log("No unsettled orders");
+            return;
+        }
         for (uint64 i = nextId; i < end; ) {
             bool isBuy = true;
             (uint256 amount, , uint256 strikePrice, uint32 expiryTimestamp, , address owner, ,) = doppiCore.positions_buy(1, i);
-
             if(owner == address(0)){
                 isBuy = false;
                 (amount, , strikePrice, expiryTimestamp, , owner, , ) = doppiCore.positions_sell(1, i);

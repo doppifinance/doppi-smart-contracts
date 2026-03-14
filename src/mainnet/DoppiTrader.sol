@@ -33,6 +33,7 @@ contract DoppiTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCompati
     error ActiveOrders();
     error OnlyForwarder();
     error OnlyDoppiCore();
+    error NoEnoughBalance();
 
 
     constructor() Ownable(msg.sender) {
@@ -84,8 +85,9 @@ contract DoppiTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCompati
         _resetBound();
     }
 
-    function start(uint256 _amountA, uint256 _amountB) external onlyTrader nonReentrant {
+    function start(uint256 _amountA, uint256 _amountB) external nonReentrant {
         
+        _onlyTrader();
         if(_amountA == 0 && _amountB == 0) revert AmountNotSpecified();
         uint256 forUpkeep = doppiUpkeepManager.getDefault_Amount();
         if(_amountA <= forUpkeep) revert AmountMustGreaterThanUpkeep();
@@ -97,11 +99,16 @@ contract DoppiTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCompati
         doppiUpkeepManager.insertNewBot(msg.sender, address(this));
     }
 
-    function placeOrders() external onlyTrader nonReentrant {
-        _placeBulk(doppiLP.getPrice());
+    function placeOrders() external nonReentrant {
+        _onlyTrader();
+        uint256 price = doppiLP.getPrice();
+        (bool toBuy, bool toSell) = _shouldPlaceOrders(price);
+        if(!toBuy && !toSell) revert NoEnoughBalance();
+        _placeBulk(price);
     }
 
-    function stop() external onlyTrader nonReentrant {
+    function stop() external nonReentrant {
+        _onlyTrader();
         uint256 buyPosCount = doppiCore.getBuyPositionCount(address(this));
         uint256 sellPosCount = doppiCore.getSellPositionCount(address(this));
         if (buyPosCount > 0 || sellPosCount > 0) revert ActiveOrders();
@@ -116,7 +123,8 @@ contract DoppiTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCompati
         _removeMapping();
     }
 
-    function emergencyWithdraw() external onlyTrader nonReentrant {
+    function emergencyWithdraw() external nonReentrant {
+        _onlyTrader();
         if(!doppiCore.emergencyMode() || !doppiCore.paused()) revert NotEmergency();
 
         doppiCore.emergencyWithdraw();
@@ -128,7 +136,8 @@ contract DoppiTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCompati
         _removeMapping();
     }
 
-    function emergencyWithdrawLP() external onlyTrader nonReentrant {
+    function emergencyWithdrawLP() external nonReentrant {
+        _onlyTrader();
         if (!doppiRouter.isEmergency() || !doppiRouter.paused()) revert NotEmergency();
         IERC20(doppiLP).safeIncreaseAllowance(address(doppiRouter), doppiLP.balanceOf(address(this)));
         doppiRouter.emergencyWithdraw();
@@ -140,8 +149,8 @@ contract DoppiTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCompati
     function setMultipleOrderConfigs(
         uint8[] calldata strikeZones, 
         uint24[] calldata weights
-    ) external onlyTrader {
-
+    ) external {
+        _onlyTrader();
         if(strikeZones.length != weights.length) revert ArrayMismatch();
         if(strikeZones.length > maxOrder 
             && weights.length > maxOrder
@@ -157,7 +166,8 @@ contract DoppiTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCompati
         }
     }
 
-    function setUseCustomConfig(bool _useCustom) external onlyTrader {
+    function setUseCustomConfig(bool _useCustom) external {
+        _onlyTrader();
         useCustomConfig = _useCustom;
     }
 
@@ -165,7 +175,8 @@ contract DoppiTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCompati
         return orderConfigs;
     }
 
-    function resetToDefaultConfig() external onlyTrader {
+    function resetToDefaultConfig() external {
+        _onlyTrader();
         delete orderConfigs;
         uint24[] memory defaultWeights = new uint24[](maxOrder);
         uint24 equalWeight = uint24(10000 / maxOrder);
@@ -180,7 +191,7 @@ contract DoppiTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCompati
         useCustomConfig = false;
     }
 
-    function createUnwindPosition(uint256 _payout, uint256 _strikePrice, bool _isBuyUndo) external {
+    function createUnwindPosition(uint256 _payout, uint256 _strikePrice, bool _isBuyUndo) external nonReentrant {
         
         _onlyDoppiCore();
 

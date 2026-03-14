@@ -115,4 +115,8 @@ Then run the regression setup script:
 forge script script/local/SetImpliedVolRegression.s.sol --rpc-url http://127.0.0.1:8545 --broadcast
 ```
 
+```shell
+forge build --sizes 2>/dev/null
+```
+
 This will configure the regression parameters for the ImpliedVol contract.

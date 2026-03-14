@@ -44,9 +44,7 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
     error InvalidAPR();
     error InvalidAmount();
     error InvalidOfferLength();
-    error PriceMismatch();
     error NotExpired();
-    error NoPosition();
     error ExceedsPoolCap();
     error SwapFailed();
     error PriceFailed();

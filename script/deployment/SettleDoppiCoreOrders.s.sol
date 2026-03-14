@@ -12,16 +12,16 @@ import "../../src/mainnet/DoppiOffer.sol";
 contract SettleDoppiCoreOrders is Script {
     
     // Replace with your actual DoppiCore contract address
-    address public constant DOPPI_CORE = 0x7d70ea9a99588bCcC1bEc8561cC34897B532061A; 
-    address public constant DOPPI_POINTS = 0x049910BCbf69ddD95f7523658a1480688f42a2c5; 
-    address public constant DOPPI_TRADER = 0x76ABBbc709694f3529c1194762bd4306Deb62012; 
-    address public constant DOPPI_REF = 0xbBad399F56f98E5882D308870CD957c29cAc2515; 
-    address public constant DOPPI_OFFER = 0x874dCF1969b4bab3c6D7EEA5b22886B2B7Ee0fe4; 
+    address public constant DOPPI_CORE = 0x15c07435B0B38b075E28B1D7969e3C87FBCDDC49; 
+    address public constant DOPPI_POINTS = 0x77C31762884052333A4b6CA0E4B063e19Dd50a4b; 
+    address public constant DOPPI_TRADER = 0x234765F220DB7F6C062Bc552AAfe0005Cc8Ce04a; 
+    address public constant DOPPI_REF = 0x73515beBAEa74f6194C2D18Ce762419272e7cBB7; 
+    address public constant DOPPI_OFFER = 0x17F38AB89496E10E34268bDc66ae48D50Fb4A227; 
 
     // Replace with the admin address you want to impersonate
-    address public constant ADMIN = 0x5D450b7A2bAFbc071cF1313099C3744f91c3BC24; // Add the admin address here
-    address public constant trader = 0xaD8234bC07168d9f7E49c3780e4b5fefa6620f8A;
-    address public constant trader2 = 0xaD8234bC07168d9f7E49c3780e4b5fefa6620f8A;
+    address public constant ADMIN = 0x6Abb788569C3658b4C4798dEb914e6151D7aFc1C; // Add the admin address here
+    address public constant trader = 0xB91a71FA558ec371eA09477c1D9f46E6AbA60719;
+    address public constant trader2 = 0xB91a71FA558ec371eA09477c1D9f46E6AbA60719;
 
     function run() external {
         uint256 deployerPrivateKey = vm.envUint("FORWARDER_PRIVATE_KEY");
@@ -31,18 +31,17 @@ contract SettleDoppiCoreOrders is Script {
 
         // Get DoppiCore instance
         DoppiCore doppiCore = DoppiCore(DOPPI_CORE);
-        // DoppiTrader doppiTrader = DoppiTrader(DOPPI_TRADER);
         DoppiPoints doppiPoints = DoppiPoints(DOPPI_POINTS);
         DoppiReferral doppiReferral = DoppiReferral(DOPPI_REF);
         DoppiOffer impliedVol = DoppiOffer(DOPPI_OFFER);
 
-        (DualAssetOffer[] memory buyOffers, DualAssetOffer[] memory selloffers) = impliedVol.getAllOffers(1);
-        for(uint256 i=0; i< selloffers.length; i++){
-            console.log(selloffers[i].strikePrice, selloffers[i].price);
-        }
-        for(uint256 i=0; i< buyOffers.length; i++){
-            console.log(buyOffers[i].strikePrice, buyOffers[i].price);
-        }
+        // (DualAssetOffer[] memory buyOffers, DualAssetOffer[] memory selloffers) = impliedVol.getAllOffers(1);
+        // for(uint256 i=0; i< selloffers.length; i++){
+        //     console.log(selloffers[i].strikePrice, selloffers[i].price);
+        // }
+        // for(uint256 i=0; i< buyOffers.length; i++){
+        //     console.log(buyOffers[i].strikePrice, buyOffers[i].price);
+        // }
 
         // uint24[] memory ids = doppiPoints.getMonthIds();
         // for(uint256 i; i <ids.length; i++){
@@ -59,23 +58,12 @@ contract SettleDoppiCoreOrders is Script {
 
         // console.log(totalL1, totalL2, totalL3);
         // console.log(currentL1, currentL2, currentL3);
-        // Check if upkeep is needed Trader bot
-        // (bool upkeepNeeded2, bytes memory performData2) = doppiTrader.checkUpkeep("");
-        // console.log("Doppi Trader Upkeep needed:", upkeepNeeded2);
-        // if (upkeepNeeded2) {
-        //     console.log("Performing upkeep for trader bot...");
-        //     doppiTrader.performUpkeep(performData2);
-        //     console.log("Trader bot Upkeep performed successfully!");
-        // } else {
-        //     console.log("No trader bot upkeep needed at this time");
-        // }
-
-
-        // uint256 buyCount = doppiCore.getBuyPositionCount(address(0));
-        // DualAssetPosition[] memory positions = doppiCore.get_positions_buy();
-        // for(uint256 i; i <positions.length; i++){
-        //     console.log("expiryTimestamp", positions[i].expiryTimestamp, block.timestamp);
-        // }
+        address traderbot2 = address(0x234765F220DB7F6C062Bc552AAfe0005Cc8Ce04a);
+        uint256 buyCount = doppiCore.getBuyPositionCount(traderbot2);
+        DualAssetPosition[] memory positions = doppiCore.get_positions_buy(traderbot2);
+        for(uint256 i; i <positions.length; i++){
+            console.log("expiryTimestamp", positions[i].expiryTimestamp, block.timestamp);
+        }
         
         (bool upkeepNeeded, bytes memory performData) = doppiCore.checkUpkeep("");
         

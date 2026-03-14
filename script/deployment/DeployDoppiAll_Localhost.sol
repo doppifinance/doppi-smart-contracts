@@ -37,9 +37,9 @@ contract DeployDoppiAll is Script {
     address constant PCSWAP_V3Pool = address(0x46Cf1cF8c69595804ba91dFdd8d6b960c9B0a7C4);
     address constant CHAINLINK_RegistryConsumer = address(0xDc21E279934fF6721CaDfDD112DAfb3261f09A2C);
     address constant CHAINLINK_Registrar = address(0xf671F60bCC964B309D22424886FF202807381B32);
-    address constant treasury = address(0xaD8234bC07168d9f7E49c3780e4b5fefa6620f8A);
-    address constant admin = address(0xaD8234bC07168d9f7E49c3780e4b5fefa6620f8A);
-    address constant forwarder = address(0x70997970C51812dc3A010C7d01b50e0d17dc79C8);
+    address constant treasury = address(0x7E8c87Feb8D30706ca43A8049ee654875426A721);
+    address constant admin = address(0x6Abb788569C3658b4C4798dEb914e6151D7aFc1C);
+    address constant forwarder = address(0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266);
     ConfigParam configLP;
 
     function run() external {
@@ -76,8 +76,6 @@ contract DeployDoppiAll is Script {
         _setDoppiCoreProperties(doppiCore, doppiFactory, address(doppiOpportunity));
 
         doppiPoints.setDoppiTraderFactory(address(doppiFactory));
-        // set setForwarderAddress for all necessary contracts
-        // doppiOpportunity.setForwarderAddress(forwarder);
         
         vm.stopBroadcast();
 
@@ -141,7 +139,7 @@ contract DeployDoppiAll is Script {
         console.log("Deploying DoppiOpportunity...");
         DoppiOpportunity doppiOpportunity = new DoppiOpportunity(_doppiCore, _doppiLP);
         console.log("DoppiOpportunity deployed at:", address(doppiOpportunity));
-        // doppiOpportunity.setForwarderAddress(forwarder);
+        doppiOpportunity.setForwarderAddress(forwarder);
         return doppiOpportunity;
     }
 
@@ -226,6 +224,7 @@ contract DeployDoppiAll is Script {
         console.log("mockRegistryConsumer deployed at:", address(registryConsumer));
         console.log("DoppiUpkeepManager deployed at:", address(doppiUpkeepManager));
         doppiUpkeepManager.setMaxDelay(10 days);
+        doppiUpkeepManager.setForwarderAddress(forwarder);
         _doppiFactory.setDoppiUpKeepManager(address(doppiUpkeepManager));
         return doppiUpkeepManager;
     }  
