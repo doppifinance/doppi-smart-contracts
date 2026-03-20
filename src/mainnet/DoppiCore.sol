@@ -94,6 +94,10 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
         if(!_isAPRWithinTolerance(buyOffer.apr, params.apr)) revert InvalidAPR();
         
         _depositBuy(params, buyOffer);
+        // record for points
+        if(!doppiPoints.paused()){
+            _recordTradePoints(msg.sender, params.amount);
+        }
         _updateLowerUpperBound(buyOffer.strikePrice);
     }
 
@@ -110,10 +114,15 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
         if(sellOffer.strikePrice != params.strikePrice) revert InvalidStrikePriceOrPrice();
         if(!_isAPRWithinTolerance(sellOffer.apr, params.apr)) revert InvalidAPR();
         _depositSell(params, sellOffer);
+        // record for points
+        if(!doppiPoints.paused()){
+            uint256 tradeVolume = (params.amount * sellOffer.price) / priceDecimal; 
+            _recordTradePoints(msg.sender, tradeVolume);
+        }
         _updateLowerUpperBound(sellOffer.strikePrice);
     }
 
-    function bulkDeposit(bool isBuy, DepositParams[] calldata params, DualAssetOffer[] memory _offers) external whenNotPaused {
+    function bulkDeposit(bool isBuy, DepositParams[] calldata params, DualAssetOffer[] memory _offers, uint256 total) external whenNotPaused {
         
         _onlyTraderBot();
         uint256 length = params.length;
@@ -127,6 +136,11 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
             isBuy ? _depositBuy(param, _offers[i]) : _depositSell(param, _offers[i]);
             _updateLowerUpperBound(_offers[i].strikePrice);
             unchecked { ++i; }
+        }
+
+        if(!doppiPoints.paused()){
+            uint256 tradeVolume = isBuy ? total : (total * _offers[0].price) / priceDecimal; 
+            _recordTradePoints(msg.sender, tradeVolume);
         }
     }
 
@@ -337,10 +351,7 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
         );
         opportunityBuy[_buyOffer.strikePrice].amount += amount;
         _updateInterestLiability(interest, true);
-        // record for points
-        if(!doppiPoints.paused()){
-            _recordTradePoints(sender, amount);
-        }
+        
         emit Deposited(sender, positionId, address(assetA), amount, interest, _buyOffer.strikePrice, _buyOffer.apr, numDays);
     }
 
@@ -374,13 +385,7 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
             payout
         );
         opportunitySell[_sellOffer.strikePrice].amount += amount;
-
         _updateInterestLiability(interest, false);
-        // record for points
-        if(!doppiPoints.paused()){
-            uint256 tradeVolume = (amount * _sellOffer.price) / priceDecimal; 
-            _recordTradePoints(sender, tradeVolume);
-        }
         emit Deposited(sender, positionId, address(assetB), amount, interest, _sellOffer.strikePrice, _sellOffer.apr, numDays);
     }
 
@@ -451,11 +456,15 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
             address(doppiTraderFactory) != address(0) &&
             doppiTraderFactory.isTraderBot(p.owner)
         ) {
-            IDoppiTrader(p.owner).createUnwindPosition(
+            try IDoppiTrader(p.owner).createUnwindPosition(
                 p.payout,
                 p.strikePrice,
                 isBuy
-            );
+            ) {
+                // success
+            } catch {
+                // best-effort unwind position; do not revert settlement
+            }
         }
     }
     
@@ -676,39 +685,45 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
     function _updateBound() internal {
 
         uint256 gap = doppiOffer.getPriceGapPerOffer() * priceDecimal;
+        require(gap > 0, "Invalid price gap");
+
+        if (upperBound < lowerBound) {
+            _resetBound();
+            return;
+        }
 
         // ------------------ UPDATE LOWER BOUND ------------------
         uint256 i = lowerBound;
-        while (true) {
+        bool found = false;
+        while (i <= upperBound) {
             if (opportunityBuy[i].amount > 0 || opportunitySell[i].amount > 0) {
                 lowerBound = i;
+                found = true;
                 break;
             }
-            // move upward
             i += gap;
+        }
 
-            // no valid strike left
-            if (i > upperBound) {
-                _resetBound();
-                return;
-            }
+        if (!found) {
+            _resetBound();
+            return;
         }
 
         // ------------------ UPDATE UPPER BOUND ------------------
         i = upperBound;
-        while (true) {
+        found = false;
+        while (i >= lowerBound) {
             if (opportunityBuy[i].amount > 0 || opportunitySell[i].amount > 0) {
                 upperBound = i;
+                found = true;
                 break;
             }
-            // guard underflow
             if (i < gap) break;
             i -= gap;
+        }
 
-            if (i < lowerBound) {
-                _resetBound();
-                return;
-            }
+        if (!found) {
+            _resetBound();
         }
     }
 
@@ -736,12 +751,13 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
 
         uint256 firstPrice = _getTargetPrice(_price, 1, unwind);
         uint256 priceGap = doppiOffer.getPriceGapPerOffer() * priceDecimal;
+        require(priceGap > 0, "Invalid price gap");
         
         uint256 diff = unwind 
             ? (firstPrice > lowerBound ? firstPrice - lowerBound : 0)
             : (upperBound > firstPrice ? upperBound - firstPrice : 0);
 
-        round = diff / priceGap + 1;
+        round = (diff / priceGap) + 1;
     }
 
     function _executeOpportunity(
@@ -898,6 +914,7 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
 
     function _getTargetPrice(uint256 _price, uint8 _zone, bool _isBuy) internal view returns (uint256) {
         uint256 priceGapWithDecimals = doppiOffer.getPriceGapPerOffer() * priceDecimal;
+        require(priceGapWithDecimals > 0, "Invalid price gap");
         _price = (_price / priceGapWithDecimals) * priceGapWithDecimals;
         return _isBuy ? _price - (priceGapWithDecimals * (_zone - 1)) : _price + (priceGapWithDecimals * _zone);
     }

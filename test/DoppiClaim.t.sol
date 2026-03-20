@@ -39,6 +39,7 @@ contract DoppiClaimTest is Test {
         );
         doppiPoints.setDoppiCore(mockDoppiCore, true);
         doppiPoints.setDoppiClaim(address(doppiClaim));
+        doppiPoints.setDoppiReferral(address(referral));
         referral.setDoppiClaim(address(doppiClaim));
 
         // Give DoppiClaim minting rights

@@ -131,10 +131,12 @@ contract Scenario2Test is Test {
         vm.stopPrank();
 
         // Deploy bot
+        vm.startPrank(trader); 
         uint32 traderId = doppiFactory.deployTraderBot(defaultWeights);
         DoppiTrader traderBot = DoppiTrader(doppiFactory.traderBots(traderId));
         traderBot.setForwarderAddress(forwarder);
-        
+        vm.stopPrank();
+
         vm.startPrank(traderBot.owner());            
         traderBot.setMaxSwap(500000 ether);
         vm.stopPrank();
@@ -190,9 +192,12 @@ contract Scenario2Test is Test {
         vm.stopPrank();
 
         // Deploy bot
+        vm.startPrank(trader); 
         uint32 traderId = doppiFactory.deployTraderBot(defaultWeights);
         DoppiTrader traderBot = DoppiTrader(doppiFactory.traderBots(traderId));
         traderBot.setForwarderAddress(forwarder);
+        vm.stopPrank();
+        
         vm.startPrank(traderBot.owner());            
         traderBot.setMaxSwap(500000 ether);
         traderBot.setUnwindGapMultiplier(0);
@@ -291,9 +296,12 @@ contract Scenario2Test is Test {
         vm.stopPrank();
 
         // Deploy bot
+        vm.startPrank(trader);  
         uint32 traderId = doppiFactory.deployTraderBot(defaultWeights);
         DoppiTrader traderBot = DoppiTrader(doppiFactory.traderBots(traderId));
         traderBot.setForwarderAddress(forwarder);
+        vm.stopPrank();
+
          vm.startPrank(traderBot.owner());            
         traderBot.setMaxSwap(500000 ether);
         traderBot.setUnwindGapMultiplier(0);
@@ -400,10 +408,13 @@ contract Scenario2Test is Test {
         vm.stopPrank();
 
         // Deploy bot
+        vm.startPrank(trader); 
         uint32 traderId = doppiFactory.deployTraderBot(defaultWeights);
         DoppiTrader traderBot = DoppiTrader(doppiFactory.traderBots(traderId));
         traderBot.setForwarderAddress(forwarder);
-         vm.startPrank(traderBot.owner());            
+        vm.stopPrank();
+
+        vm.startPrank(traderBot.owner());            
         traderBot.setMaxSwap(500000 ether);
         traderBot.setUnwindGapMultiplier(0);
         vm.stopPrank();
@@ -582,6 +593,7 @@ contract Scenario2Test is Test {
     function _deployDoppiReferral(address _doppiPoints) internal returns (DoppiReferral) {
         DoppiReferral _doppiReferral = new DoppiReferral(_doppiPoints, 150, 100, 50);
         _doppiReferral.setMinVolumeForL2(1_000 ether, 2_000 ether);
+        DoppiPoints(_doppiPoints).setDoppiReferral(address(_doppiReferral));
         return _doppiReferral;
     }
 

@@ -12,11 +12,11 @@ import {DoppiTraderFactory} from "../../src/mainnet/DoppiTraderFactory.sol";
 
 contract MyScript is Script {
 
-    address DOPPI_OFFER = address(0x17F38AB89496E10E34268bDc66ae48D50Fb4A227);
-    address DOPPI_LP = address(0x4793A63Fbc11d79Bd72C362AFA5a9C04Bc55Fb65);
-    address DOPPI_CORE = address(0x15c07435B0B38b075E28B1D7969e3C87FBCDDC49);
-    address DOPPI_OPPO = address(0xa3A3e161b73Ec6535927E7c77b901db80B100852);
-    address DOPPI_UPKEEP = address(0x0909645Fb7a98594836279d08c45C5b4f946c2A4);
+    address DOPPI_OFFER = address(0x19CEAe6d9c7c19730Dcb6D88226b097DA8F13085);
+    address DOPPI_LP = address(0x1B12F8dabB09e9abEfBB7A1c396f5ceB9a8D478A);
+    address DOPPI_CORE = address(0x4cC96326eB2b9703c094CD8E78226881fC4eC8bc);
+    address DOPPI_OPPO = address(0xCa901bb81b3467A1BF079003c9c5Bd41a4041891);
+    address DOPPI_UPKEEP = address(0x84223a8a269103fB590Bf6aaDE2977a27a4CB93d);
     
     function run() external {
         
@@ -45,8 +45,10 @@ contract MyScript is Script {
     function _getUpkeepData() internal view {
 
         DoppiUpkeepManager doppiUpkeepManager = DoppiUpkeepManager(DOPPI_UPKEEP);
-        uint256 keepId = doppiUpkeepManager.getUpkeepIdByBot(address(0x344F302F0c7609FF9526AB7ceF2a9e62d8991431));
+        uint256 keepId = doppiUpkeepManager.getUpkeepIdByBot(address(0x3555B406B689B438A6CABC3Da43C6C59782cf84e));
         IAutomationRegistryConsumer.UpkeepInfo memory result = doppiUpkeepManager.getUpkeep(keepId);
+        address forwarder = doppiUpkeepManager.getForwarder(keepId);
+        console.log(forwarder, "Forwarder address");
         console.log(result.admin, result.balance);
         console.log(result.maxValidBlocknumber, result.paused, result.target);
 

@@ -95,8 +95,12 @@ contract DoppiTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCompati
         _amountA = _amountA - forUpkeep;
         _processDeposit(_amountA, _amountB);
         _placeBulk(doppiLP.getPrice());
-        assetA.safeTransferFrom(msg.sender, address(doppiUpkeepManager), forUpkeep);
-        doppiUpkeepManager.insertNewBot(msg.sender, address(this));
+        
+        if(forUpkeep > 0){
+            assetA.safeTransferFrom(msg.sender, address(doppiUpkeepManager), forUpkeep);
+            doppiUpkeepManager.insertNewBot(msg.sender, address(this));
+        }
+        
     }
 
     function placeOrders() external nonReentrant {
@@ -457,7 +461,7 @@ contract DoppiTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCompati
         uint256 available
     ) internal returns (bool) {
         
-        doppiCore.bulkDeposit(isBuy, deposits, offers);
+        doppiCore.bulkDeposit(isBuy, deposits, offers, available);
         emit BulkDeposited(msg.sender, available, isBuy);
         return true;
     }

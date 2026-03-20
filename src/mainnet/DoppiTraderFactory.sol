@@ -48,6 +48,7 @@ contract DoppiTraderFactory is Ownable, IDoppiTraderFactory {
     }
 
     function deployTraderBot(uint24[] calldata _weights) external whenOpen returns (uint32) {
+        require(msg.sender.code.length == 0, "contracts not allowed");
         // Use Clones to create minimal proxy
         address traderBot = Clones.clone(traderBotImplementation);
         
@@ -77,7 +78,7 @@ contract DoppiTraderFactory is Ownable, IDoppiTraderFactory {
         doppiUpKeepManager = _doppiUpKeepManager;
     }
 
-    function traderBotId(address _addr) external view returns (uint256) {
+    function traderBotId(address _addr) external view returns (uint32) {
         return botRegistry.getIdByBot(_addr);
     }
 

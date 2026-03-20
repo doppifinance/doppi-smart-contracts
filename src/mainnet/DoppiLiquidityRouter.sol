@@ -112,6 +112,9 @@ contract DoppiLiquidityRouter is Ownable, Pausable, ReentrancyGuard {
         }
 
         // Calculate available assets after reserving for liabilities
+        if (totalPoolAssetsInA <= requiredReserve) {
+            return 0;
+        }
         uint256 availableAsset = totalPoolAssetsInA - requiredReserve;
         maxWithdrawable = (availableAsset * userShares) / totalPoolAssetsInA;
 

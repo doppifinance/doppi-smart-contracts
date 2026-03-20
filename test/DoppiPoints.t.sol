@@ -107,7 +107,7 @@ contract DoppiPointsTest is Test {
     function testRevertOnZeroVolume() public {
         
         vm.prank(mockDoppiCore);
-        vm.expectRevert(bytes("Volume must be > 0"));
+        vm.expectRevert(bytes("volume must be > 0"));
         doppiPoints.recordTrade(trader1, 0);
         vm.stopPrank();
     }

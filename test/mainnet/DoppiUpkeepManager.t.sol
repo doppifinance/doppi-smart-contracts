@@ -196,10 +196,6 @@ contract DoppiUpkeepManagerTest is Test {
         
         DoppiTrader traderBot = _deployBot(trader);
         
-        // process 1st bot & forwarder update
-        _upKeepManager_check_performUpkeep();
-        _upKeepManager_check_performUpkeep();
-        
         uint256 upKeepid = doppiUpkeepManager.getUpkeepIdByBot(address(traderBot));
         mockRegistryConsumer.updateAmountSpent(upKeepid, 4.1 ether);
 
@@ -235,9 +231,6 @@ contract DoppiUpkeepManagerTest is Test {
     function test_mainnet_stopWithdraw_pending_fee() public {
         
         DoppiTrader traderBot = _deployBot(trader);
-        // process 1st bot & forwarder update
-        _upKeepManager_check_performUpkeep();
-        _upKeepManager_check_performUpkeep();
         
         uint256 upKeepid = doppiUpkeepManager.getUpkeepIdByBot(address(traderBot));
         mockRegistryConsumer.updateAmountSpent(upKeepid, 4.1 ether);
@@ -284,28 +277,13 @@ contract DoppiUpkeepManagerTest is Test {
     function test_deploybot_autosetup_upkeep() public {
         
         DoppiTrader traderBot = _deployBot(trader);
-        
-        // perform auto register upkeep
-        (bool upkeepNeeded, bytes memory performData) = _upKeepManager_check_performUpkeep();
-        assertTrue(upkeepNeeded);
         uint256 upKeepid = doppiUpkeepManager.getUpkeepIdByBot(address(traderBot));
-        assertNotEq(upKeepid, 0);
-
-        // perform auto register forward address
-        (upkeepNeeded, performData) = _upKeepManager_check_performUpkeep();
-        assertTrue(upkeepNeeded);
-        address forwarder = doppiUpkeepManager.getForwarder(upKeepid);
-        assertNotEq(forwarder, address(0));
-
-        // ensure no non-upkeep registered bot
-        (upkeepNeeded, performData) = _upKeepManager_check_performUpkeep();
-        assertFalse(upkeepNeeded);
 
         mockRegistryConsumer.updateAmountSpent(upKeepid, 4.1 ether);
         vm.roll(block.number + 100); // Forward 100 blocks
         
         uint256 balbefore = doppiUpkeepManager.getUpkeepBalance(upKeepid);
-        (upkeepNeeded, performData) = traderBot.checkUpkeep("");
+        (bool upkeepNeeded, bytes memory performData) = traderBot.checkUpkeep("");
         vm.prank(traderBot.s_forwarderAddress());
         traderBot.performUpkeep(performData);
         vm.stopPrank();
@@ -335,10 +313,6 @@ contract DoppiUpkeepManagerTest is Test {
     function test_mainnet_checktopup_performtopup() public {
         
         DoppiTrader traderBot = _deployBot(trader);
-        
-        // process 1st bot & forwarder update
-        _upKeepManager_check_performUpkeep();
-        _upKeepManager_check_performUpkeep();
 
         uint256 upKeepid = doppiUpkeepManager.getUpkeepIdByBot(address(traderBot));
         
@@ -403,17 +377,4 @@ contract DoppiUpkeepManagerTest is Test {
         traderBot.start(assetAAmount, 0.1 ether);
         vm.stopPrank(); 
     }
-
-    function _upKeepManager_check_performUpkeep() internal returns (bool upkeepNeeded, bytes memory performData) {
-        (upkeepNeeded, performData) = doppiUpkeepManager.checkUpkeep("");
-        if(upkeepNeeded){
-            vm.prank(doppiUpkeepManager.s_forwarderAddress());
-            doppiUpkeepManager.performUpkeep(performData);  
-            vm.stopPrank();
-        }
-    }
-    
-      
-
-    
 }

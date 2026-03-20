@@ -33,9 +33,9 @@ contract DoppiReferral is Ownable {
     // --- Configurable ---
     DoppiPoints public immutable doppiPoints;
     address public doppiClaim;
-    uint256 public constant MAX_L1_REFEREES = 20;    // Max direct referees per user
-    uint256 public constant MAX_L2_PER_L1 = 5;       // Max L2 referees per L1 referee
-    uint256 public constant MAX_L3_PER_L2 = 1;       // Max L3 referees per L2 referee
+    uint256 public constant MAX_L1_REFEREES = 2000;    // Max direct referees per user
+    uint256 public constant MAX_L2_PER_L1 = 500;       // Max L2 referees per L1 referee
+    uint256 public constant MAX_L3_PER_L2 = 100;       // Max L3 referees per L2 referee
     uint16 public LEVEL1_REWARD_BP = 150; // 1.5%
     uint16 public LEVEL2_REWARD_BP = 100; // 1.0%
     uint16 public LEVEL3_REWARD_BP = 50; // 0.5%
@@ -103,7 +103,7 @@ contract DoppiReferral is Ownable {
         require(referrer != address(0), "invalid referral code");
         require(referrer != msg.sender, "cannot refer self");
         require(refereeToReferrer[msg.sender] == address(0), "already register");
-        require(!_isInDownlineRecursive(msg.sender, referrer), "cannot register under your downline");
+        // require(!_isInDownlineRecursive(msg.sender, referrer), "cannot register under your downline");
         require(directReferees[msg.sender].length == 0, "cannot register upline");
         require(directReferees[referrer].length < MAX_L1_REFEREES, "reached maximum L1 referees");
 
@@ -132,33 +132,37 @@ contract DoppiReferral is Ownable {
 
         for (uint256 i = 0; i < level1Refs.length; i++) {
             level1Referees[i] = level1Refs[i];
-            
+
             address[] memory level2Refs = directReferees[level1Refs[i]];
-            totalLevel2 += level2Refs.length > MAX_L2_PER_L1 ? MAX_L2_PER_L1 : level2Refs.length;
-            
-            for (uint256 j = 0; j < level2Refs.length; j++) {
+            uint256 capLevel2 = level2Refs.length;
+            totalLevel2 += level2Refs.length;
+
+            for (uint256 j = 0; j < capLevel2; j++) {
                 address[] memory level3Refs = directReferees[level2Refs[j]];
-                totalLevel3 += level3Refs.length > MAX_L3_PER_L2 ? MAX_L3_PER_L2 : level3Refs.length;
+                uint256 capLevel3 = level3Refs.length;
+                totalLevel3 += capLevel3;
             }
         }
 
-         // Create properly sized arrays
+        // Create properly sized arrays
         level2Referees = new address[](totalLevel2);
         level3Referees = new address[](totalLevel3);
 
-         // Second pass: fill arrays
+        // Second pass: fill arrays
         uint256 level2Index = 0;
         uint256 level3Index = 0;
 
         for (uint256 i = 0; i < level1Refs.length; i++) {
             address[] memory level2Refs = directReferees[level1Refs[i]];
-            
-            for (uint256 j = 0; j < totalLevel2; j++) {
+            uint256 capLevel2 = level2Refs.length;
+
+            for (uint256 j = 0; j < capLevel2; j++) {
                 level2Referees[level2Index] = level2Refs[j];
                 level2Index++;
-                
+
                 address[] memory level3Refs = directReferees[level2Refs[j]];
-                for (uint256 k = 0; k < totalLevel3; k++) {
+                uint256 capLevel3 = level3Refs.length;
+                for (uint256 k = 0; k < capLevel3; k++) {
                     level3Referees[level3Index] = level3Refs[k];
                     level3Index++;
                 }
@@ -169,19 +173,33 @@ contract DoppiReferral is Ownable {
     function getReferralRewardsByMonthId(address trader, uint24 monthId) external view
         returns (uint256 totalL1, uint256 totalL2, uint256 totalL3) 
     {
-        (totalL1, totalL2, totalL3) = _calculateRewardsForMonth(trader, monthId);
+        (totalL1, totalL2, totalL3) = doppiPoints.getReferralVolumeByMonth(trader, monthId);
+        (totalL1, totalL2, totalL3) = _appliedMinVol(totalL1, totalL2, totalL3);
     }
 
-    /// @notice Get all pending rewards earned by `referrer` from their downline
     function getTotalReferralRewards(address trader)
         external
         view
-        returns (
-            uint256 totalL1, uint256 totalL2, uint256 totalL3,
-            uint256 currentL1, uint256 currentL2, uint256 currentL3
-        )
+        returns (uint256 totalL1, uint256 totalL2, uint256 totalL3,
+                uint256 currentL1, uint256 currentL2, uint256 currentL3)
     {
-        return _getTotalReferralRewards(trader);
+        ReferralInfo memory info = referrals[trader];
+        uint24 currentMonthId = _currentMonthId();
+        // current month (non-claimable yet but returned separately)
+        (uint256 currentL1v, uint256 currentL2v, uint256 currentL3v) = doppiPoints.getReferralVolumeByMonth(trader, currentMonthId);
+        (currentL1, currentL2, currentL3) = _appliedMinVol(currentL1v, currentL2v, currentL3v);
+        
+        // existing claimed months
+        uint24 startMonthId = info.claimedMonthId + 1;
+        // Only calculate for completed months (exclude current month)
+        uint24 endMonthId = currentMonthId - 1;
+        for (uint24 monthId = startMonthId; monthId <= endMonthId; monthId++) {
+            (uint256 l1v, uint256 l2v, uint256 l3v) = doppiPoints.getReferralVolumeByMonth(trader, monthId);
+            (l1v, l2v, l3v) = _appliedMinVol(l1v, l2v, l3v);
+            totalL1 += l1v;
+            totalL2 += l2v;
+            totalL3 += l3v;
+        }
     }
 
     function resetClaimsByMonthId(address referrer, uint24 monthId) external onlyDoppiClaim {
@@ -194,7 +212,8 @@ contract DoppiReferral is Ownable {
         
         // Only reset if we're in a new month
         if (currentMonthId > ref.claimedMonthId + 1) {
-            (uint256 level1Reward, uint256 level2Reward, uint256 level3Reward) = _calculateRewardsForMonth(referrer, monthId);
+            (uint256 level1Reward, uint256 level2Reward, uint256 level3Reward) = doppiPoints.getReferralVolumeByMonth(referrer, monthId);
+            (level1Reward, level2Reward, level3Reward) = _appliedMinVol(level1Reward, level2Reward, level3Reward);
             ref.claimedLevel1 += level1Reward;
             ref.claimedLevel2 += level2Reward;
             ref.claimedLevel3 += level3Reward;
@@ -204,22 +223,27 @@ contract DoppiReferral is Ownable {
     }
 
     function resetClaims(address referrer) external onlyDoppiClaim {
+        require(addressToReferralCode[referrer] != bytes32(0), "not registered");
+
         uint24 currentMonthId = _currentMonthId();
         ReferralInfo storage ref = referrals[referrer];
-        require(addressToReferralCode[referrer] != bytes32(0), "not registered");
         require(currentMonthId > ref.claimedMonthId + 1, "still in current month");
-        
         // Only reset if we're in a new month
         if (currentMonthId > ref.claimedMonthId + 1) {
-            (uint256 level1Reward, uint256 level2Reward, uint256 level3Reward,,,) = 
-                _getTotalReferralRewards(referrer);
-            
-            ref.claimedLevel1 += level1Reward;
-            ref.claimedLevel2 += level2Reward;
-            ref.claimedLevel3 += level3Reward;
-            ref.claimedMonthId = currentMonthId - 1; // Claim up to previous month
-            emit Claimed(referrer, level1Reward, level2Reward, level3Reward, ref.claimedMonthId);
+            (uint256 totalL1, uint256 totalL2, uint256 totalL3, , , ) = this.getTotalReferralRewards(referrer);
+            ref.claimedLevel1 += totalL1;
+            ref.claimedLevel2 += totalL2;
+            ref.claimedLevel3 += totalL3;
+            ref.claimedMonthId = currentMonthId - 1;
+
+            emit Claimed(referrer, totalL1, totalL2, totalL3, ref.claimedMonthId);
         }
+    }
+
+    function getUplineChain(address trader) external view returns (address l1, address l2, address l3) {
+        l1 = refereeToReferrer[trader];
+        l2 = refereeToReferrer[l1];
+        l3 = refereeToReferrer[l2];
     }
 
     function getReferralInfo(address user) external view returns (ReferralInfo memory) {
@@ -233,82 +257,22 @@ contract DoppiReferral is Ownable {
     }
 
     // internal function 
-    function _isInDownlineRecursive(address user, address target) internal view returns (bool) {
-        if (user == target) return true;
+    // function _isInDownlineRecursive(address user, address target) internal view returns (bool) {
+    //     if (user == target) return true;
         
-        address[] memory referees = directReferees[user];
-        for (uint256 i = 0; i < referees.length; i++) {
-            if (_isInDownlineRecursive(referees[i], target)) {
-                return true;
-            }
-        }
-        return false;
-    }
+    //     address[] memory referees = directReferees[user];
+    //     for (uint256 i = 0; i < referees.length; i++) {
+    //         if (_isInDownlineRecursive(referees[i], target)) {
+    //             return true;
+    //         }
+    //     }
+    //     return false;
+    // }
 
-    function _getTotalReferralRewards(address referrer)
-        internal
-        view
-        returns (
-            uint256 totalL1, uint256 totalL2, uint256 totalL3,
-            uint256 currentL1, uint256 currentL2, uint256 currentL3
-            )
-    {
-        ReferralInfo memory ref = referrals[referrer];
-        uint24 currentMonthId = _currentMonthId();
-        
-        (currentL1, currentL2, currentL3) = _calculateRewardsForMonth(referrer, currentMonthId);
-            
-        uint24 startMonthId = ref.claimedMonthId + 1;
-        // Only calculate for completed months (exclude current month)
-        uint24 endMonthId = currentMonthId - 1;
-
-        for (uint24 monthId = startMonthId; monthId <= endMonthId; monthId++) {
-            (uint256 l1, uint256 l2, uint256 l3) = _calculateRewardsForMonth(referrer, monthId);
-            totalL1 += l1;
-            totalL2 += l2;
-            totalL3 += l3;
-        }
-    }
-
-    function _calculateRewardsForMonth(address referrer, uint24 monthId)
-        internal
-        view
-        returns (uint256 l1, uint256 l2, uint256 l3)
-    {
-        address[] memory level1Refs = directReferees[referrer];
-        
-        for (uint256 i = 0; i < level1Refs.length; i++) {
-            address level1Ref = level1Refs[i];
-            uint256 vol1 = doppiPoints.getMonthlyVolume(level1Ref, monthId);
-            
-            if (vol1 > 0) {
-                l1 += (vol1 * LEVEL1_REWARD_BP) / BP_DENOMINATOR;
-            }
-
-            // Level 2 rewards
-            address[] memory level2Refs = directReferees[level1Ref];
-            uint256 totalL2 = level2Refs.length > MAX_L2_PER_L1 ? MAX_L2_PER_L1 : level2Refs.length;
-            for (uint256 j = 0; j < totalL2; j++) {
-                address level2Ref = level2Refs[j];
-                uint256 vol2 = doppiPoints.getMonthlyVolume(level2Ref, monthId);
-                
-                if (vol2 >= MIN_VOLUME_FOR_L2) {
-                    l2 += (vol2 * LEVEL2_REWARD_BP) / BP_DENOMINATOR;
-                }
-
-                // Level 3 rewards
-                address[] memory level3Refs = directReferees[level2Ref];
-                uint256 totalL3 = level3Refs.length > MAX_L3_PER_L2 ? MAX_L3_PER_L2 : level3Refs.length;
-                for (uint256 k = 0; k < totalL3; k++) {
-                    address level3Ref = level3Refs[k];
-                    uint256 vol3 = doppiPoints.getMonthlyVolume(level3Ref, monthId);
-                    
-                    if (vol3 >= MIN_VOLUME_FOR_L3) {
-                        l3 += (vol3 * LEVEL3_REWARD_BP) / BP_DENOMINATOR;
-                    }
-                }
-            }
-        }
+    function _appliedMinVol(uint256 l1, uint256 l2, uint256 l3) internal view returns (uint256 totalL1, uint256 totalL2, uint256 totalL3) {
+        totalL1 = (l1 * LEVEL1_REWARD_BP) / BP_DENOMINATOR;
+        totalL2 = (l2 >= MIN_VOLUME_FOR_L2) ? (l2 * LEVEL2_REWARD_BP) / BP_DENOMINATOR : 0;
+        totalL3 = (l3 >= MIN_VOLUME_FOR_L3) ? (l3 * LEVEL3_REWARD_BP) / BP_DENOMINATOR : 0;
     }
 
     function _currentMonthId() internal view returns (uint24) {

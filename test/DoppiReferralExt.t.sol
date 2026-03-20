@@ -56,7 +56,7 @@ contract DoppiReferralExtTest is Test {
 
 
     // Test constants
-    uint256 constant maxL1 = 20;
+    uint256 constant maxL1 = 100;
     uint256 constant maxL2 = 10;
     uint256 constant maxL3 = 2;
     uint16 constant L1_BPS = 150;  // 1.5%
@@ -70,14 +70,16 @@ contract DoppiReferralExtTest is Test {
         
         doppiPoints = new DoppiPoints();
         doppiPoints.setDoppiCore(doppiCore, true);
-        mockdoppiPoints = new MockDoppiPoints();
+        // mockdoppiPoints = new MockDoppiPoints();
         referral = new DoppiReferral(
             address(doppiPoints),
             L1_BPS, // 1.5%
             L2_BPS, // 1.0%
             L3_BPS   // 0.5%
         );
+        
         referral.setDoppiClaim(doppiClaim);
+        doppiPoints.setDoppiReferral(address(referral));
         // fast-forward to known start timestamp
         vm.warp(1735689600 + 60 days);
     }
@@ -116,6 +118,11 @@ contract DoppiReferralExtTest is Test {
     }
 
     function test_ResetClaims_MaxLimits_50L1_15L2_8L3() public {
+        
+        vm.startPrank(referral.owner());
+        referral.setMinVolumeForL2(70_000_000 ether, 1_000_000 ether);
+        vm.stopPrank();
+
         // Register referrer
         bytes32 code = _registerCode(referrer);
         // Create maximum referral tree (50 L1, 15 L2 per L1, 8 L3 per L2)
@@ -159,7 +166,7 @@ contract DoppiReferralExtTest is Test {
         // L2 traders: 300k each (doesn't qualify for L2)
         for (uint256 i = 0; i < maxL1; i++) {
             for (uint256 j = 0; j < maxL2; j++) {
-                _recordVolume(l2Referees[i][j], 300_000 ether);
+                _recordVolume(l2Referees[i][j], 1 ether);
             }
         }
         
@@ -171,8 +178,18 @@ contract DoppiReferralExtTest is Test {
                 }
             }
         }
-        
-        // Fast forward to month 2
+
+        (uint256 totalL1, uint256 totalL2, uint256 totalL3,
+                uint256 currentL1, uint256 currentL2, uint256 currentL3)  = referral.getTotalReferralRewards(referrer);
+
+        // console.log("Total L1 Rewards:", totalL1);
+        // console.log("Total L2 Rewards:", totalL2);
+        // console.log("Total L3 Rewards:", totalL3);
+        // console.log("Current L1 Rewards:", currentL1);
+        // console.log("Current L2 Rewards:", currentL2);
+        // console.log("Current L3 Rewards:", currentL3);
+
+        // Fast fcrward to month 2
         vm.warp(vm.getBlockTimestamp() + 60 days);
         
         // Call resetClaims - this should handle the max limits without out-of-gas
@@ -184,7 +201,7 @@ contract DoppiReferralExtTest is Test {
         console.log("Gas used for max limits calculation:", gasUsed);
         
         // Verify gas is reasonable (well under block limit)
-        assertLt(gasUsed, 2_500_000, "Gas usage too high");
+        assertLt(gasUsed, 500_000, "Gas usage too high");
         
         // Calculate expected rewards
         uint256 expectedL1 = 0;
@@ -193,15 +210,14 @@ contract DoppiReferralExtTest is Test {
         
         // L1 rewards from direct referees (50 × 600k)
         expectedL1 = maxL1 * 600_000 ether * uint256(L1_BPS) / 10000;
-        
         // L2 rewards from L2 referees that qualify (none, since 300k < 500k)
         expectedL2 += 0;
-        
         // L3 rewards from L3 referees that qualify (50×15×8 × 1.2M)
-        uint256 l3Count = maxL1 * 5 * 1; // max set in the contract
+        uint256 l3Count = maxL1 * maxL2 * maxL3; // max set in the contract
         expectedL3 = l3Count * 1_200_000 ether * L3_BPS / 10000;
+
         DoppiReferral.ReferralInfo memory info = referral.getReferralInfo(referrer);
-        
+
         assertEq(info.claimedLevel1, expectedL1, "L1 rewards incorrect");
         assertEq(info.claimedLevel2, expectedL2, "L2 rewards incorrect");
         assertEq(info.claimedLevel3, expectedL3, "L3 rewards incorrect");
@@ -229,10 +245,6 @@ contract DoppiReferralExtTest is Test {
         referral.resetClaims(referrer);
         
         DoppiReferral.ReferralInfo memory info = referral.getReferralInfo(referrer);
-        // console.log(info.claimedMonthId, "info.claimedMonthId");
-        // console.log(info.claimedLevel1, "info.claimedLevel1");
-        // console.log(info.claimedLevel2, "info.claimedLevel2");
-        // console.log(info.claimedLevel3, "info.claimedLevel3");
         
         uint256 rewardPerMonth = (volume * L1_BPS / 10000); // + (volume * L2_BPS / 10000);
         uint256 expectedTotal = rewardPerMonth * 3; // 3 months

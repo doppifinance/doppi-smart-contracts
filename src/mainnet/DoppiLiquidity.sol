@@ -163,6 +163,9 @@ contract DoppiLiquidity is ERC20, Ownable, Pausable, IDoppiLiquidity, Automation
 
         require(_config.maxDepositPercentage <= 50000, "Max deposit too high"); // Max 5x of LP capacity
         require(_config.liquidityFee <= 5000, "liquidity fee too high"); // Max 0.5%
+        require(_config.priceDecimals > 0, "Invalid price decimals");
+        require(_config.priceGap > 0, "Invalid price gap");
+        require(_config.unwindGapMultiplier > 0, "Invalid unwind multiplier");
         
         config.priceDecimals = _config.priceDecimals;
         config.decimals = 10 ** config.priceDecimals;
@@ -274,41 +277,48 @@ contract DoppiLiquidity is ERC20, Ownable, Pausable, IDoppiLiquidity, Automation
 
     function _updateBound() internal {
         uint256 gap = config.priceGap * config.decimals;
+        require(gap > 0, "Invalid price gap");
         uint256 price = DALiquidityLib.getPriceWithFallback(config.chainLinkFeed, config.v3Pool, config.twapDuration, config.maxDelay);
-                
+
+        if (upperBound < lowerBound) {
+            _resetBound(price);
+            return;
+        }
+
         // ------------------ UPDATE LOWER BOUND ------------------
         uint256 i = lowerBound;
-        while (true) {
+        bool found = false;
+        while (i <= upperBound) {
             if (amountToBuy[i] != 0 || amountToSell[i] != 0) {
-                // Found first valid strike
                 lowerBound = i;
+                found = true;
                 break;
             }
-            // move upward
             i += gap;
+        }
 
-            // no valid strike left
-            if (i > upperBound) {
-                _resetBound(price);
-                return;
-            }
+        if (!found) {
+            _resetBound(price);
+            return;
         }
 
         // ------------------ UPDATE UPPER BOUND ------------------
         i = upperBound;
-        while (true) {
+        found = false;
+        while (i >= lowerBound) {
             if (amountToBuy[i] != 0 || amountToSell[i] != 0) {
                 upperBound = i;
+                found = true;
                 break;
             }
-            // guard underflow
-            if (i < gap) break;
-            i -= gap;
-
-            if (i < lowerBound) {
-                _resetBound(price);
-                return;
+            if (i < gap) {
+                break;
             }
+            i -= gap;
+        }
+
+        if (!found) {
+            _resetBound(price);
         }
     }
 
@@ -355,29 +365,35 @@ contract DoppiLiquidity is ERC20, Ownable, Pausable, IDoppiLiquidity, Automation
     ) internal {
 
         uint256 priceGap = config.priceGap * config.decimals;
-        for (uint256 price = upperBound; price >= lowerBound; ) {
+        require(priceGap > 0, "Invalid price gap");
+
+        uint256 price = upperBound;
+        while (price >= lowerBound) {
             uint256 amountBuy = amountToBuy[price];
             if(removeAmountBuy > amountBuy){
                 delete amountToBuy[price];
-                removeAmountBuy -=  amountBuy;
-            }else{
+                removeAmountBuy -= amountBuy;
+            } else {
                 amountToBuy[price] = amountBuy - removeAmountBuy;
                 removeAmountBuy = 0;
             }
-            unchecked { price -= priceGap; }
-        }   
+            if(price < priceGap) break;
+            price -= priceGap;
+        }
 
-        for (uint256 price = lowerBound; price <= upperBound; ) {
+        price = lowerBound;
+        while (price <= upperBound) {
             uint256 amountSell = amountToSell[price];
             if(removeAmountSell > amountSell){
                 delete amountToSell[price];
-                removeAmountSell -=  amountSell;
-            }else{
+                removeAmountSell -= amountSell;
+            } else {
                 amountToSell[price] = amountSell - removeAmountSell;
                 removeAmountSell = 0;
-            } 
-            unchecked { price += priceGap; }
-        }        
+            }
+            if(price > upperBound - priceGap) break;
+            price += priceGap;
+        }
     }
 
     function _getAccumulatedPrices(
@@ -390,6 +406,7 @@ contract DoppiLiquidity is ERC20, Ownable, Pausable, IDoppiLiquidity, Automation
         mapping(uint256 => uint256) storage amountMap = isBuy ? amountToBuy : amountToSell;
         
         uint256 round = _getLoopRound(currentPrice, isBuy);
+        require(round > 0, "No unwind rounds");
         uint256[] memory tempTargetPrice = new uint256[](round);
         uint256 count = 0;
         uint256 maxSwapInLocal = isBuy ? config.maxSwap : config.maxSwap * config.decimals / currentPrice;
@@ -512,6 +529,7 @@ contract DoppiLiquidity is ERC20, Ownable, Pausable, IDoppiLiquidity, Automation
 
     function _getUnwindTargetPrice(uint256 _price, uint8 _zone, bool _isBuy) internal view returns (uint256) {
         uint256 priceGapWithDecimals = config.priceGap * config.decimals;
+        require(priceGapWithDecimals > 0, "Invalid price gap");
         _price = (_price / priceGapWithDecimals) * priceGapWithDecimals;
         return _isBuy ? _price - (priceGapWithDecimals * (_zone - 1)) : _price + (priceGapWithDecimals * _zone);
     }
@@ -539,6 +557,8 @@ contract DoppiLiquidity is ERC20, Ownable, Pausable, IDoppiLiquidity, Automation
 
         uint256 firstPrice = _getUnwindTargetPrice(_price, 1, !_isBuy);
         uint256 priceGapWithDecimals = config.priceGap * config.decimals;
+        require(priceGapWithDecimals > 0, "Invalid price gap");
+
         uint256 diff;
         if(_isBuy){
             diff = upperBound > firstPrice ? upperBound - firstPrice : 0;

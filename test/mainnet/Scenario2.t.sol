@@ -259,17 +259,7 @@ contract Scenario2Test is Test {
         traderBot.start(10000 ether, 0.1 ether);
         vm.stopPrank();
 
-        (bool upkeepNeeded, bytes memory performData) = doppiUpkeepManager.checkUpkeep("");
-        // console.log(upkeepNeeded, "upkeepNeeded");
-        assertTrue(upkeepNeeded); // process registering with upkeep manager
-
-        if(upkeepNeeded){
-            vm.prank(doppiUpkeepManager.s_forwarderAddress());
-            doppiUpkeepManager.performUpkeep(performData);  
-            vm.stopPrank();
-        }
         uint256 upkeepId = doppiUpkeepManager.getUpkeepIdByBot(address(traderBot));
-        // console.log(upkeepId, "upkeepId");
         assertGt(upkeepId, 0);
 
 
@@ -591,6 +581,7 @@ contract Scenario2Test is Test {
     function _deployDoppiReferral(address _doppiPoints) internal returns (DoppiReferral) {
         DoppiReferral _doppiReferral = new DoppiReferral(_doppiPoints, 150, 100, 50);
         _doppiReferral.setMinVolumeForL2(1_000 ether, 2_000 ether);
+        DoppiPoints(_doppiPoints).setDoppiReferral(address(_doppiReferral));
         return _doppiReferral;
     }
 

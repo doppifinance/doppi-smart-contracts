@@ -62,8 +62,58 @@ contract DoppiReferralTest is Test {
             100, // 1.0%
             50   // 0.5%
         );
+        doppiPoints.setDoppiReferral(address(referral));
+        referral.setMinVolumeForL2(1_000 ether, 2_000 ether);
         // fast-forward to known start timestamp
         vm.warp(1735689600);
+    }
+
+    
+    function test_Level1To3RewardsForAlice() public {
+        
+        vm.warp(vm.getBlockTimestamp() + 31 days);
+
+        _registerCode();
+
+        vm.warp(vm.getBlockTimestamp() + 31 days);
+
+        console.log(alice, "alice");
+        console.log(bob, "bob");
+        console.log(charlie, "charlie");
+
+        vm.prank(mockDoppiCore);
+        doppiPoints.recordTrade(charlie, 10000 ether); // trader1 trades 100 USDT
+
+        vm.prank(mockDoppiCore);
+        doppiPoints.recordTrade(bob, 10000 ether); // trader1 trades 100 USDT
+
+        vm.warp(vm.getBlockTimestamp() + 31 days);
+        (uint256 l1, uint256 l2, uint256 l3, uint256 c1, uint256 c2, uint256 c3) = referral.getTotalReferralRewards(charlie);
+        assertEq(l1, 0);
+        assertEq(l2, 0);
+        assertEq(l3, 0);
+        assertEq(c1, 0);
+        assertEq(c2, 0);
+        assertEq(c3, 0);
+
+        (l1, l2, l3, c1, c2, c3) = referral.getTotalReferralRewards(bob);
+        assertEq(l1, 150000000000000000000);
+        assertEq(l2, 0);
+        assertEq(l3, 0);
+        assertEq(c1, 0);
+        assertEq(c2, 0);
+        assertEq(c3, 0);
+
+        (l1, l2, l3, c1, c2, c3) = referral.getTotalReferralRewards(alice);
+        
+        assertEq(l1, 150000000000000000000);
+        assertEq(l2, 100000000000000000000);
+        assertEq(l3, 0);
+        assertEq(c1, 0);
+        assertEq(c2, 0);
+        assertEq(c3, 0);
+
+        
     }
 
     function test_Level1RewardsForAlice() public {
@@ -86,6 +136,10 @@ contract DoppiReferralTest is Test {
 
     function test_Level2RewardsRequireMinVolume() public {
         
+        vm.startPrank(referral.owner());
+        referral.setMinVolumeForL2(500_000 ether, 2_000_000 ether);
+        vm.stopPrank();
+
         vm.warp(vm.getBlockTimestamp() + 31 days);
 
         _registerCode();
@@ -104,6 +158,10 @@ contract DoppiReferralTest is Test {
 
     function test_Level2RewardsRequireMinVolume_UnderMin() public {
         
+        vm.startPrank(referral.owner());
+        referral.setMinVolumeForL2(500_000 ether, 2_000_000 ether);
+        vm.stopPrank();
+
         vm.warp(vm.getBlockTimestamp() + 31 days);
 
         _registerCode();
@@ -117,6 +175,42 @@ contract DoppiReferralTest is Test {
         assertEq(l1, 0, "No L1");
         assertEq(l2, 0, "No L2");
         assertEq(l3, 0, "No L3 yet");
+    }
+
+    function testUplineReferralRewards() public {
+        
+        vm.warp(vm.getBlockTimestamp() + 31 days);
+
+        _registerCode();
+
+        vm.warp(vm.getBlockTimestamp() + 31 days);
+
+        uint256 gasBefore = gasleft();
+        vm.prank(mockDoppiCore);
+        doppiPoints.recordTrade(dave, 2_000_000 ether); 
+        uint256 gasUsed = gasBefore - gasleft();
+        console.log(gasUsed, "gasUsed in recordTrade");
+        
+        // New month. New Trades
+        vm.warp(vm.getBlockTimestamp() + 31 days);
+        
+        // Step 5: Query Alice’s rewards
+        (uint256 l1, uint256 l2, uint256 l3,,,) = referral.getTotalReferralRewards(alice);
+        assertEq(l1, 0);
+        assertEq(l2, 0);
+        assertEq(l3, (2_000_000 ether * 50) / 10000);
+
+        (l1, l2, l3,,,) = referral.getTotalReferralRewards(bob);
+        assertEq(l1, 0);
+        assertEq(l2, (2_000_000 ether * 100) / 10000);
+        assertEq(l3, 0);
+
+
+         (l1, l2, l3,,,) = referral.getTotalReferralRewards(charlie);
+        assertEq(l1, (2_000_000 ether * 150) / 10000);
+        assertEq(l2, 0);
+        assertEq(l3, 0);
+
     }
 
     function testThreeLevelReferralRewards() public {
@@ -209,18 +303,25 @@ contract DoppiReferralTest is Test {
         doppiPoints.recordTrade(charlie, 3_000_000 ether); 
         
         // still within active month id, expected 0
-        (uint256 l1, uint256 l2, uint256 l3,,,) = referral.getTotalReferralRewards(alice);
+        (uint256 l1, uint256 l2, uint256 l3, uint256 currentL1, uint256 currentL2, uint256 currentL3) = referral.getTotalReferralRewards(alice);
+        
         assertEq(l1, 0);
         assertEq(l2, 0);
         assertEq(l3, 0);
+        assertEq(currentL1, 0);
+        assertEq(currentL2, (3_000_000 ether * 100) / 10000);
+        assertEq(currentL3, 0);
         
         // New month. New Trades
         vm.warp(vm.getBlockTimestamp() + 31 days);
-        (l1, l2, l3,,,) = referral.getTotalReferralRewards(alice);
+        (l1, l2, l3, currentL1, currentL2, currentL3) = referral.getTotalReferralRewards(alice);
        
         assertEq(l1, 0);
         assertEq(l2, (3_000_000 ether * 100) / 10000);
         assertEq(l3, 0);
+        assertEq(currentL1, 0);
+        assertEq(currentL2, 0);
+        assertEq(currentL3, 0);
     }
 
     function test_ResetClaimsExcludesPreviousMonth() public {
@@ -296,10 +397,11 @@ contract DoppiReferralTest is Test {
         vm.stopPrank();
         
         // Bob should see current month
+        // trade done by bob is before alice register bob, so it should not be included in alice's reward
         (uint256 totalL1, uint256 totalL2, uint256 totalL3,
             uint256 currentL1, uint256 currentL2, uint256 currentL3) = referral.getTotalReferralRewards(bob);
 
-        assertEq(currentL1, 30000000000000000000000);
+        assertEq(currentL1, 0);
 
         vm.startPrank(alice);
         referral.registerReferralCode(keccak256("ALICE"));
@@ -307,7 +409,7 @@ contract DoppiReferralTest is Test {
 
         // bob as referror cannot register alice because alice is referee
         vm.startPrank(bob);
-        vm.expectRevert("cannot register under your downline");
+        vm.expectRevert("cannot register upline");
         referral.registerReferrer(keccak256("ALICE"));
         vm.stopPrank();
 
@@ -378,7 +480,7 @@ contract DoppiReferralTest is Test {
 
         // bob as indirect referror cannot register charlie because charlie is indirect level 2 referee
         vm.startPrank(bob);
-        vm.expectRevert("cannot register under your downline");
+        vm.expectRevert("cannot register upline");
         referral.registerReferrer(keccak256("CHARLES"));
         vm.stopPrank();
 
@@ -394,7 +496,7 @@ contract DoppiReferralTest is Test {
 
         // bob as indirect referror cannot register dave because dave is indirect level 3 referee
         vm.startPrank(bob);
-        vm.expectRevert("cannot register under your downline");
+        vm.expectRevert("cannot register upline");
         referral.registerReferrer(keccak256("DAVE"));
         vm.stopPrank();
 
@@ -410,7 +512,7 @@ contract DoppiReferralTest is Test {
 
         // bob can register dave as referror because dave is indirect level 4 referee, which is OK
         vm.startPrank(bob);
-        vm.expectRevert("cannot register under your downline");
+        vm.expectRevert("cannot register upline");
         referral.registerReferrer(keccak256("JEFF"));
         vm.stopPrank();
 

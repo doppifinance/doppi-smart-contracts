@@ -12,11 +12,11 @@ import "../../src/mainnet/DoppiOffer.sol";
 contract SettleDoppiCoreOrders is Script {
     
     // Replace with your actual DoppiCore contract address
-    address public constant DOPPI_CORE = 0x15c07435B0B38b075E28B1D7969e3C87FBCDDC49; 
-    address public constant DOPPI_POINTS = 0x77C31762884052333A4b6CA0E4B063e19Dd50a4b; 
+    address public constant DOPPI_CORE = 0x4cC96326eB2b9703c094CD8E78226881fC4eC8bc; 
+    address public constant DOPPI_POINTS = 0x9E0cBC5A826Bb0b64B70F16eCaf79b923C651d40; 
     address public constant DOPPI_TRADER = 0x234765F220DB7F6C062Bc552AAfe0005Cc8Ce04a; 
-    address public constant DOPPI_REF = 0x73515beBAEa74f6194C2D18Ce762419272e7cBB7; 
-    address public constant DOPPI_OFFER = 0x17F38AB89496E10E34268bDc66ae48D50Fb4A227; 
+    address public constant DOPPI_REF = 0xF2958240f43a36DC8b43227836030108f427651D; 
+    address public constant DOPPI_OFFER = 0x19CEAe6d9c7c19730Dcb6D88226b097DA8F13085; 
 
     // Replace with the admin address you want to impersonate
     address public constant ADMIN = 0x6Abb788569C3658b4C4798dEb914e6151D7aFc1C; // Add the admin address here

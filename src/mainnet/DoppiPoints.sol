@@ -7,10 +7,15 @@ import {IDoppiTraderFactory} from "../Interface/IDoppiTraderFactory.sol";
 import {IDoppiTrader} from "../Interface/IDoppiTrader.sol";
 // import "forge-std/console.sol";
 
+interface IDoppiReferral {
+    function getUplineChain(address trader) external view returns (address l1, address l2, address l3);
+}
+
 contract DoppiPoints is Ownable, Pausable {
     
     address public doppiClaim;
     IDoppiTraderFactory public doppiTraderFactory;
+    IDoppiReferral public doppiReferral;
     mapping(address => bool) public doppiCore;
     uint256 public totalVolume;
 
@@ -19,37 +24,56 @@ contract DoppiPoints is Ownable, Pausable {
         uint256 totalPointClaimed; 
     }
 
+    struct ReferralAggregates {
+        uint256 level1Volume;
+        uint256 level2Volume;
+        uint256 level3Volume;
+    }
+
     mapping(uint24 => bool) public monthExists;
     uint24[] public monthIds;
     mapping(uint24 => mapping(address => uint256)) public monthlyVolume;
     mapping(address => ClaimedPoint) public claimedPoint; 
+    mapping(uint24 => mapping(address => ReferralAggregates)) public monthlyReferralVolume;
     
     uint32 public constant startTimestamp = 1735689600; // Jan 1, 2025
 
     event TradeRecorded(address indexed trader, uint256 volume);
     event PointsReset(address indexed trader, uint256 points);
+    event ReferralChainUpdated(address indexed trader, address l1, address l2, address l3);
 
     constructor()
         Ownable(msg.sender)
-    {
-    }
+    {    }
 
-    // Record a trade in USDT volume (1 USDT = 1 point)
     function recordTrade(address trader, uint256 volumeInUSDT) external onlyDoppiCore {
         
-        if(paused()) return;
-
-        require(volumeInUSDT > 0, "Volume must be > 0");
+        if (paused()) return;
+        
+        require(volumeInUSDT > 0, "volume must be > 0");
 
         // Determine the actual trader (handle trader bots internally)
         address actualTrader = _getActualTrader(trader);
-        
         uint24 monthId = _currentMonthId();
+
         monthlyVolume[monthId][actualTrader] += volumeInUSDT;
         totalVolume += volumeInUSDT;
+        _ensureMonthId(monthId);
 
-        _ensureMonthId(monthId); // ensures uniqueness
-
+        // cache referral volume per level from the current active referral chain
+        if (address(doppiReferral) != address(0)) {
+            (address l1, address l2, address l3) = doppiReferral.getUplineChain(actualTrader);
+            if (l1 != address(0)) {
+                monthlyReferralVolume[monthId][l1].level1Volume += volumeInUSDT;
+            }
+            if (l2 != address(0)) {
+                monthlyReferralVolume[monthId][l2].level2Volume += volumeInUSDT;
+            }
+            if (l3 != address(0)) {
+                monthlyReferralVolume[monthId][l3].level3Volume += volumeInUSDT;
+            }
+            emit ReferralChainUpdated(actualTrader, l1, l2, l3);
+        }
         emit TradeRecorded(actualTrader, volumeInUSDT);
     }
 
@@ -67,26 +91,35 @@ contract DoppiPoints is Ownable, Pausable {
         emit PointsReset(trader, readyPoint);
     }
 
+    function getReferralVolumeByMonth(address referrer, uint24 monthId)
+        external view returns (uint256 l1, uint256 l2, uint256 l3)
+    {
+        ReferralAggregates memory agg = monthlyReferralVolume[monthId][referrer];
+        l1 = agg.level1Volume;
+        l2 = agg.level2Volume;
+        l3 = agg.level3Volume;
+    }
+
     function getAllPointData(address trader)
         external
         view
-        returns (uint256 totalClaimedPoint, uint256 readyPoint, uint256 currentMonthPoint)
+        returns (
+            uint256 totalClaimedPoint,
+            uint256 readyPoint,
+            uint256 currentMonthPoint
+        )
     {
         ClaimedPoint memory claimed = claimedPoint[trader];
-        totalClaimedPoint = claimed.totalPointClaimed;
         uint24 currentMonthId = _currentMonthId();
         currentMonthPoint = monthlyVolume[currentMonthId][trader];
-        
-        // Calculate start month ID safely
-        uint24 startMonthId = claimed.claimedMonthId + 1;
-        uint256 endMonthId = currentMonthId;
-        // Only proceed if there are months to process (avoid underflow in loop condition)
-        if (startMonthId < endMonthId) {
-            // Process from startMonthId to endMonthId - 1 (exclude current month)
-            for (uint24 monthId = startMonthId; monthId < endMonthId; monthId++) {
-                readyPoint += monthlyVolume[monthId][trader];
+
+        uint24 startMonth = claimed.claimedMonthId + 1;
+        if (startMonth < currentMonthId) {
+            for (uint24 month = startMonth; month < currentMonthId; month++) {
+                readyPoint += monthlyVolume[month][trader];
             }
         }
+        totalClaimedPoint = claimed.totalPointClaimed;
     }
 
     function getCurrentMonthId() external view returns (uint24) {
@@ -110,6 +143,11 @@ contract DoppiPoints is Ownable, Pausable {
     function setDoppiClaim(address _doppiClaim) external onlyOwner {
         require(_doppiClaim != address(0), "Zero address");
         doppiClaim = _doppiClaim;
+    }
+
+    function setDoppiReferral(address _doppiReferral) external onlyOwner {
+        require(_doppiReferral != address(0), "Zero address");
+        doppiReferral = IDoppiReferral(_doppiReferral);
     }
 
      function setDoppiTraderFactory(address _traderFactory) external onlyOwner {
