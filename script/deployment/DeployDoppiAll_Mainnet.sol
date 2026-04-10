@@ -182,7 +182,7 @@ contract DeployDoppiAllMainnet is Script {
         console.log("Deploying DoppiReferral...");
         DoppiReferral doppiReferral = new DoppiReferral(_doppiPoints, 300, 200, 100); // 3.0%, 2.0%, 1.0%
         console.log("DoppiReferral deployed at:", address(doppiReferral));
-        doppiReferral.setMinVolumeForL2(100_000 ether, 300_000 ether); // for pre launch only
+        doppiReferral.setMinVolumeForL2L3(100_000 ether, 300_000 ether); // for pre launch only
         DoppiPoints(_doppiPoints).setDoppiReferral(address(doppiReferral));
         return doppiReferral;
     }

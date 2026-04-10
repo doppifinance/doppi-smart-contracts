@@ -33,15 +33,15 @@ contract DoppiReferral is Ownable {
     // --- Configurable ---
     DoppiPoints public immutable doppiPoints;
     address public doppiClaim;
-    uint256 public constant MAX_L1_REFEREES = 2000;    // Max direct referees per user
-    uint256 public constant MAX_L2_PER_L1 = 500;       // Max L2 referees per L1 referee
-    uint256 public constant MAX_L3_PER_L2 = 100;       // Max L3 referees per L2 referee
     uint16 public LEVEL1_REWARD_BP = 150; // 1.5%
     uint16 public LEVEL2_REWARD_BP = 100; // 1.0%
     uint16 public LEVEL3_REWARD_BP = 50; // 0.5%
     uint16 public constant BP_DENOMINATOR = 10000;
     uint256 public MIN_VOLUME_FOR_L2 = 500_000 ether;
     uint256 public MIN_VOLUME_FOR_L3 = 1_000_000 ether;
+    uint256 public newMinVolL2;
+    uint256 public newMinVolL3;
+    uint24 public minVolEffectiveMonthId;
     uint32 public constant startTimestamp = 1735689600; // Jan 1, 2025
 
     // --- Referral state ---
@@ -103,10 +103,8 @@ contract DoppiReferral is Ownable {
         require(referrer != address(0), "invalid referral code");
         require(referrer != msg.sender, "cannot refer self");
         require(refereeToReferrer[msg.sender] == address(0), "already register");
-        // require(!_isInDownlineRecursive(msg.sender, referrer), "cannot register under your downline");
         require(directReferees[msg.sender].length == 0, "cannot register upline");
-        require(directReferees[referrer].length < MAX_L1_REFEREES, "reached maximum L1 referees");
-
+        
         directReferees[referrer].push(msg.sender); 
         refereeToReferrer[msg.sender] = referrer;
         emit ReferrerRegistered(msg.sender, referrer);
@@ -256,23 +254,19 @@ contract DoppiReferral is Ownable {
         start = refinfo.claimedMonthId + 1;
     }
 
-    // internal function 
-    // function _isInDownlineRecursive(address user, address target) internal view returns (bool) {
-    //     if (user == target) return true;
-        
-    //     address[] memory referees = directReferees[user];
-    //     for (uint256 i = 0; i < referees.length; i++) {
-    //         if (_isInDownlineRecursive(referees[i], target)) {
-    //             return true;
-    //         }
-    //     }
-    //     return false;
-    // }
-
     function _appliedMinVol(uint256 l1, uint256 l2, uint256 l3) internal view returns (uint256 totalL1, uint256 totalL2, uint256 totalL3) {
+        uint256 minL2;
+        uint256 minL3;
+        if (minVolEffectiveMonthId != 0 && _currentMonthId() >= minVolEffectiveMonthId) {
+            minL2 = newMinVolL2;
+            minL3 = newMinVolL3;
+        } else {
+            minL2 = MIN_VOLUME_FOR_L2;
+            minL3 = MIN_VOLUME_FOR_L3;
+        }
         totalL1 = (l1 * LEVEL1_REWARD_BP) / BP_DENOMINATOR;
-        totalL2 = (l2 >= MIN_VOLUME_FOR_L2) ? (l2 * LEVEL2_REWARD_BP) / BP_DENOMINATOR : 0;
-        totalL3 = (l3 >= MIN_VOLUME_FOR_L3) ? (l3 * LEVEL3_REWARD_BP) / BP_DENOMINATOR : 0;
+        totalL2 = (l2 >= minL2) ? (l2 * LEVEL2_REWARD_BP) / BP_DENOMINATOR : 0;
+        totalL3 = (l3 >= minL3) ? (l3 * LEVEL3_REWARD_BP) / BP_DENOMINATOR : 0;
     }
 
     function _currentMonthId() internal view returns (uint24) {
@@ -292,9 +286,10 @@ contract DoppiReferral is Ownable {
         LEVEL3_REWARD_BP = _level3Bps;
     }
 
-    function setMinVolumeForL2(uint256 _minL2, uint256 _minL3) external onlyOwner {
-        MIN_VOLUME_FOR_L2 = _minL2;
-        MIN_VOLUME_FOR_L3 = _minL3;
+    function setMinVolumeForL2L3(uint256 _minL2, uint256 _minL3) external onlyOwner {
+        newMinVolL2 = _minL2;
+        newMinVolL3 = _minL3;
+        minVolEffectiveMonthId = _currentMonthId() + 1;
     }
 
     function setDoppiClaim(address _doppiClaim) external onlyOwner {

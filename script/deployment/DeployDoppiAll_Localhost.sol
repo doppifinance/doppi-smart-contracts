@@ -180,7 +180,7 @@ contract DeployDoppiAll is Script {
         console.log("Deploying DoppiReferral...");
         DoppiReferral doppiReferral = new DoppiReferral(_doppiPoints, 150, 100, 50);
         console.log("DoppiReferral deployed at:", address(doppiReferral));
-        doppiReferral.setMinVolumeForL2(1_000 ether, 2_000 ether);
+        doppiReferral.setMinVolumeForL2L3(1_000 ether, 2_000 ether);
         DoppiPoints(_doppiPoints).setDoppiReferral(address(doppiReferral));
         return doppiReferral;
     }

@@ -136,10 +136,10 @@ contract DoppiLiquidityRouter is Ownable, Pausable, ReentrancyGuard {
     // internal
     function _getTotalInterestLiabilities() internal view returns (uint256 liabilityA, uint256 liabilityB) {
         
+        require(doppiCore != address(0), "doppiCore not set");
         (bool success, bytes memory data) = doppiCore.staticcall(abi.encodeWithSignature("getInterestLiabilities()"));
-        if (success && data.length == 64) {
-            (liabilityA, liabilityB) = abi.decode(data, (uint256, uint256));
-        }
+        require(success && data.length == 64, "liabilities call failed");
+        (liabilityA, liabilityB) = abi.decode(data, (uint256, uint256));
     }
 
     function _redeem(uint256 _shares) internal returns (uint256 assetsA, uint256 assetsB) {

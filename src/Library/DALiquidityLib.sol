@@ -55,7 +55,7 @@ library DALiquidityLib {
             v3Pool,
             twapDuration
         );
-        if (twapPrice == 0) revert("no twap price");
+        if (twapPrice == 0) return 0;
 
         if (priceDecimals > 8) {
             twapPrice /= 10 ** (priceDecimals - 8);

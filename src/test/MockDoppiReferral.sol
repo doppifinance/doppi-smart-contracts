@@ -1,7 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.19;
-import {TopUpInfo} from "../Interface/IDoppiUpkeepManager.sol";
-
+pragma solidity ^0.8.26;
 
 contract MockDoppiReferral {
     

@@ -77,6 +77,7 @@ contract DoppiProtocolScenariosTest is Test {
         doppiRouter = new DoppiLiquidityRouter(IERC20(usdt), IERC20(btc), doppiLP);
         doppiFactory = new DoppiTraderFactory(IERC20(usdt), IERC20(btc), address(doppiCore), address(doppiLP), address(doppiRouter));
 
+        doppiRouter.setDoppiCore(address(doppiCore));
         doppiPoints.setDoppiCore(address(doppiCore), true);
         opportunityBot.setForwarderAddress(mockForwarder);
         doppiCore.setForwarderAddress(mockForwarder);

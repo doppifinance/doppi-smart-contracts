@@ -674,7 +674,7 @@ contract Scenario2Test is Test {
 
     function _deployDoppiReferral(address _doppiPoints) internal returns (DoppiReferral) {
         DoppiReferral _doppiReferral = new DoppiReferral(_doppiPoints, 150, 100, 50);
-        _doppiReferral.setMinVolumeForL2(1_000 ether, 2_000 ether);
+        _doppiReferral.setMinVolumeForL2L3(1_000 ether, 2_000 ether);
         DoppiPoints(_doppiPoints).setDoppiReferral(address(_doppiReferral));
         return _doppiReferral;
     }

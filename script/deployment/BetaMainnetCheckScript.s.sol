@@ -59,7 +59,7 @@ contract MyScript is Script {
         console.log("start doppi core orders");
         uint64 length = doppiCore.getPositionLength(1);
         uint64 nextId = doppiCore.nextProcessId(1);
-        uint64 nextPositionId = doppiCore.nextPositionId();
+        uint64 nextPositionId = doppiCore.nextPositionId(1);
         
         console.log(length, nextId, nextPositionId, "length, nextId");
         uint64 end = nextId + length;

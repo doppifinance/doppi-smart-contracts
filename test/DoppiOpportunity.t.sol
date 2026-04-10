@@ -473,11 +473,11 @@ contract DoppiOpportunityTest is Test {
 
         OpportunityOrders memory sell = doppiCore.getOpportunityOrders(false, 9850000000000);
         assertEq(sell.swappedAmount, 2812255415357036449);
-        assertEq(sell.outAmount, 284865736756814537390787);
+        assertEq(sell.outAmount, 284865736756814537436672);
         
         sell = doppiCore.getOpportunityOrders(false, 9900000000000);
         assertEq(sell.swappedAmount, 3356740024692983644);
-        assertEq(sell.outAmount, 340018980855569066339898);
+        assertEq(sell.outAmount, 340018980855569066294013);
 
         newPrice = int256(93556 * 1e8);
         oracle.setPrice(newPrice);
@@ -609,11 +609,11 @@ contract DoppiOpportunityTest is Test {
 
         OpportunityOrders memory sell = doppiCore.getOpportunityOrders(false, 9850000000000);
         assertEq(sell.swappedAmount, 1533957499285656245);
-        assertEq(sell.outAmount, 155587636463928591937079);
+        assertEq(sell.outAmount, 155587636463928591999306);
         
         sell = doppiCore.getOpportunityOrders(false, 9900000000000);
         assertEq(sell.swappedAmount, 416196562885255257);
-        assertEq(sell.outAmount, 42214363536071408214541);
+        assertEq(sell.outAmount, 42214363536071408152314);
         
         newPrice = int256(95556 * 1e8);
         oracle.setPrice(newPrice);

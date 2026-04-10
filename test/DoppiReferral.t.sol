@@ -62,10 +62,10 @@ contract DoppiReferralTest is Test {
             100, // 1.0%
             50   // 0.5%
         );
-        doppiPoints.setDoppiReferral(address(referral));
-        referral.setMinVolumeForL2(1_000 ether, 2_000 ether);
         // fast-forward to known start timestamp
         vm.warp(1735689600);
+        doppiPoints.setDoppiReferral(address(referral));
+        referral.setMinVolumeForL2L3(1_000 ether, 2_000 ether);
     }
 
     
@@ -137,7 +137,7 @@ contract DoppiReferralTest is Test {
     function test_Level2RewardsRequireMinVolume() public {
         
         vm.startPrank(referral.owner());
-        referral.setMinVolumeForL2(500_000 ether, 2_000_000 ether);
+        referral.setMinVolumeForL2L3(500_000 ether, 2_000_000 ether);
         vm.stopPrank();
 
         vm.warp(vm.getBlockTimestamp() + 31 days);
@@ -159,7 +159,7 @@ contract DoppiReferralTest is Test {
     function test_Level2RewardsRequireMinVolume_UnderMin() public {
         
         vm.startPrank(referral.owner());
-        referral.setMinVolumeForL2(500_000 ether, 2_000_000 ether);
+        referral.setMinVolumeForL2L3(500_000 ether, 2_000_000 ether);
         vm.stopPrank();
 
         vm.warp(vm.getBlockTimestamp() + 31 days);

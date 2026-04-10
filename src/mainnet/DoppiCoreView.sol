@@ -12,7 +12,8 @@ abstract contract DoppiCoreView {
     uint256 public totalInterestLiabilityB;
     uint8[] public supportDays; 
     mapping(uint8 => uint64) public nextProcessId;
-    uint64 public nextPositionId;
+    mapping(uint8 => uint64) public nextPositionId;
+    // uint64 public nextPositionId;
     
     IDoppiLiquidity public immutable doppiLP; // Made immutable
     
@@ -30,12 +31,8 @@ abstract contract DoppiCoreView {
         // Second pass: Fill the final array
         uint256 resultIndex = 0;
         for (uint8 x = 0; x < supportDays.length; ) {
-            
-            uint8 day = supportDays[x];
-            uint256 length = getPositionLength(day);
-            uint64 end = nextProcessId[day] + uint64(length);
-            
-            for (uint64 i = nextProcessId[day]; i < end; ) {
+            uint8 day = supportDays[x];            
+            for (uint64 i = nextProcessId[day]; i < nextPositionId[day]; ) {
                 if (positions_buy[day][i].owner == _owner) {
                     result[resultIndex] = positions_buy[day][i];
                     resultIndex++;
@@ -56,10 +53,7 @@ abstract contract DoppiCoreView {
         uint256 resultIndex = 0;
         for (uint8 x = 0; x < supportDays.length; ) {
             uint8 day = supportDays[x];
-            uint256 length = getPositionLength(day);
-            uint64 end = nextProcessId[day] + uint64(length);
-            
-            for (uint64 i = nextProcessId[day]; i < end; ) {
+            for (uint64 i = nextProcessId[day]; i < nextPositionId[day]; ) {
                 if (positions_sell[day][i].owner == _owner) {
                     result[resultIndex] = positions_sell[day][i];
                     resultIndex++;
@@ -94,7 +88,7 @@ abstract contract DoppiCoreView {
     }
 
     function getPositionLength(uint8 day) public view returns (uint64){
-        return nextPositionId - nextProcessId[day];
+        return nextPositionId[day] - nextProcessId[day];
     } 
 
     function canAcceptDeposit(bool isBuy, uint256 depositAmount) public view returns (bool) {
@@ -122,10 +116,7 @@ abstract contract DoppiCoreView {
 
         for (uint8 x = 0; x < supportDays.length; ) {
             uint8 day = supportDays[x];
-            uint256 length = getPositionLength(day);
-            uint64 end = nextProcessId[day] + uint64(length);
-            
-            for (uint64 i = nextProcessId[day]; i < end; ) {
+            for (uint64 i = nextProcessId[day]; i < nextPositionId[day]; ) {
                 if (positions_buy[day][i].owner == _owner) {
                     count++;
                 }
@@ -139,10 +130,7 @@ abstract contract DoppiCoreView {
 
         for (uint8 x = 0; x < supportDays.length; ) {
             uint8 day = supportDays[x];
-            uint256 length = getPositionLength(day);
-            uint64 end = nextProcessId[day] + uint64(length);
-            
-            for (uint64 i = nextProcessId[day]; i < end; ) {
+            for (uint64 i = nextProcessId[day]; i < nextPositionId[day]; ) {
                 if (positions_sell[day][i].owner == _owner) {
                     count++;
                 }

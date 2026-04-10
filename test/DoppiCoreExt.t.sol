@@ -234,7 +234,7 @@ contract DoppiCoreExtTest is Test {
         );
         
         // Execute settlement
-        (uint64[] memory readyPositions, SettleAccumulate memory settleAccu) = doppiCore.getReadyAllPositions();
+        (uint64[] memory readyPositions, SettleAccumulate memory settleAccu) = doppiCore.getReadyAllPositions(1);
         doppiCore.settleOrders(readyPositions, settleAccu);
     }
 
@@ -272,7 +272,7 @@ contract DoppiCoreExtTest is Test {
         );
         
         // Execute settlement
-        (uint64[] memory readyPositions, SettleAccumulate memory settleAccu) = doppiCore.getReadyAllPositions();
+        (uint64[] memory readyPositions, SettleAccumulate memory settleAccu) = doppiCore.getReadyAllPositions(1);
         doppiCore.settleOrders(readyPositions, settleAccu);
     }
 
@@ -310,7 +310,7 @@ contract DoppiCoreExtTest is Test {
         );
         
         // Execute settlement
-        (uint64[] memory readyPositions, SettleAccumulate memory settleAccu) = doppiCore.getReadyAllPositions();
+        (uint64[] memory readyPositions, SettleAccumulate memory settleAccu) = doppiCore.getReadyAllPositions(1);
         doppiCore.settleOrders(readyPositions, settleAccu);
     }
 
@@ -348,7 +348,7 @@ contract DoppiCoreExtTest is Test {
         );
         
         // Execute settlement
-        (uint64[] memory readyPositions, SettleAccumulate memory settleAccu) = doppiCore.getReadyAllPositions();
+        (uint64[] memory readyPositions, SettleAccumulate memory settleAccu) = doppiCore.getReadyAllPositions(1);
         doppiCore.settleOrders(readyPositions, settleAccu);
     }
 
@@ -400,7 +400,7 @@ contract DoppiCoreExtTest is Test {
         );
         
         // Execute settlement
-        (uint64[] memory readyPositions, SettleAccumulate memory settleAccu) = doppiCore.getReadyAllPositions();
+        (uint64[] memory readyPositions, SettleAccumulate memory settleAccu) = doppiCore.getReadyAllPositions(1);
         doppiCore.settleOrders(readyPositions, settleAccu);
     }
 
@@ -449,7 +449,7 @@ contract DoppiCoreExtTest is Test {
         );
         
         // Execute settlement
-        (uint64[] memory readyPositions, SettleAccumulate memory settleAccu) = doppiCore.getReadyAllPositions();
+        (uint64[] memory readyPositions, SettleAccumulate memory settleAccu) = doppiCore.getReadyAllPositions(1);
         doppiCore.settleOrders(readyPositions, settleAccu);
     }
 
@@ -461,7 +461,7 @@ contract DoppiCoreExtTest is Test {
         vm.warp(block.timestamp + 1 days + 1);
         oracle.setPrice(int256(INITIAL_PRICE)); // Price stays same, above strike
 
-        (uint64[] memory readyPositions, SettleAccumulate memory settleAccu) = doppiCore.getReadyAllPositions();
+        (uint64[] memory readyPositions, SettleAccumulate memory settleAccu) = doppiCore.getReadyAllPositions(1);
         vm.startPrank(owner);
         doppiCore.settleOrders(readyPositions, settleAccu);
 
@@ -474,7 +474,7 @@ contract DoppiCoreExtTest is Test {
         _depositBTC();
         vm.warp(block.timestamp + 2 days + 1);
         oracle.setPrice(int256(99_000 * 1e8)); // Price stays same, above strike
-        (readyPositions, settleAccu) = doppiCore.getReadyAllPositions();
+        (readyPositions, settleAccu) = doppiCore.getReadyAllPositions(1);
         vm.startPrank(owner);
         doppiCore.settleOrders(readyPositions, settleAccu);
 
@@ -507,6 +507,13 @@ contract DoppiCoreExtTest is Test {
         vm.startPrank(user1);
         doppiCore.emergencyWithdraw();
         vm.stopPrank();
+
+        uint256 pos1day = doppiCore.getPositionLength(1);
+        console.log(pos1day);
+        uint256 countB = doppiCore.getBuyPositionCount(user1);
+        console.log(countB, "count buy");
+        uint256 count = doppiCore.getSellPositionCount(user1);
+        console.log(count, "count sell");
 
         assertEq(doppiCore.getBuyPositionCount(user1), 0);
         assertEq(doppiCore.getSellPositionCount(user1), 0);

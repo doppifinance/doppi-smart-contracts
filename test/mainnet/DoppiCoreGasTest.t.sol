@@ -290,6 +290,9 @@ contract Scenario2Test is Test {
         uint256 depPerPrice = totalDeposit / priceChanges;
 
         uint256 currentPrice = (100_000 * 10**8) * (10100 / 10000);
+        uint256 total1day;
+        uint256 total3day;
+        
         for (uint256 priceChange = 0; priceChange < priceChanges; priceChange++) {
             
             int256 startPrice = int256(currentPrice);
@@ -302,6 +305,8 @@ contract Scenario2Test is Test {
                 
                 bool isBuy = swapNum % 2 == 0;
                 uint8 day = swapNum % 2 != 0 ? 1 : 3;
+                // console.log(priceChange, day, "day");
+                day == 1 ? total1day++ : total3day++;
                 
                 if(!isBuy){
                     DualAssetOffer memory sellOffer = impliedVol.getOffer(false, day, 1);
@@ -349,40 +354,62 @@ contract Scenario2Test is Test {
                 currentPrice = currentPrice * 10010 / 10000;
             }
         }
+
+        console.log(total1day, total3day, "total1day and total3day");   
+        uint256 pos1day = doppiCore.getPositionLength(1);
+        uint256 pos3day = doppiCore.getPositionLength(3);
+        // console.log(pos1day, "pos1day");
+        // console.log(pos3day, "pos3day");
+        assertEq(pos1day, 100); 
+        assertEq(pos3day, 100); 
         
         int256 newPrice = int256(90556 * 1e8);
         _manipulateRealChainlink(newPrice, address(oracle));
         // 1 day fast forward and settle
         // doppiCore.display();
-        // console.log(doppiCore.lowerBound(), doppiCore.upperBound());
         assertEq(doppiCore.lowerBound(), 9150000000000);
         assertEq(doppiCore.upperBound(), 10300000000000);
 
         vm.warp(block.timestamp + 1 days + 1);
-        (uint64[] memory readyPositionId, SettleAccumulate memory settleAccu) = doppiCore.getReadyAllPositions();
-        console.log(readyPositionId.length, "readyPositionId.length");
-        // assertEq(readyPositionId.length, 50);
+        (uint64[] memory readyPositionId, SettleAccumulate memory settleAccu) = doppiCore.getReadyAllPositions(1);
+        (uint64[] memory readyPositionId2, SettleAccumulate memory settleAccu2) = doppiCore.getReadyAllPositions(3);
+        assertEq(readyPositionId.length, 100);
+        assertEq(readyPositionId2.length, 0); // no yet ready to settle for 3 days position
 
         _doppiCoreCheckUpkeep_performUpkeep();
         _doppiCoreCheckUpkeep_performUpkeep();
         _doppiCoreCheckUpkeep_performUpkeep();
 
         vm.warp(block.timestamp + 1 days + 1);
-        (readyPositionId, settleAccu) = doppiCore.getReadyAllPositions();
-        console.log(readyPositionId.length, "readyPositionId.length");
-        // assertEq(readyPositionId.length, 0);
+        (readyPositionId, settleAccu) = doppiCore.getReadyAllPositions(1);
+        (readyPositionId2, settleAccu2) = doppiCore.getReadyAllPositions(3);
+        
+        // console.log(readyPositionId.length, "readyPositionId.length");
+        assertEq(readyPositionId.length, 0); // 1 days position already settled
+        assertEq(readyPositionId2.length, 0); // no yet ready to settle for 3 days position
 
         _doppiCoreCheckUpkeep_performUpkeep();
         
         vm.warp(block.timestamp + 2 days + 1);
-        (readyPositionId, settleAccu) = doppiCore.getReadyAllPositions();
-        // assertEq(readyPositionId.length, 50);
-        console.log(readyPositionId.length, "readyPositionId.length");
-
+        (readyPositionId2, settleAccu2) = doppiCore.getReadyAllPositions(3);
+        assertEq(readyPositionId2.length, 100);
+        
         _doppiCoreCheckUpkeep_performUpkeep();
         _doppiCoreCheckUpkeep_performUpkeep();
+        _doppiCoreCheckUpkeep_performUpkeep();
 
-        console.log(doppiCore.lowerBound(), doppiCore.upperBound());
+        (readyPositionId, settleAccu) = doppiCore.getReadyAllPositions(1);
+        (readyPositionId2, settleAccu2) = doppiCore.getReadyAllPositions(3);
+        assertEq(readyPositionId.length, 0);    // all positions settled
+        assertEq(readyPositionId2.length, 0); // all positions settled
+        
+        pos1day = doppiCore.getPositionLength(1);
+        pos3day = doppiCore.getPositionLength(3);
+        assertEq(pos1day, 0); 
+        assertEq(pos3day, 0); 
+        
+        
+        // console.log(doppiCore.lowerBound(), doppiCore.upperBound());
         assertEq(doppiCore.lowerBound(), 9050000000000);
         assertEq(doppiCore.upperBound(), 9100000000000);
         
@@ -483,7 +510,7 @@ contract Scenario2Test is Test {
 
     function _deployDoppiReferral(address _doppiPoints) internal returns (DoppiReferral) {
         DoppiReferral _doppiReferral = new DoppiReferral(_doppiPoints, 150, 100, 50);
-        _doppiReferral.setMinVolumeForL2(1_000 ether, 2_000 ether);
+        _doppiReferral.setMinVolumeForL2L3(1_000 ether, 2_000 ether);
         DoppiPoints(_doppiPoints).setDoppiReferral(address(_doppiReferral));
         return _doppiReferral;
     }
@@ -540,6 +567,8 @@ contract Scenario2Test is Test {
             gasUsed = gasBefore - gasleft();
             console.log(gasUsed, "gasUsed in doppiCore.performUpkeep");
             vm.stopPrank();
+        }else{
+            console.log("No upkeep needed at this time");
         }
     }
 

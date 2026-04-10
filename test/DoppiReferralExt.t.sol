@@ -120,7 +120,7 @@ contract DoppiReferralExtTest is Test {
     function test_ResetClaims_MaxLimits_50L1_15L2_8L3() public {
         
         vm.startPrank(referral.owner());
-        referral.setMinVolumeForL2(70_000_000 ether, 1_000_000 ether);
+        referral.setMinVolumeForL2L3(70_000_000 ether, 1_000_000 ether);
         vm.stopPrank();
 
         // Register referrer

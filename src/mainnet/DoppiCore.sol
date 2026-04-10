@@ -76,7 +76,7 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
         upperBound = _getTargetPrice(price, 1, false);
         supportDays.push(1);
         nextProcessId[1] = 1;
-        nextPositionId = 1;
+        nextPositionId[1] = 1;
     }
 
     // Single deposit functionality
@@ -151,10 +151,17 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
         override
         returns (bool upkeepNeeded, bytes memory performData)
     {
-        (uint64[] memory allPositions, SettleAccumulate memory settleAccu) = getReadyAllPositions();
-        if (allPositions.length > 0 && !paused()) {
-            return (true, abi.encode(allPositions, settleAccu)); 
-        }        
+        if(paused()) return (false, bytes(""));
+
+        for(uint8 x=0; x < supportDays.length; ) {
+            uint8 day = supportDays[x];
+            (uint64[] memory allPositions, SettleAccumulate memory settleAccu) = _getReadyAllPositions(day);
+            if (allPositions.length > 0) {
+                return (true, abi.encode(allPositions, settleAccu)); 
+            }   
+            unchecked { ++x; }
+        }
+             
         return (false, bytes(""));
     }
 
@@ -178,14 +185,33 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
     }
 
     function addSupportDay(uint8 _day) external onlyOwner {
+        for (uint256 i = 0; i < supportDays.length; i++) {
+            require(supportDays[i] != _day, "day already registered");
+        }
         supportDays.push(_day);
+        nextProcessId[_day] = 1;
+        nextPositionId[_day] = 1;
     }
 
     function isEmergency() external view returns (bool){
         return emergencyMode;
     } 
 
-    function getReadyAllPositions() public view 
+    function getReadyAllPositions(uint8 day) public view 
+        returns (
+            uint64[] memory readyPositionId,
+            SettleAccumulate memory settleAccu
+        ) {
+        
+        return _getReadyAllPositions(day);
+    }
+
+    function getDoppiOffer() external view returns (address){
+        return address(doppiOffer);
+    } 
+
+    // Internal functions
+    function _getReadyAllPositions(uint8 day) internal view 
         returns (
             uint64[] memory readyPositionId,
             SettleAccumulate memory settleAccu
@@ -194,32 +220,29 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
         uint64[] memory tempPositionId = new uint64[](UPKEEPS_PER_CHECK);
         uint256 idx = 0;
         
-        for(uint8 x=0; x < supportDays.length; ) {
-            uint8 day = supportDays[x];
-            uint64 id = nextProcessId[day];
-            uint64 end = id + uint64(UPKEEPS_PER_CHECK);
-            
-            for (uint64 posId = id; posId < end; ) {
+        uint64 id = nextProcessId[day];
+        uint64 end = id + uint64(UPKEEPS_PER_CHECK);
+        for (uint64 posId = id; posId < end; ) {
+            bool exist = _posExist(day, posId);
+            if(exist) {
                 bool isBuy = positions_buy[day][posId].amount > 0;
                 DualAssetPosition memory pos = isBuy ? positions_buy[day][posId] : positions_sell[day][posId];
-                bool exist = _posExist(day, posId);
-                if(exist) {
-                    if (pos.expiryTimestamp <= block.timestamp) {
-                        tempPositionId[idx] = posId;
-                        if(isBuy){
-                            settleAccu.totalInterestA += pos.interest;
-                        }else {
-                            settleAccu.totalInterestB += pos.interest;
-                        }
-                        idx++;
-                    }else{
-                        break;
+            
+                if (pos.expiryTimestamp <= block.timestamp) {
+                    tempPositionId[idx] = posId;
+                    if(isBuy){
+                        settleAccu.totalInterestA += pos.interest;
+                    }else {
+                        settleAccu.totalInterestB += pos.interest;
                     }
+                    idx++;
+                }else{
+                    break;
                 }
-                unchecked { ++posId; }
             }
-            unchecked { ++x; }
+            unchecked { ++posId; }
         }
+
         if(idx > 0) {
             uint256 resultSize = idx < UPKEEPS_PER_CHECK ? idx : UPKEEPS_PER_CHECK;
             readyPositionId = new uint64[](resultSize);
@@ -230,11 +253,6 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
         }
     }
 
-    function getDoppiOffer() external view returns (address){
-        return address(doppiOffer);
-    } 
-
-    // Internal functions
     function _updateInterestLiability(uint256 interest, bool isBuy) internal {
         if (isBuy) {
             totalInterestLiabilityA += interest;
@@ -279,13 +297,12 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
 
     function _emergencyWithdrawAll() internal {
 
-        
+        uint256 price = _getPriceFromLP();
         for (uint8 x = 0; x < supportDays.length; ) {
             
             uint8 day = supportDays[x];
-            uint64 length = getPositionLength(x);
-            uint64 end = nextProcessId[day] + uint64(length);
-            for (uint64 i = nextProcessId[day]; i < end; ) {
+            uint64 start = nextProcessId[day];
+            for (uint64 i = start; i < nextPositionId[day]; ) {
                 bool exist = _posExist(day, i);
                 if(exist) {
                     bool isBuy = positions_buy[day][i].amount > 0;
@@ -297,13 +314,15 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
                         // Update total deposits (prevent underflow)
                         _updateTotalDeposit(amountToReturn, isBuy);
                         _removeInterestLiability(interest, isBuy);
+
                         if (isBuy) {
-                            delete positions_buy[day][i];
-                            assetA.safeTransfer(pos.owner, amountToReturn);
-                        } else {
+                            _settleNoStrike(pos, price, isBuy, assetA);
+                            delete positions_buy[day][i];                            
+                        } else {                            
+                            _settleNoStrike(pos, price, isBuy, assetB);
                             delete positions_sell[day][i];
-                            assetB.safeTransfer(pos.owner, amountToReturn);
                         }
+                        nextProcessId[day] = i + 1;
                         emit EmergencyWithdraw(isBuy, pos.owner, i, amountToReturn);
                     }
                 }
@@ -331,13 +350,14 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
         assetA.safeTransferFrom(sender, address(this), amount);
         // Update total deposits
         totalBuyDeposits += amount;
-        uint64 positionId = nextPositionId;
-        unchecked { nextPositionId = positionId + 1; }
+        uint64 positionId = nextPositionId[numDays];
+        unchecked { nextPositionId[numDays] = positionId + 1; }
 
         // Calculate interest using precomputed values
         uint256 duration = SECONDS_PER_DAY * numDays;
         uint256 interest = (amount * _buyOffer.apr) / BASIS_POINTS;
         interest = (interest * duration) / SECONDS_PER_YEAR;
+        // uint256 interest = (amount * _buyOffer.apr * duration) / (BASIS_POINTS * SECONDS_PER_YEAR);
         uint256 payout = (amount * priceDecimal) / _buyOffer.strikePrice;
         positions_buy[numDays][positionId] = DualAssetPosition(
             amount,
@@ -366,13 +386,14 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
         // Update total deposits
         totalSellDeposits += amount;
 
-        uint64 positionId = nextPositionId;
-        unchecked { nextPositionId = positionId + 1; }
+        uint64 positionId = nextPositionId[numDays];
+        unchecked { nextPositionId[numDays] = positionId + 1; }
         
         // Calculate interest using precomputed values
         uint256 duration = SECONDS_PER_DAY * numDays;
         uint256 interest = (amount * _sellOffer.apr) / BASIS_POINTS;
         interest = (interest * duration) / SECONDS_PER_YEAR;
+        // uint256 interest = (amount * _sellOffer.apr * duration) / (BASIS_POINTS * SECONDS_PER_YEAR);
         uint256 payout = (amount * _sellOffer.strikePrice) / priceDecimal;
         positions_sell[numDays][positionId] = DualAssetPosition(
             amount,
@@ -490,8 +511,7 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
         // traded case
         }else{
             payoutToken.safeTransfer(p.owner, p.payout);
-            uint256 ratio = p.amount * 1e18 / swappedAmount;
-            uint256 myamountOut = order.outAmount * ratio / 1e18;
+            uint256 myamountOut = order.outAmount * p.amount / swappedAmount;
             if (myamountOut >= p.payout) {
                 unchecked {
                     profitLoss = myamountOut - p.payout; 
@@ -524,8 +544,7 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
         if(!_isPosTraded(p.strikePrice, p.amount, _isBuy)){
             payoutToken.safeTransfer(p.owner, p.amount);
         }else{
-            uint256 ratio = p.amount * 1e18 / swappedAmount;
-            uint256 amountOut = order.outAmount * ratio / 1e18;
+            uint256 amountOut = order.outAmount * p.amount / swappedAmount;
             // Perform settlement
             uint256 amountInOrig = _swapLowLevel(amountOut, _price, !_isBuy);             
             payoutToken.safeTransfer(p.owner, p.amount);
@@ -779,8 +798,7 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
         reducedoutUpdated = reducedout;
 
         if(reducedUpdated >= unTrade){
-            uint256 ratio = unTrade * 1e18 / totalAmount;
-            myAmountOut = totalAmountOut * ratio / 1e18;
+            myAmountOut = totalAmountOut * unTrade / totalAmount;
             order.outAmount += myAmountOut;
             order.swappedAmount += unTrade;
             reducedUpdated -= unTrade;
@@ -954,6 +972,7 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
         (bool ok, bytes memory ret) = address(doppiLP).staticcall(callData);
         if (!(ok && ret.length >= 32)) revert PriceFailed();
         price = abi.decode(ret, (uint256));
+        if(price == 0) revert PriceFailed();
     }
 
     function _doppiSettleCall(uint256 amount, uint256 payout, uint256 price, bool isBuy) internal returns (uint256 out) {

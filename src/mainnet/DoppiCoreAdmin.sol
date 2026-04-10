@@ -26,6 +26,8 @@ abstract contract DoppiCoreAdmin is Ownable, Pausable {
     }
 
     function setTreasury(address _treasury, uint24 _treasury_fee) external onlyOwner {
+        require(_treasury != address(0), "zero treasury");
+        require(_treasury_fee <= 3000, "fee exceeds 30%"); 
         treasury_fee = _treasury_fee;
         treasury = _treasury;
     }
@@ -36,6 +38,7 @@ abstract contract DoppiCoreAdmin is Ownable, Pausable {
     }
 
     function setAPRTolerance(uint16 _toleranceBP) external onlyOwner {
+        require(_toleranceBP <= 1000, "exceeds 10%");
         aprToleranceBP = _toleranceBP;
     }
 

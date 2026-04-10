@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.20;
+pragma solidity ^0.8.26;
 
 import "../Library/SignedSafeDecimalMath.sol";
 import "../Library/SafeDecimalMath.sol";
@@ -80,6 +80,7 @@ contract DoppiOffer is IDoppiOffer, Ownable {
     }
 
     function setBuffer(uint256 _min, uint256 _max) external onlyOwner {
+        require(_min < _max, "min must be less than max");
         MIN_BUFFER = _min;
         MAX_BUFFER = _max;
     }
@@ -123,14 +124,7 @@ contract DoppiOffer is IDoppiOffer, Ownable {
         view
         returns (uint32 sellapr, uint256 delta)
     {
-        (uint256 vsell, uint256 lastUpdated) = _getImpliedVol(timeToExpiry, _strikeSell, false);
-        if(vsell == 0) return (0, 0);
-        if(lastUpdated < block.timestamp - SECONDS_PER_DAY) return (0, 0);
-        IBlackScholes.PricesDeltaStdVega memory data =
-            blackScholes.pricesDeltaStdVega(timeToExpiry, vsell, _spot, _strikeSell, 0);
-        delta = blackScholes.abs(data.callDelta / 1e14);
-        uint256 hedgeCost = _getHedgeAdjust(vsell, _spot, _strikeSell, delta, timeToExpiry);
-        sellapr = SafeCast.toUint32((data.callPrice - hedgeCost) * 10000 * SECONDS_PER_YEAR / timeToExpiry / _spot);
+        return _getSellAPR(timeToExpiry, _spot, _strikeSell);
     }
 
     function getBuyAPR(uint256 timeToExpiry, uint256 _spot, uint256 _strikeBuy)
@@ -138,15 +132,7 @@ contract DoppiOffer is IDoppiOffer, Ownable {
         view
         returns (uint32 buyapr, uint256 delta)
     {
-        (uint256 vbuy, uint256 lastUpdated) = _getImpliedVol(timeToExpiry, _strikeBuy, true);
-        if(vbuy == 0) return (0, 0);
-        if(lastUpdated < block.timestamp - SECONDS_PER_DAY) return (0, 0);
-        IBlackScholes.PricesDeltaStdVega memory data =
-            blackScholes.pricesDeltaStdVega(timeToExpiry, vbuy, _spot, _strikeBuy, 0);
-
-        delta = blackScholes.abs(data.putDelta / 1e14); // format it to 1e5
-        uint256 hedgeCost = _getHedgeAdjust(vbuy, _spot, _strikeBuy, delta, timeToExpiry);
-        buyapr = SafeCast.toUint32((data.putPrice - hedgeCost) * 10000 * SECONDS_PER_YEAR / timeToExpiry / _spot);
+        return _getBuyAPR(timeToExpiry, _spot, _strikeBuy);
     }
 
     function getSingleOffer(bool _isBuy, uint8 _numDays, uint8 _strikeZone, uint256 _price)
@@ -171,13 +157,7 @@ contract DoppiOffer is IDoppiOffer, Ownable {
         view 
         returns (DualAssetOffer[] memory buyoffers) 
     {
-        uint256 price = DALiquidityLib.getPriceWithFallback(chainLinkFeed, pancakeV3Pool, twapDuration, maxDelay);
-        buyoffers = new DualAssetOffer[](TOTAL_OFFER);
-        for (uint8 i = 0; i < TOTAL_OFFER; ) {
-            buyoffers[i] = _getOffer(true, _numDays, i, price);
-            unchecked { ++i; }
-        }
-        return buyoffers;
+        return _getBuyOffers(_numDays);
     }
 
     function getSellOffers(uint8 _numDays) 
@@ -185,13 +165,7 @@ contract DoppiOffer is IDoppiOffer, Ownable {
         view 
         returns (DualAssetOffer[] memory selloffers) 
     {
-        uint256 price = DALiquidityLib.getPriceWithFallback(chainLinkFeed, pancakeV3Pool, twapDuration, maxDelay);
-        selloffers = new DualAssetOffer[](TOTAL_OFFER);
-        for (uint8 i = 0; i < TOTAL_OFFER; ) {
-            selloffers[i] = _getOffer(false, _numDays, i, price);
-            unchecked { ++i; }
-        }
-        return selloffers;
+        return _getSellOffers(_numDays);
     }
 
     function getAllOffers(uint8 _numDays)
@@ -199,8 +173,8 @@ contract DoppiOffer is IDoppiOffer, Ownable {
         view
         returns (DualAssetOffer[] memory buyoffers, DualAssetOffer[] memory selloffers)
     {
-        buyoffers = this.getBuyOffers(_numDays);
-        selloffers = this.getSellOffers(_numDays);
+        buyoffers = _getBuyOffers(_numDays);
+        selloffers = _getSellOffers(_numDays);
     }
 
     function getRegression(uint256 _daysInTimestamp)
@@ -229,14 +203,73 @@ contract DoppiOffer is IDoppiOffer, Ownable {
         admins[_admin] = _status;
     }
 
+    function _getSellOffers(uint8 _numDays) 
+        internal 
+        view 
+        returns (DualAssetOffer[] memory selloffers) 
+    {
+        uint256 price = DALiquidityLib.getPriceWithFallback(chainLinkFeed, pancakeV3Pool, twapDuration, maxDelay);
+        selloffers = new DualAssetOffer[](TOTAL_OFFER);
+        for (uint8 i = 0; i < TOTAL_OFFER; ) {
+            selloffers[i] = _getOffer(false, _numDays, i, price);
+            unchecked { ++i; }
+        }
+        return selloffers;
+    }
+
+    function _getBuyOffers(uint8 _numDays) 
+        internal 
+        view 
+        returns (DualAssetOffer[] memory buyoffers) 
+    {
+        uint256 price = DALiquidityLib.getPriceWithFallback(chainLinkFeed, pancakeV3Pool, twapDuration, maxDelay);
+        buyoffers = new DualAssetOffer[](TOTAL_OFFER);
+        for (uint8 i = 0; i < TOTAL_OFFER; ) {
+            buyoffers[i] = _getOffer(true, _numDays, i, price);
+            unchecked { ++i; }
+        }
+        return buyoffers;
+    }
+
+    function _getBuyAPR(uint256 timeToExpiry, uint256 _spot, uint256 _strikeBuy)
+        internal
+        view
+        returns (uint32 buyapr, uint256 delta)
+    {
+        (uint256 vbuy, uint256 lastUpdated) = _getImpliedVol(timeToExpiry, _strikeBuy, true);
+        if(vbuy == 0) return (0, 0);
+        if(lastUpdated < block.timestamp - SECONDS_PER_DAY) return (0, 0);
+        IBlackScholes.PricesDeltaStdVega memory data =
+            blackScholes.pricesDeltaStdVega(timeToExpiry, vbuy, _spot, _strikeBuy, 0);
+
+        delta = blackScholes.abs(data.putDelta / 1e14); // format it to 1e5
+        uint256 hedgeCost = _getHedgeAdjust(vbuy, _spot, _strikeBuy, delta, timeToExpiry);
+        buyapr = SafeCast.toUint32((data.putPrice - hedgeCost) * 10000 * SECONDS_PER_YEAR / timeToExpiry / _spot);
+    }
+
+    function _getSellAPR(uint256 timeToExpiry, uint256 _spot, uint256 _strikeSell)
+        internal
+        view
+        returns (uint32 sellapr, uint256 delta)
+    {
+        (uint256 vsell, uint256 lastUpdated) = _getImpliedVol(timeToExpiry, _strikeSell, false);
+        if(vsell == 0) return (0, 0);
+        if(lastUpdated < block.timestamp - SECONDS_PER_DAY) return (0, 0);
+        IBlackScholes.PricesDeltaStdVega memory data =
+            blackScholes.pricesDeltaStdVega(timeToExpiry, vsell, _spot, _strikeSell, 0);
+        delta = blackScholes.abs(data.callDelta / 1e14);
+        uint256 hedgeCost = _getHedgeAdjust(vsell, _spot, _strikeSell, delta, timeToExpiry);
+        sellapr = SafeCast.toUint32((data.callPrice - hedgeCost) * 10000 * SECONDS_PER_YEAR / timeToExpiry / _spot);
+    }
+
     function _getOffer(bool _isBuy, uint8 _numDays, uint8 _strikeZone, uint256 _price)
         internal view returns (DualAssetOffer memory offer)
     {
         uint256 duration = SECONDS_PER_DAY * _numDays;
         uint256 strikePrice = _getStrikePrice(_price, _strikeZone + 1, _isBuy);
         (uint32 apr, uint256 delta) = _isBuy
-            ? this.getBuyAPR(duration, _price, strikePrice)
-            : this.getSellAPR(duration, _price, strikePrice);
+            ? _getBuyAPR(duration, _price, strikePrice)
+            : _getSellAPR(duration, _price, strikePrice);
         offer = DualAssetOffer(_price, strikePrice, apr, delta, uint32(block.timestamp + duration));
     }
 

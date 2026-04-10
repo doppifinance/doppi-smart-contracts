@@ -111,6 +111,7 @@ contract DoppiLiquidity is ERC20, Ownable, Pausable, IDoppiLiquidity, Automation
 
     function assetRatio() external view returns (uint256 ratioA, uint256 ratioB) {
         uint256 price = DALiquidityLib.getPriceWithFallback(config.chainLinkFeed, config.v3Pool, config.twapDuration, config.maxDelay);
+        if (price == 0) return (0, 0);
         uint256 assetBInAValue = assetB.balanceOf(address(this)) * price / config.decimals;
         uint256 assetAvalue = assetA.balanceOf(address(this));
         uint256 total = assetBInAValue + assetAvalue;
@@ -120,11 +121,13 @@ contract DoppiLiquidity is ERC20, Ownable, Pausable, IDoppiLiquidity, Automation
 
     function totalAssetsInAssetA() public view override returns (uint256) {
         uint256 price = DALiquidityLib.getPriceWithFallback(config.chainLinkFeed, config.v3Pool, config.twapDuration, config.maxDelay);
+        if (price == 0) return 0;
         return assetA.balanceOf(address(this)) + assetB.balanceOf(address(this)) * price / config.decimals;
     }
 
     function totalAssetsInAssetB() public view override returns (uint256) {
         uint256 price = DALiquidityLib.getPriceWithFallback(config.chainLinkFeed, config.v3Pool, config.twapDuration, config.maxDelay);
+        if (price == 0) return 0;
         return assetB.balanceOf(address(this)) + assetA.balanceOf(address(this)) * config.decimals / price;
     }
 
@@ -231,6 +234,8 @@ contract DoppiLiquidity is ERC20, Ownable, Pausable, IDoppiLiquidity, Automation
         if(paused()) return (false, bytes(""));
 
         uint256 currentPrice = DALiquidityLib.getPriceWithFallback(config.chainLinkFeed, config.v3Pool, config.twapDuration, config.maxDelay);
+        if(currentPrice == 0) return (false, bytes(""));
+
         (uint256[] memory buyindexes, uint256 totalBuyAmount) = _getAccumulatedPrices(currentPrice, true);
         (uint256[] memory sellindexes, uint256 totalSellAmount) = _getAccumulatedPrices(currentPrice, false);
         
@@ -252,6 +257,8 @@ contract DoppiLiquidity is ERC20, Ownable, Pausable, IDoppiLiquidity, Automation
         if(bal >= totalAmount && totalAmount > 0){
             uint256 totalAmountOut;
             uint256 currentPrice = DALiquidityLib.getPriceWithFallback(config.chainLinkFeed, config.v3Pool, config.twapDuration, config.maxDelay);
+            if(currentPrice == 0) return;
+            
             if (isNetBuy) {
                 totalAmountOut = totalAmount * config.decimals / currentPrice;
             } else {
@@ -279,6 +286,7 @@ contract DoppiLiquidity is ERC20, Ownable, Pausable, IDoppiLiquidity, Automation
         uint256 gap = config.priceGap * config.decimals;
         require(gap > 0, "Invalid price gap");
         uint256 price = DALiquidityLib.getPriceWithFallback(config.chainLinkFeed, config.v3Pool, config.twapDuration, config.maxDelay);
+        if (price == 0) return;
 
         if (upperBound < lowerBound) {
             _resetBound(price);
