@@ -6,6 +6,7 @@ import {IDoppiTraderFactory} from "../Interface/IDoppiTraderFactory.sol";
 
 abstract contract DoppiCoreAdmin is Ownable, Pausable {
     
+    uint256 public priceDecimal;
     uint24 public treasury_fee; 
     address public treasury;
     uint256 public minOrderA = 100 ether; 
@@ -21,13 +22,16 @@ abstract contract DoppiCoreAdmin is Ownable, Pausable {
     IDoppiTraderFactory public doppiTraderFactory;
     
     // Configuration functions
+    function setPriceDecimal(uint256 _priceDecimal) external onlyOwner {
+        priceDecimal = _priceDecimal;
+    }
     function setMaxSwap(uint256 _maxSwap) external onlyOwner {
         maxSwap = _maxSwap;
     }
 
     function setTreasury(address _treasury, uint24 _treasury_fee) external onlyOwner {
         require(_treasury != address(0), "zero treasury");
-        require(_treasury_fee <= 3000, "fee exceeds 30%"); 
+        require(_treasury_fee <= 2500, "fee exceeds 25%"); 
         treasury_fee = _treasury_fee;
         treasury = _treasury;
     }

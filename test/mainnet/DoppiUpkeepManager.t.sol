@@ -374,6 +374,7 @@ contract DoppiUpkeepManagerTest is Test {
         traderBot = DoppiTrader(doppiFactory.traderBots(traderId));
         usdt.approve(address(traderBot), type(uint256).max);
         btc.approve(address(traderBot), type(uint256).max);
+        traderBot.setForwarderAddress(forwarder);
         traderBot.start(assetAAmount, 0.1 ether);
         vm.stopPrank(); 
     }

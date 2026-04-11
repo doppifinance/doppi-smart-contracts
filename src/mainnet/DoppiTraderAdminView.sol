@@ -80,10 +80,8 @@ abstract contract DoppiTraderAdminView is Ownable {
         bool valid;
         uint8[] memory supportDays = doppiCore.supportDays();
         for (uint8 x = 0; x < supportDays.length; ) {
-            if(supportDays[x] == _day){
-                valid = true;
-                break;
-            }
+            if (supportDays[x] == _day) { valid = true; break; }
+            unchecked { ++x; }
         }
         if(valid){
             traderDefaultDay = _day;
@@ -92,6 +90,7 @@ abstract contract DoppiTraderAdminView is Ownable {
 
     function setMaxOrder(uint24 _maxOrder) external {
         _onlyTrader();
+        require(_maxOrder > 0 && _maxOrder <= impliedVol.TOTAL_OFFER(), "exceeds total offers");
         maxOrder = _maxOrder;
     }
 
@@ -105,6 +104,7 @@ abstract contract DoppiTraderAdminView is Ownable {
 
     function setForwarderAddress(address forwarderAddress) external {
         _onlyUpkeepOrTrader();
+        require(forwarderAddress != address(0), "zero forwarder");
         s_forwarderAddress = forwarderAddress;
     }
 

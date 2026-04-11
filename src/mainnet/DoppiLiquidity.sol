@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: UNLICENSED
+// SPDX-License-Identifier: MIT
 pragma solidity ^0.8.26;
 
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
@@ -28,6 +28,7 @@ contract DoppiLiquidity is ERC20, Ownable, Pausable, IDoppiLiquidity, Automation
     IERC20 public immutable assetB;
     address public doppiCore;
     address public doppiTraderFactory;
+    address public doppiLiquidityRouter;
     mapping(address => bool) public validEntryPoints;
     address public s_forwarderAddress;
     mapping(uint256 => uint256) public amountToBuy;
@@ -155,7 +156,12 @@ contract DoppiLiquidity is ERC20, Ownable, Pausable, IDoppiLiquidity, Automation
     }
 
     function setForwarderAddress(address forwarderAddress) external onlyOwner {
+        require(forwarderAddress != address(0), "zero forwarder");
         s_forwarderAddress = forwarderAddress;
+    }
+
+    function setDoppiLiquidityRouter(address _router) external onlyOwner {
+        doppiLiquidityRouter = _router;
     }
 
     function setDoppiCore(address _doppiCore) external onlyOwner {
@@ -194,9 +200,12 @@ contract DoppiLiquidity is ERC20, Ownable, Pausable, IDoppiLiquidity, Automation
 
     function setEntryPoint(address entryPoint, bool isValid) external onlyOwner {
         validEntryPoints[entryPoint] = isValid;
-         if (isValid) {
+        if (isValid) {
             assetA.approve(entryPoint, type(uint256).max);
             assetB.approve(entryPoint, type(uint256).max);
+        } else {
+            assetA.approve(entryPoint, 0);  // revoke stale approval
+            assetB.approve(entryPoint, 0);
         }
     }
 
@@ -272,7 +281,7 @@ contract DoppiLiquidity is ERC20, Ownable, Pausable, IDoppiLiquidity, Automation
         _updateBound();
     }
 
-    function cleanUpUnwind(uint256 toClearAmountBuy, uint256 toClearAmountSell) external {
+    function cleanUpUnwind(uint256 toClearAmountBuy, uint256 toClearAmountSell) external onlyLiquidityRouterOrOwner {
         _getRemovingPrices(toClearAmountBuy, toClearAmountSell);
         _updateBound();
     }
@@ -350,19 +359,12 @@ contract DoppiLiquidity is ERC20, Ownable, Pausable, IDoppiLiquidity, Automation
     function _clearOrders(uint256[] memory prices, bool isBuy, uint256 totalUnwind) internal {
         uint256 length = prices.length;
         if (length == 0) return;
-        
-        mapping(uint256 => uint256) storage amountMap = isBuy ? amountToBuy : amountToSell; 
+
+        mapping(uint256 => uint256) storage amountMap = isBuy ? amountToBuy : amountToSell;
         uint256 reduced = totalUnwind;
-        
-        for (uint256 i = length; i > 0; ) {
-            uint256 index = i - 1;
-            uint256 unwind = amountMap[prices[index]];
-            if(reduced >= unwind){
-                delete amountMap[prices[index]];
-                reduced -= unwind;
-            }else{
-                amountMap[prices[index]] = unwind - reduced;
-            }
+
+        for (uint256 i = length; i > 0 && reduced > 0; ) {
+            reduced = _deductFromBucket(amountMap, prices[i - 1], reduced);
             unchecked { --i; }
         }
     }
@@ -371,36 +373,38 @@ contract DoppiLiquidity is ERC20, Ownable, Pausable, IDoppiLiquidity, Automation
         uint256 removeAmountBuy,
         uint256 removeAmountSell
     ) internal {
-
         uint256 priceGap = config.priceGap * config.decimals;
         require(priceGap > 0, "Invalid price gap");
 
         uint256 price = upperBound;
-        while (price >= lowerBound) {
-            uint256 amountBuy = amountToBuy[price];
-            if(removeAmountBuy > amountBuy){
-                delete amountToBuy[price];
-                removeAmountBuy -= amountBuy;
-            } else {
-                amountToBuy[price] = amountBuy - removeAmountBuy;
-                removeAmountBuy = 0;
-            }
-            if(price < priceGap) break;
+        while (price >= lowerBound && removeAmountBuy > 0) {
+            removeAmountBuy = _deductFromBucket(amountToBuy, price, removeAmountBuy);
+            if (price < priceGap) break;
             price -= priceGap;
         }
 
         price = lowerBound;
-        while (price <= upperBound) {
-            uint256 amountSell = amountToSell[price];
-            if(removeAmountSell > amountSell){
-                delete amountToSell[price];
-                removeAmountSell -= amountSell;
-            } else {
-                amountToSell[price] = amountSell - removeAmountSell;
-                removeAmountSell = 0;
-            }
-            if(price > upperBound - priceGap) break;
+        while (price <= upperBound && removeAmountSell > 0) {
+            removeAmountSell = _deductFromBucket(amountToSell, price, removeAmountSell);
+            if (price > upperBound - priceGap) break;
             price += priceGap;
+        }
+    }
+
+    /// @dev Shared inner helper: deducts `removeAmount` from one price-slot in `amountMap`.
+    /// Deletes the slot when fully consumed. Returns the remaining amount to deduct.
+    function _deductFromBucket(
+        mapping(uint256 => uint256) storage amountMap,
+        uint256 price,
+        uint256 removeAmount
+    ) private returns (uint256 remaining) {
+        uint256 slot = amountMap[price];
+        if (removeAmount >= slot) {
+            delete amountMap[price];
+            remaining = removeAmount - slot;
+        } else {
+            amountMap[price] = slot - removeAmount;
+            remaining = 0;
         }
     }
 
@@ -578,6 +582,14 @@ contract DoppiLiquidity is ERC20, Ownable, Pausable, IDoppiLiquidity, Automation
 
     modifier onlyForwarder() {
         require(msg.sender == s_forwarderAddress, "invalid forwarder");
+        _;
+    }
+
+    modifier onlyLiquidityRouterOrOwner() {
+        require(
+            msg.sender == doppiLiquidityRouter || msg.sender == owner(),
+            "only router or owner"
+        );
         _;
     }
 }

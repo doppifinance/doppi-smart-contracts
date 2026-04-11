@@ -99,6 +99,7 @@ contract DoppiCoreGasTest is Test {
     
         doppiRouter = new DoppiLiquidityRouter(IERC20(USDT), IERC20(BTC), doppiLP);
         doppiRouter.setDoppiCore(address(doppiCore));
+        doppiLP.setDoppiLiquidityRouter(address(doppiRouter));
         doppiFactory = new DoppiTraderFactory(IERC20(USDT), IERC20(BTC), address(doppiCore), address(doppiLP), address(doppiRouter));
         doppiUpkeepManager = _deployDoppiUpkeepManager(address(doppiFactory));
         

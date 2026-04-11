@@ -60,6 +60,7 @@ contract DeployDoppiAll is Script {
         console.log("Deploying DoppiLiquidityRouter...");
         DoppiLiquidityRouter doppiRouter = new DoppiLiquidityRouter(IERC20(USDT), IERC20(BTC), doppiLP);
         doppiRouter.setDoppiCore(address(doppiCore));
+        doppiLP.setDoppiLiquidityRouter(address(doppiRouter));
         console.log("DoppiLiquidityRouter deployed at:", address(doppiRouter));
         
         console.log("Deploying DoppiTraderFactory...");

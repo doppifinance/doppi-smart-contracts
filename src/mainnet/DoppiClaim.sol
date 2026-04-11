@@ -81,6 +81,7 @@ contract DoppiClaim is Ownable, Pausable, ReentrancyGuard {
         (, uint256 readyPoint, ) = doppiPoints.getAllPointData(user);
         require(readyPoint > 0, "no points to claim");
         uint256 mintAmount = readyPoint * tokensPerPoint / BASIS_POINTS;
+        require(mintAmount > 0, "mint amount too small");
         doppiPoints.resetPoint(user);
         doppiToken.mint(user, mintAmount);
         emit Claimed(user, readyPoint, 0, 0, 0, mintAmount);
@@ -95,6 +96,7 @@ contract DoppiClaim is Ownable, Pausable, ReentrancyGuard {
         require(totalPoints > 0, "no points to claim");
 
         uint256 mintAmount = totalPoints * tokensPerPoint / BASIS_POINTS;
+        require(mintAmount > 0, "mint amount too small");
 
         doppiReferral.resetClaims(user);
         doppiToken.mint(user, mintAmount);

@@ -80,7 +80,7 @@ contract DoppiPoints is Ownable, Pausable {
     function resetPoint(address trader) external onlyDoppiClaim {
 
         ClaimedPoint storage ref = claimedPoint[trader];
-        (,uint256 readyPoint, ) = this.getAllPointData(trader); 
+        (,uint256 readyPoint, ) = _getAllPointData(trader); 
 
         uint24 currentMonthId = _currentMonthId();
         // Only reset if we're in a new month
@@ -109,17 +109,7 @@ contract DoppiPoints is Ownable, Pausable {
             uint256 currentMonthPoint
         )
     {
-        ClaimedPoint memory claimed = claimedPoint[trader];
-        uint24 currentMonthId = _currentMonthId();
-        currentMonthPoint = monthlyVolume[currentMonthId][trader];
-
-        uint24 startMonth = claimed.claimedMonthId + 1;
-        if (startMonth < currentMonthId) {
-            for (uint24 month = startMonth; month < currentMonthId; month++) {
-                readyPoint += monthlyVolume[month][trader];
-            }
-        }
-        totalClaimedPoint = claimed.totalPointClaimed;
+        return _getAllPointData(trader);
     }
 
     function getCurrentMonthId() external view returns (uint24) {
@@ -164,6 +154,29 @@ contract DoppiPoints is Ownable, Pausable {
     }
 
     // internal function 
+
+    function _getAllPointData(address trader)
+        internal
+        view
+        returns (
+            uint256 totalClaimedPoint,
+            uint256 readyPoint,
+            uint256 currentMonthPoint
+        )
+    {
+        ClaimedPoint memory claimed = claimedPoint[trader];
+        uint24 currentMonthId = _currentMonthId();
+        currentMonthPoint = monthlyVolume[currentMonthId][trader];
+
+        uint24 startMonth = claimed.claimedMonthId + 1;
+        if (startMonth < currentMonthId) {
+            for (uint24 month = startMonth; month < currentMonthId; month++) {
+                readyPoint += monthlyVolume[month][trader];
+            }
+        }
+        totalClaimedPoint = claimed.totalPointClaimed;
+    }
+
     function _getActualTrader(address positionOwner) internal view returns (address owner) {
         
         if (

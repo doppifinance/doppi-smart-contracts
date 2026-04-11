@@ -181,23 +181,7 @@ contract DoppiReferral is Ownable {
         returns (uint256 totalL1, uint256 totalL2, uint256 totalL3,
                 uint256 currentL1, uint256 currentL2, uint256 currentL3)
     {
-        ReferralInfo memory info = referrals[trader];
-        uint24 currentMonthId = _currentMonthId();
-        // current month (non-claimable yet but returned separately)
-        (uint256 currentL1v, uint256 currentL2v, uint256 currentL3v) = doppiPoints.getReferralVolumeByMonth(trader, currentMonthId);
-        (currentL1, currentL2, currentL3) = _appliedMinVol(currentL1v, currentL2v, currentL3v);
-        
-        // existing claimed months
-        uint24 startMonthId = info.claimedMonthId + 1;
-        // Only calculate for completed months (exclude current month)
-        uint24 endMonthId = currentMonthId - 1;
-        for (uint24 monthId = startMonthId; monthId <= endMonthId; monthId++) {
-            (uint256 l1v, uint256 l2v, uint256 l3v) = doppiPoints.getReferralVolumeByMonth(trader, monthId);
-            (l1v, l2v, l3v) = _appliedMinVol(l1v, l2v, l3v);
-            totalL1 += l1v;
-            totalL2 += l2v;
-            totalL3 += l3v;
-        }
+        return _getTotalReferralRewards(trader);
     }
 
     function resetClaimsByMonthId(address referrer, uint24 monthId) external onlyDoppiClaim {
@@ -228,7 +212,7 @@ contract DoppiReferral is Ownable {
         require(currentMonthId > ref.claimedMonthId + 1, "still in current month");
         // Only reset if we're in a new month
         if (currentMonthId > ref.claimedMonthId + 1) {
-            (uint256 totalL1, uint256 totalL2, uint256 totalL3, , , ) = this.getTotalReferralRewards(referrer);
+            (uint256 totalL1, uint256 totalL2, uint256 totalL3, , , ) = _getTotalReferralRewards(referrer);
             ref.claimedLevel1 += totalL1;
             ref.claimedLevel2 += totalL2;
             ref.claimedLevel3 += totalL3;
@@ -252,6 +236,31 @@ contract DoppiReferral is Ownable {
         ReferralInfo memory refinfo = referrals[user];
         current = _currentMonthId();
         start = refinfo.claimedMonthId + 1;
+    }
+
+    function _getTotalReferralRewards(address trader)
+        internal
+        view
+        returns (uint256 totalL1, uint256 totalL2, uint256 totalL3,
+                uint256 currentL1, uint256 currentL2, uint256 currentL3)
+    {
+        ReferralInfo memory info = referrals[trader];
+        uint24 currentMonthId = _currentMonthId();
+        // current month (non-claimable yet but returned separately)
+        (uint256 currentL1v, uint256 currentL2v, uint256 currentL3v) = doppiPoints.getReferralVolumeByMonth(trader, currentMonthId);
+        (currentL1, currentL2, currentL3) = _appliedMinVol(currentL1v, currentL2v, currentL3v);
+        
+        // existing claimed months
+        uint24 startMonthId = info.claimedMonthId + 1;
+        // Only calculate for completed months (exclude current month)
+        uint24 endMonthId = currentMonthId - 1;
+        for (uint24 monthId = startMonthId; monthId <= endMonthId; monthId++) {
+            (uint256 l1v, uint256 l2v, uint256 l3v) = doppiPoints.getReferralVolumeByMonth(trader, monthId);
+            (l1v, l2v, l3v) = _appliedMinVol(l1v, l2v, l3v);
+            totalL1 += l1v;
+            totalL2 += l2v;
+            totalL3 += l3v;
+        }
     }
 
     function _appliedMinVol(uint256 l1, uint256 l2, uint256 l3) internal view returns (uint256 totalL1, uint256 totalL2, uint256 totalL3) {

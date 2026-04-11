@@ -63,4 +63,5 @@ interface IDoppiOffer {
         uint256 _price
     ) external view returns (DualAssetOffer memory offer);
     function getPriceGapPerOffer() external view returns (uint256);
+    function TOTAL_OFFER() external view returns (uint256);
 }

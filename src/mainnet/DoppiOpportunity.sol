@@ -19,6 +19,7 @@ contract DoppiOpportunity is Ownable, Pausable, AutomationCompatibleInterface {
     }
 
     function setForwarderAddress(address forwarderAddress) external onlyOwner {
+        require(forwarderAddress != address(0), "zero forwarder");
         s_forwarderAddress = forwarderAddress;
     }
 

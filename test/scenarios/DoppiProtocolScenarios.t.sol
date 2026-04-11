@@ -85,6 +85,7 @@ contract DoppiProtocolScenariosTest is Test {
         doppiCore.setOpportunityBot(address(opportunityBot), true);
         doppiLP.setForwarderAddress(mockForwarder);
         doppiLP.setDoppiCore(address(doppiCore));
+        doppiLP.setDoppiLiquidityRouter(address(doppiRouter));
         doppiLP.setEntryPoint(address(doppiRouter.entryPointA()), true);
         doppiLP.setEntryPoint(address(doppiRouter.entryPointB()), true);
         doppiLP.setDoppiTraderFactory(address(doppiFactory));

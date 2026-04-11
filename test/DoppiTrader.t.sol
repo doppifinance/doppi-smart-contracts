@@ -108,6 +108,7 @@ contract DoppiTraderTest is Test {
         doppiRouter.setDoppiCore(address(doppiCore));
         doppiLP.setEntryPoint(address(doppiRouter.entryPointA()), true);
         doppiLP.setEntryPoint(address(doppiRouter.entryPointB()), true);
+        doppiLP.setDoppiLiquidityRouter(address(doppiRouter));
 
         doppiFactory =
             new DoppiTraderFactory(IERC20(usdt), IERC20(btc), address(doppiCore), address(doppiLP), address(doppiRouter));
@@ -619,35 +620,10 @@ contract DoppiTraderTest is Test {
 
     function test_ConfigResetWithMax6Orders() public {
         
-        
         vm.startPrank(trader);
+        vm.expectRevert("exceeds total offers");
         doppiTrader.setMaxOrder(6);
-        // Set multiple configs at once
-        uint8[] memory strikeZones = new uint8[](3);
-        uint24[] memory weights = new uint24[](3);
-        strikeZones[0] = 0;
-        weights[0] = 6000;        
-        strikeZones[1] = 2;
-        weights[1] = 3000;
-        strikeZones[2] = 4;
-        weights[2] = 1000;
-        
-        doppiTrader.setMultipleOrderConfigs(strikeZones, weights);
-        doppiTrader.setUseCustomConfig(true);
-
-        // Reset to default
-        doppiTrader.resetToDefaultConfig();
-        OrderConfig[] memory orderConfig = doppiTrader.getOrderConfigs();
-        assertEq(orderConfig.length, 6);
-        for (uint8 i = 0; i < 6; i++) {
-            if(i==5){
-                assertEq(orderConfig[i].weight, 1670);
-            }else{
-                assertEq(orderConfig[i].weight, 1666);
-            }
-        }
-        assertFalse(doppiTrader.useCustomConfig());
-        vm.stopPrank();
+        vm.stopPrank();        
     }
 
     function test_updateConfig_start_placeOrders() public {

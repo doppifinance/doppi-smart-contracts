@@ -53,6 +53,7 @@ contract DoppiLiquidityRouterTest is Test {
         router = new DoppiLiquidityRouter(IERC20(address(usdt)), IERC20(address(btc)), doppiLP);
         doppiCore = new MockDoppiCore();
         router.setDoppiCore(address(doppiCore));
+        doppiLP.setDoppiLiquidityRouter(address(router));
         
         // Setup liquidity pool
         configLP = TestParamLib.get_configLP();

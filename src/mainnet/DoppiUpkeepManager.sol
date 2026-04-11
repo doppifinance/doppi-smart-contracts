@@ -122,6 +122,7 @@ contract DoppiUpkeepManager is Ownable {
     }
 
     function setForwarderAddress(address forwarderAddress) external onlyOwner {
+        require(forwarderAddress != address(0), "zero forwarder");
         s_forwarderAddress = forwarderAddress;
     }
 
@@ -134,10 +135,12 @@ contract DoppiUpkeepManager is Ownable {
     }
 
     function setDoppiBotFee(uint24 _doppiBotFee) external onlyOwner {
+        require(_doppiBotFee <= 3000, "fee exceeds 30%"); 
         doppiBotFee = _doppiBotFee;
     }
 
     function setTresury(address _treasury) external onlyOwner {
+        require(_treasury != address(0), "zero treasury");
         treasury = _treasury;
     }
 
@@ -187,7 +190,7 @@ contract DoppiUpkeepManager is Ownable {
         if(finalBal >= fee) linkToken.transfer(treasury, fee);
         if(refund > 0) {
             uint256 fundTokenOut = _swapERC677ToFundToken(refund);
-            fundToken.transfer(trader, fundTokenOut);
+            fundToken.safeTransfer(trader, fundTokenOut);
         }
     }
 
@@ -195,12 +198,12 @@ contract DoppiUpkeepManager is Ownable {
     function fundUpkeep(uint256 _upkeepId, uint96 _amount) external onlyTrader(_upkeepId) validUpkeepId(_upkeepId) {
         
         require(_amount > 0, "invalid amount");
-        require(fundToken.transferFrom(msg.sender, address(this), _amount), "fundToken transfer failed");
+        fundToken.safeTransferFrom(msg.sender, address(this), _amount);
         uint256 linkAmount = _swapToLinkERC677(_amount);
         (uint256 fee, ) = _getUnPaidDoppiFee(_upkeepId);
         uint256 finalamount = linkAmount - fee;
         _fundUpkeep(_upkeepId, uint96(finalamount));
-        linkToken.transfer(treasury, fee);
+        IERC20(address(linkToken)).safeTransfer(treasury, fee);
         emit UpkeepFunded(_upkeepId, _amount, finalamount, fee);
     }
     
@@ -302,7 +305,7 @@ contract DoppiUpkeepManager is Ownable {
         require(bal >= topUpInfo.totalInfundToken, "balance not enough");
         uint256 linkOut = _swapToLinkERC677(topUpInfo.topUpAmountInfundToken);
         _fundUpkeep(upkeepId, uint96(linkOut));
-        fundToken.transfer(treasury, topUpInfo.feeInfundToken);
+        fundToken.safeTransfer(treasury, topUpInfo.feeInfundToken);
         DoppiUpkeepPayment storage p = doppiUpkeepPayment[upkeepId];
         p.lastPaidAmount = topUpInfo.amountSpent;
         p.lastBlockCharged = block.number;
@@ -334,7 +337,7 @@ contract DoppiUpkeepManager is Ownable {
 
     function _getUnPaidDoppiFee(uint256 _upkeepId) internal view returns (uint96 fee, address trader) {
         
-        IAutomationRegistryConsumer.UpkeepInfo memory result = this.getUpkeep(_upkeepId);
+        IAutomationRegistryConsumer.UpkeepInfo memory result = registryConsumer.getUpkeep(_upkeepId);
         DoppiUpkeepPayment memory p = doppiUpkeepPayment[_upkeepId];
         uint96 amountSpent = result.amountSpent;
         uint96 amountLastSpent = amountSpent - p.lastPaidAmount;

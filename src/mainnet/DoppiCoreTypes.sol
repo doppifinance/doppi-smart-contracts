@@ -41,6 +41,15 @@ struct SettleAccumulate {
     uint256 totalB;
 }
 
+/// @notice Lightweight params used only by DoppiTrader.bulkDeposit.
+/// strikePrice / apr / expiry are intentionally absent — DoppiCore derives
+/// them from a fresh DoppiOffer call at execution time.
+struct BulkDepositParam {
+    uint256 amount;
+    uint8 strikeZone;
+    uint8 numDays;
+}
+
 struct DepositParams {
     uint256 amount;
     uint8 strikeZone;

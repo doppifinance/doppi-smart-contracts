@@ -99,6 +99,7 @@ contract Scenario2Test is Test {
     
         doppiRouter = new DoppiLiquidityRouter(IERC20(USDT), IERC20(BTC), doppiLP);
         doppiRouter.setDoppiCore(address(doppiCore));
+        doppiLP.setDoppiLiquidityRouter(address(doppiRouter));
         doppiFactory = new DoppiTraderFactory(IERC20(USDT), IERC20(BTC), address(doppiCore), address(doppiLP), address(doppiRouter));
         doppiUpkeepManager = _deployDoppiUpkeepManager(address(doppiFactory));
         
@@ -250,6 +251,7 @@ contract Scenario2Test is Test {
         vm.startPrank(trader);
         uint32 traderId = doppiFactory.deployTraderBot(defaultWeights);
         DoppiTrader traderBot = DoppiTrader(doppiFactory.traderBots(traderId));
+        traderBot.setForwarderAddress(forwarder);
         vm.stopPrank();
 
         // Fund and start
@@ -296,6 +298,7 @@ contract Scenario2Test is Test {
 
         // Restart
         vm.startPrank(trader);
+        traderBot.setForwarderAddress(forwarder);
         usdt.approve(address(traderBot), 10000 ether);
         btc.approve(address(traderBot), 0.2 ether);
         traderBot.start(10000 ether, 0.1 ether);
@@ -619,6 +622,7 @@ contract Scenario2Test is Test {
         // console.log("mockRegistryConsumer deployed at:", address(mockRegistryConsumer));
         _doppiUpkeepManager.setMaxDelay(10 days);
         _doppiUpkeepManager.setDefault_Amount(0);
+        _doppiUpkeepManager.setForwarderAddress(forwarder);
         doppiFactory.setDoppiUpKeepManager(address(_doppiUpkeepManager));
 
         return _doppiUpkeepManager;

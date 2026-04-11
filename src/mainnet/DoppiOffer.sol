@@ -265,6 +265,7 @@ contract DoppiOffer is IDoppiOffer, Ownable {
     function _getOffer(bool _isBuy, uint8 _numDays, uint8 _strikeZone, uint256 _price)
         internal view returns (DualAssetOffer memory offer)
     {
+        require(_strikeZone < TOTAL_OFFER, "zone out of range");
         uint256 duration = SECONDS_PER_DAY * _numDays;
         uint256 strikePrice = _getStrikePrice(_price, _strikeZone + 1, _isBuy);
         (uint32 apr, uint256 delta) = _isBuy
@@ -280,7 +281,11 @@ contract DoppiOffer is IDoppiOffer, Ownable {
     {
         int256 price = int256(_price);
         RegressionVar memory regr = _isBuy ? buyRegression[_daysInTimestamp] : sellRegression[_daysInTimestamp];
-        markIV = uint256((((((regr.a * price) / priceDecimal) * price) / priceDecimal) + ((regr.b * price) / priceDecimal) + regr.c)) / 1e11;
+        int256 rawIV = (((((regr.a * price) / priceDecimal) * price) / priceDecimal)
+                    + ((regr.b * price) / priceDecimal)
+                    + regr.c);
+        if (rawIV <= 0) return (0, regr.lastUpdated);  // callers already handle zero IV
+        markIV = uint256(rawIV) / 1e11;
         lastUpdated = regr.lastUpdated;
     }
 

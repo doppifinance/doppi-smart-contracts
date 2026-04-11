@@ -27,7 +27,6 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
     IDoppiOffer public immutable doppiOffer; // Made immutable
     IDoppiPoints public immutable doppiPoints;
 
-    uint256 public priceDecimal;
     uint32 private constant SECONDS_PER_YEAR = 31536000;
     uint24 private constant SECONDS_PER_DAY = 86400;
     uint16 private constant BASIS_POINTS = 10000;
@@ -122,24 +121,40 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
         _updateLowerUpperBound(sellOffer.strikePrice);
     }
 
-    function bulkDeposit(bool isBuy, DepositParams[] calldata params, DualAssetOffer[] memory _offers, uint256 total) external whenNotPaused {
+    function bulkDeposit(bool isBuy, BulkDepositParam[] calldata params, uint256 total) external whenNotPaused {
         
         _onlyTraderBot();
         uint256 length = params.length;
-        if(length != _offers.length) revert InvalidOfferLength();
-        
-        for (uint256 i = 0; i < length; ) {
-            DepositParams calldata param = params[i];
-            if(param.amount == 0) revert InvalidAmount();
-            if(param.apr == 0) revert InvalidAPR();
+        if (length == 0) revert InvalidOfferLength();
 
-            isBuy ? _depositBuy(param, _offers[i]) : _depositSell(param, _offers[i]);
-            _updateLowerUpperBound(_offers[i].strikePrice);
+        // Fetch price once — all per-slot getSingleOffer calls below are pure math
+        uint256 price = _getPriceFromLP();
+
+        for (uint256 i = 0; i < length; ) {
+            BulkDepositParam calldata param = params[i];
+            if (param.amount == 0) revert InvalidAmount();
+
+            // Core derives the authoritative offer — caller cannot manipulate strikePrice/apr/expiry
+            DualAssetOffer memory offer = doppiOffer.getSingleOffer(isBuy, param.numDays, param.strikeZone, price);
+            if (offer.price == 0) revert InvalidStrikePriceOrPrice();
+
+            // Reconstruct a DepositParams so _depositBuy/_depositSell signatures are unchanged
+            DepositParams memory dp = DepositParams({
+                amount: param.amount,
+                strikeZone: param.strikeZone,
+                strikePrice: offer.strikePrice,
+                numDays: param.numDays,
+                apr: offer.apr,
+                expiry: offer.expiry
+            });
+
+            isBuy ? _depositBuy(dp, offer) : _depositSell(dp, offer);
+            _updateLowerUpperBound(offer.strikePrice);
             unchecked { ++i; }
         }
 
-        if(!doppiPoints.paused()){
-            uint256 tradeVolume = isBuy ? total : (total * _offers[0].price) / priceDecimal; 
+        if (!doppiPoints.paused()) {
+            uint256 tradeVolume = isBuy ? total : (total * price) / priceDecimal;
             _recordTradePoints(msg.sender, tradeVolume);
         }
     }
@@ -342,7 +357,7 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
         _updateBound();     
     }
 
-    function _depositBuy(DepositParams calldata params, DualAssetOffer memory _buyOffer) internal {
+    function _depositBuy(DepositParams memory params, DualAssetOffer memory _buyOffer) internal {
         uint256 amount = params.amount;
         uint8 numDays = params.numDays;
         address sender = msg.sender;
@@ -354,10 +369,8 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
         unchecked { nextPositionId[numDays] = positionId + 1; }
 
         // Calculate interest using precomputed values
-        uint256 duration = SECONDS_PER_DAY * numDays;
-        uint256 interest = (amount * _buyOffer.apr) / BASIS_POINTS;
-        interest = (interest * duration) / SECONDS_PER_YEAR;
-        // uint256 interest = (amount * _buyOffer.apr * duration) / (BASIS_POINTS * SECONDS_PER_YEAR);
+        uint256 duration = uint256(SECONDS_PER_DAY) * uint256(numDays);
+        uint256 interest = (amount * uint256(_buyOffer.apr) * duration) / (uint256(BASIS_POINTS) * uint256(SECONDS_PER_YEAR));
         uint256 payout = (amount * priceDecimal) / _buyOffer.strikePrice;
         positions_buy[numDays][positionId] = DualAssetPosition(
             amount,
@@ -375,7 +388,7 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
         emit Deposited(sender, positionId, address(assetA), amount, interest, _buyOffer.strikePrice, _buyOffer.apr, numDays);
     }
 
-    function _depositSell(DepositParams calldata params, DualAssetOffer memory _sellOffer) internal {
+    function _depositSell(DepositParams memory params, DualAssetOffer memory _sellOffer) internal {
         
         uint256 amount = params.amount;
         uint8 numDays = params.numDays;
@@ -390,10 +403,8 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
         unchecked { nextPositionId[numDays] = positionId + 1; }
         
         // Calculate interest using precomputed values
-        uint256 duration = SECONDS_PER_DAY * numDays;
-        uint256 interest = (amount * _sellOffer.apr) / BASIS_POINTS;
-        interest = (interest * duration) / SECONDS_PER_YEAR;
-        // uint256 interest = (amount * _sellOffer.apr * duration) / (BASIS_POINTS * SECONDS_PER_YEAR);
+        uint256 duration = uint256(SECONDS_PER_DAY) * uint256(numDays);
+        uint256 interest = (amount * uint256(_sellOffer.apr) * duration) / (uint256(BASIS_POINTS) * uint256(SECONDS_PER_YEAR));
         uint256 payout = (amount * _sellOffer.strikePrice) / priceDecimal;
         positions_sell[numDays][positionId] = DualAssetPosition(
             amount,
@@ -953,8 +964,7 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
         uint256 amountFee = _amount * treasury_fee / 10000;
         uint256 amountAfterFee = _amount - amountFee;
         _asset.safeTransfer(_to, amountAfterFee);
-        _asset.safeTransfer(treasury, amountFee);
-
+        if (amountFee > 0) _asset.safeTransfer(treasury, amountFee);
     }
     
     // Helpers interacting via low-level calls (to avoid interface in module)

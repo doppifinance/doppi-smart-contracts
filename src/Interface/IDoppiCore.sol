@@ -8,7 +8,7 @@ interface IDoppiCore {
     
     function getBuyPositionCount(address _owner) external view returns (uint256);
     function getSellPositionCount(address _owner) external view returns (uint256);
-    function bulkDeposit(bool isBuy, DepositParams[] calldata params, DualAssetOffer[] memory _offers, uint256 total) external;
+    function bulkDeposit(bool isBuy, BulkDepositParam[] calldata params, uint256 total) external;
     function get_positions_buy(address _owner) external view returns (DualAssetPosition[] memory);
     function get_positions_sell(address _owner) external view returns (DualAssetPosition[] memory);
     function paused() external view returns (bool);
