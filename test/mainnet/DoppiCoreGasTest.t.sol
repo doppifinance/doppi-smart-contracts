@@ -26,7 +26,7 @@ import {TestParamLib} from "../../src/Library/TestParamLib.sol";
 import "../../src/mainnet/DoppiLiquidityTypes.sol";
 
 
-contract Scenario2Test is Test {
+contract DoppiCoreGasTest is Test {
     DoppiTraderFactory doppiFactory;
     // DoppiTrader doppiTrader;
     DoppiCore doppiCore;
@@ -367,12 +367,15 @@ contract Scenario2Test is Test {
         _manipulateRealChainlink(newPrice, address(oracle));
         // 1 day fast forward and settle
         // doppiCore.display();
+        // console.log(doppiCore.lowerBound(), doppiCore.upperBound());
         assertEq(doppiCore.lowerBound(), 9150000000000);
         assertEq(doppiCore.upperBound(), 10300000000000);
 
         vm.warp(block.timestamp + 1 days + 1);
         (uint64[] memory readyPositionId, SettleAccumulate memory settleAccu) = doppiCore.getReadyAllPositions(1);
         (uint64[] memory readyPositionId2, SettleAccumulate memory settleAccu2) = doppiCore.getReadyAllPositions(3);
+        // console.log(doppiCore.nextProcessId(1), "nextProcessId 1");
+        // console.log(doppiCore.nextProcessId(3), "nextProcessId 3");
         assertEq(readyPositionId.length, 100);
         assertEq(readyPositionId2.length, 0); // no yet ready to settle for 3 days position
 
@@ -393,7 +396,8 @@ contract Scenario2Test is Test {
         vm.warp(block.timestamp + 2 days + 1);
         (readyPositionId2, settleAccu2) = doppiCore.getReadyAllPositions(3);
         assertEq(readyPositionId2.length, 100);
-        
+        console.log(readyPositionId2.length, "readyPositionId2.length");
+
         _doppiCoreCheckUpkeep_performUpkeep();
         _doppiCoreCheckUpkeep_performUpkeep();
         _doppiCoreCheckUpkeep_performUpkeep();
@@ -644,4 +648,12 @@ contract Scenario2Test is Test {
         _price = (_price / priceGapWithDecimals) * priceGapWithDecimals;
         return _isBuy ? _price - (priceGapWithDecimals * (_strikeZone - 1)) : _price + (priceGapWithDecimals * _strikeZone);
     }
+
+    // function _getAllPositions() internal view returns (uint256) {
+        
+    //     (uint64[] memory readyPositionId, SettleAccumulate memory settleAccu) = doppiCore.getReadyAllPositions(1);
+    //     (uint64[] memory readyPositionId2, SettleAccumulate memory settleAccu2) = doppiCore.getReadyAllPositions(3);
+    // }
+
+    
 }

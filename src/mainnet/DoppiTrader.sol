@@ -7,7 +7,7 @@ import {AutomationCompatibleInterface} from "../Interface/AutomationCompatibleIn
 import {DALiquidityLib} from "../Library/DALiquidityLib.sol";
 import "./DoppiTraderTypes.sol";
 import "./DoppiTraderAdminView.sol";
-// import "forge-std/console.sol";
+import "forge-std/console.sol";
 import {IDoppiUpkeepManager, TopUpInfo} from "../Interface/IDoppiUpkeepManager.sol";
 
 contract DoppiTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCompatibleInterface, Initializable {
@@ -129,25 +129,21 @@ contract DoppiTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCompati
 
     function emergencyWithdraw() external nonReentrant {
         _onlyTrader();
-        if(!doppiCore.emergencyMode() || !doppiCore.paused()) revert NotEmergency();
-
-        doppiCore.emergencyWithdraw();
-        assetA.safeTransfer(msg.sender, assetA.balanceOf(address(this)));
-        assetB.safeTransfer(msg.sender, assetB.balanceOf(address(this)));
-
-        undoStat.undo_assetB = 0;
-        undoStat.undo_assetA = 0;
-        _removeMapping();
-    }
-
-    function emergencyWithdrawLP() external nonReentrant {
-        _onlyTrader();
         if (!doppiRouter.isEmergency() || !doppiRouter.paused()) revert NotEmergency();
+        // make sure no active orders
+        uint256 buyPosCount = doppiCore.getBuyPositionCount(address(this));
+        uint256 sellPosCount = doppiCore.getSellPositionCount(address(this));
+        if (buyPosCount > 0 || sellPosCount > 0) revert ActiveOrders();
+
         IERC20(doppiLP).safeIncreaseAllowance(address(doppiRouter), doppiLP.balanceOf(address(this)));
         doppiRouter.emergencyWithdraw();
 
         assetA.safeTransfer(msg.sender, assetA.balanceOf(address(this)));
         assetB.safeTransfer(msg.sender, assetB.balanceOf(address(this)));
+        
+        undoStat.undo_assetB = 0;
+        undoStat.undo_assetA = 0;
+        _removeMapping();
     }
 
     function setMultipleOrderConfigs(

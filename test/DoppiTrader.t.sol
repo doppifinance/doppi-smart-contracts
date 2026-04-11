@@ -835,11 +835,6 @@ contract DoppiTraderTest is Test {
         doppiTrader.emergencyWithdraw();
         vm.stopPrank();
         
-        vm.startPrank(trader);
-        vm.expectRevert("NotEmergency()");
-        doppiTrader.emergencyWithdrawLP();
-        vm.stopPrank();
-        
         // vm.startPrank(owner);
         doppiCore.setPause();
         doppiCore.setEmergencyMode(true);
@@ -847,9 +842,20 @@ contract DoppiTraderTest is Test {
         doppiRouter.setEmergencyMode(true);
         // vm.stopPrank();
         
+
+        vm.startPrank(trader);
+        vm.expectRevert("ActiveOrders()");
+        doppiTrader.emergencyWithdraw();
+        vm.stopPrank();
+
+        // let admin manually trigger emergency settlement in doppiCore to settle all positions
+        vm.startPrank(doppiCore.owner());
+        doppiCore.emergencySettlement(1);
+        vm.stopPrank();
+
         vm.startPrank(trader);
         doppiTrader.emergencyWithdraw();
-        doppiTrader.emergencyWithdrawLP();
+        // doppiTrader.emergencyWithdrawLP();
         vm.stopPrank();
 
         uint256 end_usdtbal = usdt.balanceOf(trader);

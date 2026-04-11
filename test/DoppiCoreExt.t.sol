@@ -503,9 +503,10 @@ contract DoppiCoreExtTest is Test {
 
         uint256 start_usdtbal = usdt.balanceOf(user1);
         uint256 start_btcbal = btc.balanceOf(user1);
-        // emergency withdraw buy and sell
-        vm.startPrank(user1);
-        doppiCore.emergencyWithdraw();
+        
+        // emergency settlement by admin
+        vm.startPrank(doppiCore.owner());
+        doppiCore.emergencySettlement(1);
         vm.stopPrank();
 
         uint256 pos1day = doppiCore.getPositionLength(1);

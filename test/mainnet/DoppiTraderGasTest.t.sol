@@ -26,7 +26,7 @@ import {TestParamLib} from "../../src/Library/TestParamLib.sol";
 import "../../src/mainnet/DoppiLiquidityTypes.sol";
 
 
-contract Scenario2Test is Test {
+contract DoppiTraderGasTest is Test {
     DoppiTraderFactory doppiFactory;
     // DoppiTrader doppiTrader;
     DoppiCore doppiCore;

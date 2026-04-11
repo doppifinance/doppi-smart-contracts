@@ -13,7 +13,6 @@ interface IDoppiCore {
     function get_positions_sell(address _owner) external view returns (DualAssetPosition[] memory);
     function paused() external view returns (bool);
     function emergencyMode() external view returns (bool);
-    function emergencyWithdraw() external;
     function getCurrentDeposits(bool isBuy) external view returns (uint256);
     function getInterestLiabilities() external view returns (uint256, uint256);
     function acceptedDeposit(bool isBuy) external view returns (uint256 acceptedAmount);
