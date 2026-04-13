@@ -104,7 +104,6 @@ abstract contract DoppiTraderAdminView is Ownable {
 
     function setForwarderAddress(address forwarderAddress) external {
         _onlyUpkeepOrTrader();
-        require(forwarderAddress != address(0), "zero forwarder");
         s_forwarderAddress = forwarderAddress;
     }
 

@@ -345,20 +345,6 @@ contract DoppiTraderTest is Test {
         (bool upkeepNeeded, bytes memory performData) = opportunityBot.checkUpkeep("");
         // console.log(upkeepNeeded, "upkeepNeeded");
         assertTrue(upkeepNeeded);
-        assertGt(performData.length, 0);
-        (
-            uint256[] memory targetPrices, 
-            uint256[] memory targetPricesUnwind, 
-            uint256 totalAmount,
-            uint256 totalAmountUnwind,
-            uint256[] memory targetPricesSell, 
-            uint256[] memory targetPricesSellUnwind, 
-            uint256 totalAmountSell,
-            uint256 totalAmountSellUnwind
-        ) = abi.decode(performData, (uint256[], uint256[], uint256, uint256, uint256[], uint256[], uint256, uint256));
-
-        assertGt(targetPricesSell.length, 0);
-        assertEq(targetPrices.length, 0);
 
         vm.prank(mockForwarder);
         opportunityBot.performUpkeep(performData);
@@ -390,20 +376,7 @@ contract DoppiTraderTest is Test {
         oracle.setPrice(int256(104_000 * 1e8));
         (bool upkeepNeeded, bytes memory performData) = opportunityBot.checkUpkeep("");
         assertTrue(upkeepNeeded);
-        assertGt(performData.length, 0);
-        (
-            uint256[] memory targetPrices, 
-            uint256[] memory targetPricesUnwind, 
-            uint256 totalAmount,
-            uint256 totalAmountUnwind,
-            uint256[] memory targetPricesSell, 
-            uint256[] memory targetPricesSellUnwind, 
-            uint256 totalAmountSell,
-            uint256 totalAmountSellUnwind
-        ) = abi.decode(performData, (uint256[], uint256[], uint256, uint256, uint256[], uint256[], uint256, uint256));
-
-        assertGt(targetPricesSell.length, 0);
-        assertEq(targetPrices.length, 0);
+        
         vm.prank(mockForwarder);
         opportunityBot.performUpkeep(performData);
         

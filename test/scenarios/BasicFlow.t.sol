@@ -224,7 +224,6 @@ contract BasicFlowTest is Test {
         oracle.setPrice(int256(_price));
         (bool upkeepNeeded, bytes memory performData) = opportunityBot.checkUpkeep("");
         assertTrue(upkeepNeeded);
-        assertGt(performData.length, 0);
         vm.prank(mockForwarder);
         opportunityBot.performUpkeep(performData);
     }

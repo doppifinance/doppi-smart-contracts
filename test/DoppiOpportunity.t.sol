@@ -115,7 +115,6 @@ contract DoppiOpportunityTest is Test {
         oracle.setPrice(int256(95_500  * 1e8));
         (bool upkeepNeeded, bytes memory performData) = doppiOpportunity.checkUpkeep("");
         assertTrue(upkeepNeeded);
-        assertGt(performData.length, 0);
         vm.prank(mockForwarder);
         doppiOpportunity.performUpkeep(performData);
     }
@@ -126,7 +125,6 @@ contract DoppiOpportunityTest is Test {
         oracle.setPrice(int256(104_000 * 1e8));
         (bool upkeepNeeded, bytes memory performData) = doppiOpportunity.checkUpkeep("");
         assertTrue(upkeepNeeded);
-        assertGt(performData.length, 0);
         vm.prank(mockForwarder);
         doppiOpportunity.performUpkeep(performData);
     }

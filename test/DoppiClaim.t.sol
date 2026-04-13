@@ -207,6 +207,50 @@ contract DoppiClaimTest is Test {
         assertEq(claimedPoint, 100 ether);
     }
 
+    function testTradingClaimUsesOldAndNewRateByMonth() public {
+        vm.prank(mockDoppiCore);
+        doppiPoints.recordTrade(alice, 100 ether);
+
+        uint256 currentMonthId = doppiPoints.getCurrentMonthId();
+        assertEq(currentMonthId, 1, "expected month 1 in setup state");
+
+        doppiClaim.setTokensPerPoint(5000);
+
+        assertEq(doppiClaim.getTokensPerPointForMonth(1), 10000, "month 1 should keep old rate");
+        assertEq(doppiClaim.getTokensPerPointForMonth(2), 5000, "month 2 should use new rate");
+
+        vm.warp(vm.getBlockTimestamp() + 31 days);
+        vm.prank(mockDoppiCore);
+        doppiPoints.recordTrade(alice, 100 ether);
+
+        vm.warp(vm.getBlockTimestamp() + 31 days);
+
+        vm.prank(alice);
+        doppiClaim.claimTradingPoint();
+
+        assertEq(token.balanceOf(alice), 150 ether, "month 1 uses 1:1 and month 2 uses 0.5:1");
+    }
+
+    function testReferralClaimUsesOldAndNewRateByMonth() public {
+        _registerCode();
+
+        vm.prank(mockDoppiCore);
+        doppiPoints.recordTrade(bob, 10_000 ether);
+
+        doppiClaim.setTokensPerPoint(5000);
+
+        vm.warp(vm.getBlockTimestamp() + 31 days);
+        vm.prank(mockDoppiCore);
+        doppiPoints.recordTrade(bob, 10_000 ether);
+
+        vm.warp(vm.getBlockTimestamp() + 31 days);
+
+        vm.prank(alice);
+        doppiClaim.claimReferralPoint();
+
+        assertEq(token.balanceOf(alice), 225 ether, "month 1 referral uses old rate and month 2 uses new rate");
+    }
+
 
     event Claimed(
         address indexed user,

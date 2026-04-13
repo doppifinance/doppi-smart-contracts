@@ -38,8 +38,9 @@ contract DoppiUpkeepManager is Ownable {
     address public immutable router;
     IPegSwap public immutable pegSwap;
     uint8 public constant TRIGGER_CONDITION = 0; // CONDITION trigger
+    uint24 public constant MAX_SLIPPAGE = 500;  // 5%
     uint32 public maxDelay = 10 minutes; 
-    uint32 public DEFAULT_GASLIMIT = 5_000_000;
+    uint32 public DEFAULT_GASLIMIT = 2_500_000;
     uint96 public DEFAULT_AMOUNT = 50 ether;
     uint24 public slippage = 100; //1.0%
     uint24 public doppiBotFee = 2000; // 20% of chainlink fee
@@ -139,7 +140,7 @@ contract DoppiUpkeepManager is Ownable {
         doppiBotFee = _doppiBotFee;
     }
 
-    function setTresury(address _treasury) external onlyOwner {
+    function setTreasury(address _treasury) external onlyOwner {
         require(_treasury != address(0), "zero treasury");
         treasury = _treasury;
     }
@@ -161,6 +162,7 @@ contract DoppiUpkeepManager is Ownable {
     }
 
     function setSlippage(uint24 _slippage) external onlyOwner {
+        require(_slippage <= MAX_SLIPPAGE, "slippage too high");
         slippage = _slippage;
     }
 
@@ -187,7 +189,7 @@ contract DoppiUpkeepManager is Ownable {
         // reset forwarder in trader bot 
         IDoppiTrader(targetContract).setForwarderAddress(address(0));
 
-        if(finalBal >= fee) linkToken.transfer(treasury, fee);
+        if(finalBal >= fee) IERC20(address(linkToken)).safeTransfer(treasury, fee);
         if(refund > 0) {
             uint256 fundTokenOut = _swapERC677ToFundToken(refund);
             fundToken.safeTransfer(trader, fundTokenOut);
@@ -203,7 +205,7 @@ contract DoppiUpkeepManager is Ownable {
         (uint256 fee, ) = _getUnPaidDoppiFee(_upkeepId);
         uint256 finalamount = linkAmount - fee;
         _fundUpkeep(_upkeepId, uint96(finalamount));
-        IERC20(address(linkToken)).safeTransfer(treasury, fee);
+        if(fee > 0) IERC20(address(linkToken)).safeTransfer(treasury, fee);
         emit UpkeepFunded(_upkeepId, _amount, finalamount, fee);
     }
     
@@ -275,7 +277,12 @@ contract DoppiUpkeepManager is Ownable {
         }
     }
 
-    function shouldTopUpkeep(uint256 upkeepId) external view returns (TopUpInfo memory topUpInfo) {
+    function shouldTopUpkeep(uint256 upkeepId) external view returns (TopUpInfo memory topUpInfo, bool needTopUp) {
+ 
+        (topUpInfo, needTopUp) = _getTopUpInfo(upkeepId);
+    }
+
+    function _getTopUpInfo(uint256 upkeepId) internal view returns (TopUpInfo memory topUpInfo, bool needTopUp) {
  
         IAutomationRegistryConsumer.UpkeepInfo memory result = registryConsumer.getUpkeep(upkeepId);
         DoppiUpkeepPayment memory p = doppiUpkeepPayment[upkeepId];
@@ -284,7 +291,7 @@ contract DoppiUpkeepManager is Ownable {
         if(p.lastBlockCharged < block.number && amountLastSpent >= MINSPENT){
             uint96 minBalance = registryConsumer.getMinBalance(upkeepId);
             uint256 topUpBorder = minBalance * 13000 / 10000; 
-            bool needTopUp = result.balance < topUpBorder;
+            needTopUp = result.balance < topUpBorder;
             if((needTopUp)){
                 uint256 fee = amountLastSpent * doppiBotFee / 10000;
                 uint256 price = DALiquidityLib.getPrice(chainLinkFeed, maxDelay);
@@ -298,11 +305,15 @@ contract DoppiUpkeepManager is Ownable {
         }
     }
     
-    function performTopUpkeep(uint256 upkeepId, TopUpInfo memory topUpInfo) external validUpkeepId(upkeepId) {
+    function performTopUpkeep(uint256 upkeepId) external validUpkeepId(upkeepId) {
         
         require(doppiTraderFactory.isTraderBot(msg.sender), "only traderbot can call");
+        (TopUpInfo memory topUpInfo, bool needTopUp) = _getTopUpInfo(upkeepId); 
+        
+        require(needTopUp == true, "no need to top up"); 
         uint256 bal = fundToken.balanceOf(address(this));
         require(bal >= topUpInfo.totalInfundToken, "balance not enough");
+
         uint256 linkOut = _swapToLinkERC677(topUpInfo.topUpAmountInfundToken);
         _fundUpkeep(upkeepId, uint96(linkOut));
         fundToken.safeTransfer(treasury, topUpInfo.feeInfundToken);
