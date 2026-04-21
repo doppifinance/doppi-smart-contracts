@@ -63,6 +63,8 @@ abstract contract DoppiCoreAdmin is Ownable, Pausable {
     }
 
     function setForwarderAddress(address forwarderAddress) external onlyOwner {
+        
+        require(forwarderAddress != address(0), "zero forwarder");
         s_forwarderAddress = forwarderAddress;
     }
 

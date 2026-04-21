@@ -577,12 +577,17 @@ contract DoppiOpportunityTest is Test {
         int256 newPrice = int256(90556 * 1e8);
         oracle.setPrice(newPrice);
 
-        assertEq(doppiCore.lowerBound(), 9700000000000);
-        assertEq(doppiCore.upperBound(), 10300000000000);
+        (uint256 lowerBound, uint256 upperBound) = doppiCore.getLowerUpperBound();
+        console.log(lowerBound, upperBound, "lowerBound, upperBound");
+        assertEq(lowerBound, 9700000000000);
+        assertEq(upperBound, 10300000000000);
 
         _doppiOpportunityCheckUpkeep_performUpkeep();
+
+        _displayBound(lowerBound, upperBound);
         
         OpportunityOrders memory buy = doppiCore.getOpportunityOrders(true, 10100000000000);
+        console.log(buy.amount, buy.swappedAmount, buy.outAmount, "buy.amount, buy.swappedAmount, buy.outAmount");
         assertEq(buy.amount, 175000000000000000000000);
         assertEq(buy.swappedAmount, 25000000000000000000000);
         assertEq(buy.outAmount, 273038230487212333);
@@ -635,9 +640,9 @@ contract DoppiOpportunityTest is Test {
         assertEq(buy.swappedAmount, 75000000000000000000000);
         assertEq(buy.outAmount, 776254238352379755);
         
-        // console.log(doppiCore.lowerBound(), doppiCore.upperBound());
-        assertEq(doppiCore.lowerBound(), 9700000000000);
-        assertEq(doppiCore.upperBound(), 10300000000000);
+        (lowerBound, upperBound) = doppiCore.getLowerUpperBound();
+        assertEq(lowerBound, 9700000000000);
+        assertEq(upperBound, 10300000000000);
 
         
     }
@@ -779,6 +784,23 @@ contract DoppiOpportunityTest is Test {
         DoppiPoints _doppiPoints = new DoppiPoints();
         console.log("DoppiPoints deployed at:", address(_doppiPoints));
         return _doppiPoints;
+    }
+
+    function _displayBound(uint256 lowerBound, uint256 upperBound) internal view {
+        
+        for (uint256 price = upperBound; price >= lowerBound; ) {
+            // console.log(price, "price");
+            bool isBuy = true;
+            (uint256 amount, uint256 swappedAmount, uint256 outAmount) = doppiCore.opportunityBuy(price);
+            
+            if(amount == 0){
+                isBuy = false;
+                (amount, swappedAmount, outAmount) = doppiCore.opportunitySell(price);
+            }
+            console.log(isBuy, price, swappedAmount, outAmount);
+            price -= (500 * 1e8); 
+        }
+
     }
 
     

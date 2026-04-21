@@ -81,8 +81,7 @@ contract MyScript is Script {
     function _getOpportunityData() internal view {
 
         console.log("start OpportunityData");
-        uint256 lowerBound = doppiCore.lowerBound();
-        uint256 upperBound = doppiCore.upperBound();
+        (uint256 lowerBound, uint256 upperBound) = doppiCore.getLowerUpperBound();
         console.log(lowerBound, upperBound);
         for (uint256 price = upperBound; price >= lowerBound; ) {
             // console.log(price, "price");

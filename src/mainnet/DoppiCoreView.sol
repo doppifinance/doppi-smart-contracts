@@ -2,7 +2,7 @@
 pragma solidity ^0.8.26;
 import {IDoppiLiquidity} from "../Interface/IDoppiLiquidity.sol";
 import "./DoppiCoreTypes.sol";
-// import "forge-std/console.sol";
+import "forge-std/console.sol";
 
 abstract contract DoppiCoreView {
     
@@ -13,7 +13,6 @@ abstract contract DoppiCoreView {
     uint8[] public supportDays; 
     mapping(uint8 => uint64) public nextProcessId;
     mapping(uint8 => uint64) public nextPositionId;
-    // uint64 public nextPositionId;
     
     IDoppiLiquidity public immutable doppiLP; // Made immutable
     
@@ -88,6 +87,7 @@ abstract contract DoppiCoreView {
     }
 
     function getPositionLength(uint8 day) public view returns (uint64){
+        console.log("getPositionLength", day, nextProcessId[day], nextPositionId[day]);
         return nextPositionId[day] - nextProcessId[day];
     } 
 

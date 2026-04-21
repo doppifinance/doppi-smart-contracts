@@ -14,7 +14,7 @@ contract PerformUpkeepDoppiTraderBot is Script {
 
         vm.startBroadcast(deployerPrivateKey);
 
-        bots.push(address(0x176AF66c5A7067DD06c52D08b02DbCce2952a38F));
+        bots.push(address(0x9c1387c63EA3BA4A0F69702E6f39a0b4100D3dF7));
         // bots.push(address(0x344F302F0c7609FF9526AB7ceF2a9e62d8991431));
         // bots.push(address(0x163D6BA3de75cac4C2D57aeD5Ce94AcF5617f043));
 

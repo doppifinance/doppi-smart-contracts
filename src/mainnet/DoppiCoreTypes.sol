@@ -10,11 +10,6 @@ struct DualAssetOffer {
     uint32 expiry;
 }
 
-struct PendingSettlement {
-    uint256[] indexes;
-    uint256 settlementPrice;
-}
-
 struct OpportunityOrders {
     uint256 amount;
     uint256 swappedAmount;
@@ -33,14 +28,6 @@ struct DualAssetPosition {
     uint256 payout;
 }
 
-struct SettleAccumulate {
-    uint64 positionId;
-    uint256 totalInterestA;
-    uint256 totalInterestB;
-    uint256 totalA;
-    uint256 totalB;
-}
-
 /// @notice Lightweight params used only by DoppiTrader.bulkDeposit.
 /// strikePrice / apr / expiry are intentionally absent — DoppiCore derives
 /// them from a fresh DoppiOffer call at execution time.
@@ -57,12 +44,4 @@ struct DepositParams {
     uint8 numDays;
     uint32 apr;
     uint32 expiry; 
-}
-
-struct SettlementResult {
-    address profitToken;
-    address payoutToken;
-    address interestToken;
-    bool isProfit;
-    uint256 profitLoss;
 }

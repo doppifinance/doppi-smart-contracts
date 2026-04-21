@@ -58,15 +58,22 @@ contract DoppiLiquidityRouter is Ownable, Pausable, ReentrancyGuard {
         emit Redeemed(msg.sender, _shares, assetsA, assetsB);
     }
 
+    /// @notice Emergency withdraw function for users to redeem their shares without restrictions during emergency mode. Only callable when the contract is paused and in emergency mode.
+    /// @dev This function allows users to redeem their shares for the underlying assets without any checks on available capacity or liabilities. It must ensure DoppiCore has settled all positions before allowing withdrawals to prevent insolvency. The function should be protected against reentrancy and can only be called when the contract is paused and in emergency mode.
     function emergencyWithdraw() external whenEmergency whenPaused nonReentrant {
         uint256 userShares = doppiLP.balanceOf(msg.sender);
         require(userShares > 0, "No shares to withdraw");   
+        require(_isPending() == false, "Pending orders exist"); // Ensure no pending orders in DoppiCore   
 
-        uint256 maxWithdrawable = getWithdrawableAmount(msg.sender);
-        uint256 sharesToWithdraw = userShares < maxWithdrawable ? userShares : maxWithdrawable;
+        IERC20(doppiLP).safeTransferFrom(msg.sender, address(this), userShares);
+        (uint256 ratioA, uint256 ratioB) = doppiLP.assetRatio();
+        uint256 firstHalf = userShares * ratioA / (ratioA + ratioB);
+        uint256 secondHalf = userShares - firstHalf;        
+        uint256 assetsA = entryPointA.redeem(firstHalf, msg.sender, address(this));
+        uint256 assetsB = entryPointB.redeem(secondHalf, msg.sender, address(this));
+        doppiLP.cleanUpUnwind(assetsA, assetsB);
 
-        (uint256 assetsA, uint256 assetsB) = _redeem(sharesToWithdraw);
-        emit EmergencyWithdraw(msg.sender, sharesToWithdraw, assetsA, assetsB);
+        emit EmergencyWithdraw(msg.sender, userShares, assetsA, assetsB);
     }
 
     function isEmergency() external view returns (bool) {
@@ -134,12 +141,27 @@ contract DoppiLiquidityRouter is Ownable, Pausable, ReentrancyGuard {
     }
 
     // internal
+
+    function _isPending() internal view returns (bool) {
+        uint256 totalBuy = _getCurrentDeposits(true);
+        uint256 totalSell = _getCurrentDeposits(false);
+        return totalBuy > 0 || totalSell > 0;
+    }
+
     function _getTotalInterestLiabilities() internal view returns (uint256 liabilityA, uint256 liabilityB) {
         
         require(doppiCore != address(0), "doppiCore not set");
         (bool success, bytes memory data) = doppiCore.staticcall(abi.encodeWithSignature("getInterestLiabilities()"));
         require(success && data.length == 64, "liabilities call failed");
         (liabilityA, liabilityB) = abi.decode(data, (uint256, uint256));
+    }
+
+    function _getCurrentDeposits(bool isBuy) internal view returns (uint256 total) {
+        
+        bytes memory callData = abi.encodeWithSelector(bytes4(keccak256("getCurrentDeposits(bool)")), isBuy);
+        (bool success, bytes memory data) = address(doppiCore).staticcall(callData);
+        require(success && data.length == 32, "liabilities call failed");
+        total = abi.decode(data, (uint256));
     }
 
     function _redeem(uint256 _shares) internal returns (uint256 assetsA, uint256 assetsB) {

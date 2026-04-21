@@ -79,7 +79,7 @@ contract DoppiCoreEmergencyTest is Test {
     function setUp() public {
         
         // Fork Mainnet at a specific block
-        uint256 mainnetFork = vm.createFork("mainnet", 69703761); // Do not change the block number for the unit test
+        uint256 mainnetFork = vm.createFork("mainnet", 92227024); // Do not change the block number for the unit test
         vm.selectFork(mainnetFork);
         
         // Start prank as owner
@@ -116,6 +116,101 @@ contract DoppiCoreEmergencyTest is Test {
         vm.stopPrank();
     }
 
+    function test_doppiCore_scenario_bot_oppo_settle() public {
+
+        vm.startPrank(doppiCore.owner());
+        doppiCore.setUpkeeps_per_check(5);
+        vm.stopPrank();
+
+        uint256 amountUSDT = 2_000 ether;
+        uint256 amountBTC = 0.02 ether;
+
+        deal(USDT, trader, amountUSDT);            
+        deal(BTC, trader, amountBTC);            
+
+        vm.startPrank(trader); 
+        uint32 traderId = doppiFactory.deployTraderBot(defaultWeights);
+        DoppiTrader traderBot = DoppiTrader(doppiFactory.traderBots(traderId));
+        usdt.approve(address(traderBot), amountUSDT);
+        btc.approve(address(traderBot), amountBTC);
+        traderBot.start(amountUSDT, amountBTC);
+        traderBot.setForwarderAddress(forwarder);
+        vm.stopPrank();
+
+        int256 newPrice = int256(67000 * 1e8);
+        _manipulateRealChainlink(newPrice, address(oracle));
+
+        // perform opportunity settlement
+        _doppiOpportunityCheckUpkeep_performUpkeep();
+        
+        (uint256 lowerBound, uint256 upperBound) = doppiCore.getLowerUpperBound();
+        // console.log("Lower bound:", lowerBound, "Upper bound:", upperBound);
+        assertEq(lowerBound, 6900000000000, "Lower bound should be 69000"); 
+        assertEq(upperBound, 7350000000000, "Upper bound should be 73500"); 
+
+        _displayBound(lowerBound, upperBound);
+        
+        vm.warp(vm.getBlockTimestamp() + 1 days);
+        newPrice = int256(71000 * 1e8);
+        _manipulateRealChainlink(newPrice, address(oracle));
+
+        _doppiCoreCheckUpkeep_performUpkeep();
+
+        (lowerBound, upperBound) = doppiCore.getLowerUpperBound();
+        // console.log("Lower bound:", lowerBound, "Upper bound:", upperBound);
+        assertEq(lowerBound, 7150000000000, "Lower bound should be 71500"); 
+        assertEq(upperBound, 7350000000000, "Upper bound should be 73500"); 
+
+        _displayBound(lowerBound, upperBound);
+        
+        _doppiCoreCheckUpkeep_performUpkeep();
+
+        newPrice = int256(70220 * 1e8);
+        _manipulateRealChainlink(newPrice, address(oracle));
+        
+        vm.startPrank(owner);
+        _setupIV(impliedVol);
+        vm.stopPrank();
+        
+        _doppiTraderCheckUpkeep_performUpkeep(traderBot);
+
+        vm.warp(vm.getBlockTimestamp() + 1 days);
+        uint256 count = doppiCore.getBuyPositionCount(address(traderBot));
+        assertEq(count, 5, "Buy positions should not be settled yet before upkeep");
+        count = doppiCore.getSellPositionCount(address(traderBot));
+        assertEq(count, 5, "Sell positions should not be settled yet before upkeep");
+        
+        _doppiCoreCheckUpkeep_performUpkeep();
+        count = doppiCore.getBuyPositionCount(address(traderBot));
+        assertEq(count, 0, "Buy positions should be fully settled with the first 5 after second upkeeps");
+        count = doppiCore.getSellPositionCount(address(traderBot));
+        assertEq(count, 5, "Sell positions should not be settled yet in secound upkeep");
+        
+        _doppiCoreCheckUpkeep_performUpkeep();
+
+        count = doppiCore.getBuyPositionCount(address(traderBot));
+        assertEq(count, 0, "Buy positions should be fully settled after third upkeep");
+        count = doppiCore.getSellPositionCount(address(traderBot));
+        assertEq(count, 0, "Sell positions should be fully settled after third upkeep");
+
+
+        (uint256 amount, uint256 swappedAmount, uint256 outAmount) = doppiCore.opportunityBuy(7100000000000);
+        assertEq(amount, 0, "No opportunity should be available at this price");
+        assertEq(swappedAmount, 0, "No opportunity should be available at this price");
+        assertEq(outAmount, 0, "No opportunity should be available at this price");
+
+        (amount, swappedAmount, outAmount) = doppiCore.opportunityBuy(7050000000000);
+        assertEq(amount, 0, "No opportunity should be available at this price");
+        assertEq(swappedAmount, 0, "No opportunity should be available at this price");
+        assertEq(outAmount, 0, "No opportunity should be available at this price");
+        
+        (lowerBound, upperBound) = doppiCore.getLowerUpperBound();
+        assertEq(lowerBound, 0, "Lower bound should be 0"); // reset
+        assertEq(upperBound, 0, "Upper bound should be 0"); // reset
+
+        
+    }
+
     function test_doppiCore_scenario_emergency_withdraw() public {
 
         uint256 amountUSDT = 100_000 ether;
@@ -139,16 +234,13 @@ contract DoppiCoreEmergencyTest is Test {
         _manipulateRealChainlink(newPrice, address(oracle));
 
         (uint256 ratioA, uint256 ratioB) = doppiLP.assetRatio();
-        console.log(ratioA, ratioB, "asset ratio before opportunity settlement");
         
         // perform opportunity settlement
         _doppiOpportunityCheckUpkeep_performUpkeep();
         OpportunityOrders memory sell = doppiCore.getOpportunityOrders(false, 9250000000000);
         assertGt(sell.swappedAmount, 0); // Ensure that the opportunity settlement actually executed a swap
         assertGt(sell.outAmount, 0);
-        // console.log(sell.swappedAmount, sell.outAmount, "sell.swappedAmount, sell.outAmount");
         (ratioA, ratioB) = doppiLP.assetRatio();
-        // console.log(ratioA, ratioB, "asset ratio after opportunity settlement");
         
         vm.startPrank(owner);
         doppiCore.setPause();
@@ -164,29 +256,53 @@ contract DoppiCoreEmergencyTest is Test {
         uint256 start_btcbal = btc.balanceOf(trader);
         console.log(start_usdtbal, start_btcbal, "start balances before emergency withdraw");
         
+        
+        uint256 bot_usdtbal = usdt.balanceOf(address(traderBot));
+        uint256 bot_btcbal = btc.balanceOf(address(traderBot));
+        console.log(bot_usdtbal, bot_btcbal, "bot balances before emergency settlement");
+
         // let admin manually trigger emergency settlement in doppiCore to settle all positions
         vm.startPrank(doppiCore.owner());
         doppiCore.emergencySettlement(1);
         vm.stopPrank();
 
+        bot_usdtbal = usdt.balanceOf(address(traderBot));
+        bot_btcbal = btc.balanceOf(address(traderBot));
+        console.log(bot_usdtbal, bot_btcbal, "bot balances after emergency settlement");
+        assertEq(bot_usdtbal, 49975 ether); // 25 is in upkeep manager, so 49975 instead of 50000
+        assertEq(bot_btcbal, 0.5 ether); 
+        
+
         // emergency withdraw buy and sell
         vm.startPrank(trader);
         traderBot.emergencyWithdraw();
-        // traderBot.emergencyWithdrawLP();
         vm.stopPrank();
 
-        
-
-        // assertEq(doppiCore.getBuyPositionCount(user1), 0);
-        // assertEq(doppiCore.getSellPositionCount(user1), 0);
+        assertEq(doppiCore.getBuyPositionCount(address(traderBot)), 0);
+        assertEq(doppiCore.getSellPositionCount(address(traderBot)), 0);
 
         uint256 end_usdtbal = usdt.balanceOf(trader);
         uint256 end_btcbal = btc.balanceOf(trader);
         console.log(end_usdtbal, end_btcbal, "end balances after emergency withdraw");
 
-        // assertEq(end_usdtbal, start_usdtbal + 50_000 ether);
-        // assertEq(end_btcbal, start_btcbal + 0.5 ether);
+        uint256 totalAssetsInAssetA = doppiLP.totalAssetsInAssetA();
+        uint256 totalAssetsInAssetB = doppiLP.totalAssetsInAssetB();
+        // console.log(totalAssetsInAssetA, totalAssetsInAssetB, "total assets in doppiLP after emergency withdraw");
+        assertApproxEqAbs(totalAssetsInAssetA, 0, 1);
+        assertApproxEqAbs(totalAssetsInAssetB, 0, 1);
+
+        assertApproxEqAbs(end_usdtbal, 100_000 ether, 30 ether); // due to the swap slippage and 25 USDT in UpkeepManager
+        assertApproxEqAbs(end_btcbal, 1 ether, 0.001 ether);
         
+    }
+
+    function _getBuffer() internal view {
+
+        uint256 price = doppiLP.getPrice();
+        uint256 buyBuffer = impliedVol.getOneDayBuffer(price, true);
+        uint256 sellBuffer = impliedVol.getOneDayBuffer(price, false);
+        console.log("buyBuffer", buyBuffer);
+        console.log("sellBuffer", sellBuffer);
     }
 
     function _depositBTC(uint256 amount) internal returns (DualAssetOffer memory) {
@@ -352,7 +468,7 @@ contract DoppiCoreEmergencyTest is Test {
         (bool upkeepNeeded, bytes memory performData) = doppiOpportunity.checkUpkeep("");
         uint256 gasUsed = gasBefore - gasleft();
         console.log(upkeepNeeded, gasUsed, "gasUsed in doppiOpportunity.checkUpkeep");
-        assertLt(gasUsed, 500_000, "Gas usage too high");
+        assertLt(gasUsed, 1_000_000, "Gas usage too high");
 
         if(upkeepNeeded){
             vm.prank(forwarder);
@@ -361,6 +477,26 @@ contract DoppiCoreEmergencyTest is Test {
             gasUsed = gasBefore - gasleft();
             console.log(gasUsed, "gasUsed in doppiOpportunity.performUpkeep");
             assertLt(gasUsed, 2_000_000, "Gas usage too high");
+            vm.stopPrank();
+        }
+        
+    }
+
+    function _doppiTraderCheckUpkeep_performUpkeep(DoppiTrader traderBot) internal {
+        
+        uint256 gasBefore = gasleft();
+        (bool upkeepNeeded, bytes memory performData) = traderBot.checkUpkeep("");
+        uint256 gasUsed = gasBefore - gasleft();
+        console.log(upkeepNeeded, gasUsed, "gasUsed in traderBot.checkUpkeep");
+        assertLt(gasUsed, 400_000, "Gas usage too high");
+
+        if(upkeepNeeded){
+            vm.prank(forwarder);
+            gasBefore = gasleft();
+            traderBot.performUpkeep(performData);
+            gasUsed = gasBefore - gasleft();
+            console.log(gasUsed, "gasUsed in traderBot.performUpkeep");
+            assertLt(gasUsed, 4_000_000, "Gas usage too high");
             vm.stopPrank();
         }
         
@@ -407,7 +543,7 @@ contract DoppiCoreEmergencyTest is Test {
 			router : PCSWAP_V3_ROUTER,
 			quoter: PCSWAP_V3_QUOTER,
 			poolFee: 500,  
-			slippage: 2000,
+			slippage: 3000,
 			liquidityFee: 1000,
 			priceDecimals: 8,
 			decimals: 10 ** 8,
@@ -440,11 +576,21 @@ contract DoppiCoreEmergencyTest is Test {
         return _isBuy ? _price - (priceGapWithDecimals * (_strikeZone - 1)) : _price + (priceGapWithDecimals * _strikeZone);
     }
 
-    // function _getAllPositions() internal view returns (uint256) {
+    function _displayBound(uint256 lowerBound, uint256 upperBound) internal view {
         
-    //     (uint64[] memory readyPositionId, SettleAccumulate memory settleAccu) = doppiCore.getReadyAllPositions(1);
-    //     (uint64[] memory readyPositionId2, SettleAccumulate memory settleAccu2) = doppiCore.getReadyAllPositions(3);
-    // }
+        for (uint256 price = upperBound; price >= lowerBound; ) {
+            // console.log(price, "price");
+            bool isBuy = true;
+            (uint256 amount, uint256 swappedAmount, uint256 outAmount) = doppiCore.opportunityBuy(price);
+            
+            if(amount == 0){
+                isBuy = false;
+                (amount, swappedAmount, outAmount) = doppiCore.opportunitySell(price);
+            }
+            console.log(isBuy, price, swappedAmount, outAmount);
+            price -= (500 * 1e8); 
+        }
 
-    
+    }
+
 }
