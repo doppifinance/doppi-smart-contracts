@@ -280,6 +280,8 @@ contract DoppiLiquidityGasTest is Test {
         doppiRouter.deposit(address(btc), depositBTCAmount);
         vm.stopPrank();
 
+        uint256 max;
+        uint256 min;
         uint256 totalSwaps = 500;
         uint256 priceChanges = 50; // Change price 50 times during test
         uint256 swapsPerPrice = totalSwaps / priceChanges;
@@ -300,12 +302,35 @@ contract DoppiLiquidityGasTest is Test {
                     doppiLP.settle(amountinBTC, swapAmount, uint256(startPrice), false);
                     // doppiLP.swap(amountinBTC, uint256(startPrice), false);
                     vm.stopPrank();
+                    if(max == 0) {
+                        max = uint256(startPrice);
+                    }
+                    if(min == 0) {
+                        min = uint256(startPrice);
+                    }
+                    if(max < uint256(startPrice)){
+                        max = uint256(startPrice);
+                    }else if(min > uint256(startPrice)){
+                        min = uint256(startPrice);
+                    }
+                    // console.log(max, min, "max, min after sell");
                 }else{
                     vm.startPrank(address(doppiCore));
                     deal(USDT, address(doppiCore), swapAmount);  
                     doppiLP.settle(swapAmount, amountinBTC, uint256(startPrice), true);
                     // doppiLP.swap(swapAmount, uint256(startPrice), true);
                     vm.stopPrank(); 
+                    if(max == 0) {
+                        max = uint256(startPrice);
+                    }
+                    if(min == 0) {
+                        min = uint256(startPrice);
+                    }
+                    if(max < uint256(startPrice)){
+                        max = uint256(startPrice);
+                    }else if(min > uint256(startPrice)){
+                        min = uint256(startPrice);
+                    }
                 }
             }
 
@@ -321,6 +346,14 @@ contract DoppiLiquidityGasTest is Test {
             }
         }
 
+        console.log(max, min, "max, min");
+
+        (uint256 lowerBound, uint256 upperBound) = doppiLP.getLowerUpperBound();
+        console.log(lowerBound, upperBound, "lowerBound, upperBound");
+        _displayBound(lowerBound, upperBound);
+
+        // first round, price drops significantly, triggering unwinds on the buy side
+        // from larger price to lower price, more and more buy positions will be unwound
         int256 newPrice = int256(96556 * 1e8);
         _manipulateRealChainlink(newPrice, address(oracle), false);
         
@@ -353,9 +386,13 @@ contract DoppiLiquidityGasTest is Test {
         unwindAmount = doppiLP.getUnwindInfo(true, 9800000000000);
         assertEq(unwindAmount, 0);
        
-        assertEq(doppiLP.lowerBound(), 9800000000000);
-        assertEq(doppiLP.upperBound(), 10250000000000);
+        (lowerBound, upperBound) = doppiLP.getLowerUpperBound();
+        _displayBound(lowerBound, upperBound);
+        assertEq(lowerBound, 9800000000000);
+        assertEq(upperBound, 10250000000000);
         
+        // second round, price up significantly, triggering unwinds on the sell side
+        // from lower price to larger price, more and more sell positions will be unwound
         newPrice = int256(103056 * 1e8);
         _manipulateRealChainlink(newPrice, address(oracle), false);
         
@@ -366,14 +403,15 @@ contract DoppiLiquidityGasTest is Test {
         unwindAmount = doppiLP.getUnwindInfo(false, 10250000000000);
         assertEq(unwindAmount, 881676194019110458);
 
-        assertEq(doppiLP.lowerBound(), 9800000000000);
-        assertEq(doppiLP.upperBound(), 10250000000000);
-        
         _doppiLPCheckUpkeep_performUpkeep();
         _doppiLPCheckUpkeep_performUpkeep();
 
-        assertEq(doppiLP.lowerBound(), 10150000000000);
-        assertEq(doppiLP.upperBound(), 10250000000000);
+        // unwinding sell from lower price to higher 
+        (lowerBound, upperBound) = doppiLP.getLowerUpperBound();
+        console.log(lowerBound, upperBound, "lowerBound, upperBound");
+        _displayBound(lowerBound, upperBound);
+        assertEq(lowerBound, 10150000000000);
+        assertEq(upperBound, 10250000000000);
 
         _doppiLPCheckUpkeep_performUpkeep();
         _doppiLPCheckUpkeep_performUpkeep();
@@ -385,8 +423,11 @@ contract DoppiLiquidityGasTest is Test {
         unwindAmount = doppiLP.getUnwindInfo(false, 10250000000000);
         assertEq(unwindAmount, 0);
         
-        assertEq(doppiLP.lowerBound(), 103000 * 1e8);
-        assertEq(doppiLP.upperBound(), 103500 * 1e8);        
+        (lowerBound, upperBound) = doppiLP.getLowerUpperBound();
+        console.log(lowerBound, upperBound, "lowerBound, upperBound");
+        _displayBound(lowerBound, upperBound);
+        assertEq(lowerBound, 0); // after all unwinds, there should be no more unwind amount, and the bounds should reset
+        assertEq(upperBound, 0);        
     }
 
     function test_Scenario_CheckUpKeep_DoppiLiquidity_GasMax_Sell() public {
@@ -543,7 +584,8 @@ contract DoppiLiquidityGasTest is Test {
 
         _getDoppiLPUnwindData();
 
-        console.log(doppiLP.lowerBound(), doppiLP.upperBound());
+        (uint256 lowerBound, uint256 upperBound) = doppiLP.getLowerUpperBound();
+        console.log(lowerBound, upperBound);
 
         vm.startPrank(trader);            
         bal = doppiLP.balanceOf(trader);
@@ -563,9 +605,10 @@ contract DoppiLiquidityGasTest is Test {
         unwindAmount = doppiLP.getUnwindInfo(false, 10150000000000);
         assertEq(unwindAmount, 0);
 
-        // console.log(doppiLP.lowerBound(), doppiLP.upperBound());
-        assertEq(doppiLP.lowerBound(), 9650000000000);
-        assertEq(doppiLP.upperBound(), 9700000000000);        
+        (lowerBound, upperBound) = doppiLP.getLowerUpperBound();
+        console.log(lowerBound, upperBound);
+        assertEq(lowerBound, 0);
+        assertEq(upperBound, 0);        
     }
 
     function _getDoppiLPUnwindData() internal view {
@@ -729,7 +772,7 @@ contract DoppiLiquidityGasTest is Test {
         if(upkeepNeeded){
             uint256 balbeforeUSDT = usdt.balanceOf(address(doppiLP));
             uint256 balbeforeBTC = btc.balanceOf(address(doppiLP));
-            console.log(balbeforeUSDT, balbeforeBTC, "balbeforeUSDT, balbeforeBTC before");
+            // console.log(balbeforeUSDT, balbeforeBTC, "balbeforeUSDT, balbeforeBTC before");
             vm.prank(forwarder);
             gasBefore = gasleft();
             doppiLP.performUpkeep(performData);
@@ -742,7 +785,7 @@ contract DoppiLiquidityGasTest is Test {
             uint256 balAfterBTC = btc.balanceOf(address(doppiLP));
             // assertGt(balbeforeUSDT, balAfterUSDT, "USDT balance should decrease after sell unwind");
             // assertGt(balbeforeBTC, balAfterBTC, "BTC balance should decrease after buy unwind");
-            console.log(balAfterUSDT, balAfterBTC, "balAfterUSDT, balAfterBTC after");
+            // console.log(balAfterUSDT, balAfterBTC, "balAfterUSDT, balAfterBTC after");
             
             
         }
@@ -821,5 +864,23 @@ contract DoppiLiquidityGasTest is Test {
         uint256 priceGapWithDecimals = 500 * 1e8;
         _price = (_price / priceGapWithDecimals) * priceGapWithDecimals;
         return _isBuy ? _price - (priceGapWithDecimals * (_strikeZone - 1)) : _price + (priceGapWithDecimals * _strikeZone);
+    }
+
+    function _displayBound(uint256 lowerBound, uint256 upperBound) internal view {
+        
+        if(lowerBound == 0 && upperBound == 0) {
+            console.log("No active positions");
+            return;
+        }
+
+        for (uint256 price = upperBound; price >= lowerBound; ) {
+            // console.log(price, "price");
+            bool isBuy = true;
+            uint256 amountBuy = doppiLP.amountToBuy(price);
+            uint256 amountSell = doppiLP.amountToSell(price);
+            console.log(price, amountBuy, amountSell);
+            price -= (500 * 1e8); 
+        }
+
     }
 }

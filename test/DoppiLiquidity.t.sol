@@ -231,6 +231,11 @@ contract DoppiLiquidityTest is Test {
         _setupLiquidity(LARGE_USDT_AMOUNT * 5, LARGE_BTC_AMOUNT * 5);
         _setupSwapTest(SWAP_AMOUNT_USDT * 4, SWAP_AMOUNT_BTC * 4, mockDualAsset);
 
+
+        uint256 preUpkeepUSDT = usdt.balanceOf(address(doppiLP));
+        uint256 preUpkeepBTC = btc.balanceOf(address(doppiLP));
+        console.log(preUpkeepUSDT, preUpkeepBTC, "preUpkeepUSDT, preUpkeepBTC");
+
         // Step 1: Create price orders through swaps at different price points
         // Swap at current price
         oracle.setPrice(int256(currentPrice));
@@ -249,20 +254,31 @@ contract DoppiLiquidityTest is Test {
         uint256 priceDown5Percent = currentPrice * 95 / 100;
         oracle.setPrice(int256(priceDown5Percent));
 
-        // Check if price change triggers arbitrage opportunity
+        (uint256 lowerBound, uint256 upperBound) = doppiLP.getLowerUpperBound();
+        console.log(lowerBound, upperBound, "lowerBound, upperBound");
+        assertEq(lowerBound, 10000000000000);
+        assertEq(upperBound, 10500000000000);
+        
+        // _displayBound(lowerBound, upperBound);
+        // Check if price change triggers unwind opportunity
         (bool upkeepNeededAfterPriceChange, bytes memory newPerformData) = doppiLP.checkUpkeep("");
         assertTrue(upkeepNeededAfterPriceChange, "Upkeep should be needed after price change");
         
-        // Price change created arbitrage opportunity
-        uint256 preUpkeepUSDT = usdt.balanceOf(address(doppiLP));
-        uint256 preUpkeepBTC = btc.balanceOf(address(doppiLP));
-
+        // Price change created unwind opportunity
+        preUpkeepUSDT = usdt.balanceOf(address(doppiLP));
+        preUpkeepBTC = btc.balanceOf(address(doppiLP));
+        console.log(preUpkeepUSDT, preUpkeepBTC, "preUpkeepUSDT, preUpkeepBTC");
+        
         vm.prank(mockForwarder);
         doppiLP.performUpkeep(newPerformData);
 
+        (lowerBound, upperBound) = doppiLP.getLowerUpperBound();
+        console.log(lowerBound, upperBound, "lowerBound, upperBound");
+        // _displayBound(lowerBound, upperBound);
+
         uint256 postUpkeepUSDT = usdt.balanceOf(address(doppiLP));
         uint256 postUpkeepBTC = btc.balanceOf(address(doppiLP));
-        
+        console.log(postUpkeepUSDT, postUpkeepBTC, "postUpkeepUSDT, postUpkeepBTC");
         assertGt(postUpkeepBTC, preUpkeepBTC, "BTC balance should increase after unwind");
         assertEq(postUpkeepUSDT, LARGE_USDT_AMOUNT * 5, "USDT balance back to initial position");
 
@@ -469,5 +485,23 @@ contract DoppiLiquidityTest is Test {
 
         vm.prank(mockForwarder);
         doppiLP.performUpkeep(newPerformData);
+    }
+
+    function _displayBound(uint256 lowerBound, uint256 upperBound) internal view {
+        
+        if(lowerBound == 0 && upperBound == 0) return;
+        for (uint256 price = upperBound; price >= lowerBound; ) {
+            // console.log(price, "price");
+            bool isBuy = true;
+            uint256 amount = doppiLP.amountToBuy(price);
+            
+            if(amount == 0){
+                isBuy = false;
+                amount = doppiLP.amountToSell(price);
+            }
+            console.log(isBuy, price, amount);
+            price -= (500 * 1e8); 
+        }
+
     }
 }
