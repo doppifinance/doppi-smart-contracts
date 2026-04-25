@@ -1,6 +1,23 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.26;
 
+// tradeState: 0 = not traded, 1 = partial, 2 = fully traded
+struct SettlementPlan {
+    uint64  posId;
+    bool    isBuy;
+    bool    striked;
+    uint8   tradeState;    // 0 = none, 1 = partial, 2 = full
+    uint256 tradedPortion; // amount of p.amount covered by the opp swap (pre-allocated in plan phase)
+    uint256 myAmountOut;   // proportional outAmount allocated to this position (pre-allocated in plan phase)
+}
+
+struct StrikeNode {
+        uint256 prev;
+        uint256 next;
+        bool active;
+    }
+
+
 //  Common Structs and Enums for DualAssetCore Modules
 struct DualAssetOffer {
     uint256 price;

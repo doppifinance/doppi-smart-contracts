@@ -101,8 +101,7 @@ contract MyScript is Script {
     function _getDoppiTraderUnwindData() internal view {
 
         console.log("start DoppiTraderUnwindData");
-        uint256 lowerBound = doppiTrader.lowerBound();
-        uint256 upperBound = doppiTrader.upperBound();
+        (uint256 lowerBound, uint256 upperBound) = doppiTrader.getLowerUpperBound();
         console.log(lowerBound, upperBound);
         for (uint256 price = upperBound; price >= lowerBound; ) {
             bool isBuy = true;
@@ -122,11 +121,10 @@ contract MyScript is Script {
     function _getDoppiLPUnwindData() internal view {
 
         console.log("start DoppiLPUnwindData");
-        uint256 lowerBound = doppiLP.lowerBound();
+        (uint256 lowerBound, uint256 upperBound) = doppiLP.getLowerUpperBound();
         if(lowerBound == 0) {
             lowerBound = 80000 * 1e8;
         }
-        uint256 upperBound = doppiLP.upperBound();
         console.log(lowerBound, upperBound);
         upperBound += 1000 * 1e8;
         lowerBound -= 1000 * 1e8;

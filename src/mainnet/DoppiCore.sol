@@ -27,12 +27,6 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
     IDoppiOffer public immutable doppiOffer; // Made immutable
     IDoppiPoints public immutable doppiPoints;
 
-    struct StrikeNode {
-        uint256 prev;
-        uint256 next;
-        bool active;
-    }
-
     uint32 private constant SECONDS_PER_YEAR = 31536000;
     uint24 private constant SECONDS_PER_DAY = 86400;
     uint16 private constant BASIS_POINTS = 10000;
@@ -222,10 +216,7 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
         uint64 endPosId = _getReadyAllPositions(day);
         uint64 start = nextProcessId[day];
         require(endPosId >= start && endPosId != 0, "no positions to settle");
-        
-        _batchProcess(day, start, endPosId, price);
-        _settle_positions(day, start, endPosId, price);
-        // _updateBound(); 
+        _settlePositionsAggregated(day, start, endPosId, price);
     }
 
     function emergencySettlement(uint8 day) external whenPaused nonReentrant onlyOwner {
@@ -346,15 +337,20 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
                 if (pos.amount > 0) {
                     uint256 amountToReturn = pos.amount;
                     uint256 interest = pos.interest;
+                    OpportunityOrders memory opp = isBuy ? opportunityBuy[pos.strikePrice] : opportunitySell[pos.strikePrice];
+                    uint256 tradedPortion = opp.swappedAmount < pos.amount ? opp.swappedAmount : pos.amount;
+                    uint8 tradeState = tradedPortion == 0 ? 0 : (tradedPortion >= pos.amount ? 2 : 1);
+                    uint256 myAmountOut = opp.swappedAmount > 0 ? opp.outAmount * tradedPortion / opp.swappedAmount : 0;
+
                     // Update total deposits (prevent underflow)
                     _updateTotalDeposit(amountToReturn, isBuy);
                     _removeInterestLiability(interest, isBuy);
                     if (isBuy) {
-                        delete positions_buy[day][i];                            
-                        _settleNoStrike(pos, price, isBuy, assetA);
+                        delete positions_buy[day][i];
+                        _settleNoStrikePlanned(pos, price, isBuy, tradeState, tradedPortion, myAmountOut, assetA);
                     } else {                            
                         delete positions_sell[day][i];
-                        _settleNoStrike(pos, price, isBuy, assetB);
+                        _settleNoStrikePlanned(pos, price, isBuy, tradeState, tradedPortion, myAmountOut, assetB);
                     }
                     nextProcessId[day] = i + 1;
                     emit EmergencyWithdraw(isBuy, pos.owner, i, amountToReturn);
@@ -377,11 +373,9 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
             uint8 day = durationDay[i];
             uint64 start = nextProcessId[day];
             uint64 endPositionId = supportDaysPositions[i];
-            _batchProcess(day, start, endPositionId, price);
-            _settle_positions(day, start, endPositionId, price);
+            _settlePositionsAggregated(day, start, endPositionId, price);
             unchecked { ++i; }
         }
-        // _updateBound(); 
     }
 
     function _depositBuy(DepositParams memory params, DualAssetOffer memory _buyOffer) internal {
@@ -448,63 +442,6 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
         emit Deposited(sender, positionId, address(assetB), amount, interest, _sellOffer.strikePrice, _sellOffer.apr, numDays);
     }
 
-    function _settlePosition(
-        uint8 day,
-        uint64 posId,
-        uint256 price
-    ) internal {
-        
-        bool striked;
-        DualAssetPosition memory p;
-        
-        bool isBuy;
-        if(positions_buy[day][posId].amount > 0){
-            p = positions_buy[day][posId];
-            delete positions_buy[day][posId];
-            striked = price <= p.strikePrice;
-            isBuy = true;
-        }else{
-            p = positions_sell[day][posId];
-            delete positions_sell[day][posId];
-            striked = price >= p.strikePrice;
-            isBuy = false;
-        }
-        if(p.expiryTimestamp > block.timestamp) revert NotExpired();        
-        _removeInterestLiability(p.interest, isBuy);
-        _updateTotalDeposit(p.amount, isBuy);
-
-        IERC20 payoutToken;
-        IERC20 interestToken;
-        bool isProfit;
-        uint256 profitLoss;
-
-        if (striked) {
-            (payoutToken, interestToken) = isBuy ? (assetB, assetA) : (assetA, assetB);
-            (isProfit, profitLoss) = _settleStrike(p, price, isBuy, payoutToken);
-        }else{
-            (payoutToken, interestToken) = isBuy ? (assetA, assetA) : (assetB, assetB);
-            _settleNoStrike(p, price, isBuy, payoutToken);
-        }
-
-        _reduceOpportunityOrder(p.strikePrice, p.amount, isBuy);
-
-        if(p.interest > 0) _safeTransferWithFee(interestToken, p.owner, p.interest);
-        
-        emit Settled(
-            p.owner,
-            posId,
-            striked, 
-            p.strikePrice,
-            price,
-            isProfit,
-            profitLoss,
-            striked ? p.payout : 0,
-            p.interest,
-            address(payoutToken),
-            address(interestToken)
-        );
-    }
-    
     function _createTraderBotUnwindPosition(DualAssetPosition memory p, bool isBuy) internal {
         
         if (
@@ -523,120 +460,307 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
         }
     }
     
-    // Settlement helper functions
-    function _settleStrike(
-        DualAssetPosition memory p,
-        uint256 price,
-        bool isBuy,
-        IERC20 payoutToken
-    ) internal returns (bool isProfit, uint256 profitLoss) {
-        
-        uint256 payout = p.payout;
-        bool isTraded = _isPosTraded(p.strikePrice, p.amount, isBuy);
-        mapping(uint256 => OpportunityOrders) storage opporMap = isBuy ? opportunityBuy : opportunitySell; 
-        if(!isTraded){
-            payoutToken.safeTransfer(p.owner, payout);
-            uint256 amountOut = isBuy ? (p.amount * priceDecimal) / price : (p.amount * price) / priceDecimal;
-            uint256 settleprofit = amountOut > payout ? amountOut - payout : 0;
-            if (settleprofit > 0) {
-                _safeTransferWithFee(payoutToken, address(doppiLP), settleprofit);
-                unchecked {
-                    profitLoss = settleprofit; 
-                }
-                isProfit = true;
-            }
-        }else{
-            OpportunityOrders storage opp = opporMap[p.strikePrice];
-            uint256 myAmountOut = opp.swappedAmount > 0 ? opp.outAmount * p.amount / opp.swappedAmount : 0;
-            uint256 notenough = payout > myAmountOut ? payout - myAmountOut : 0; 
-            if(notenough > 0) {
-                _doppiInterestGet(payoutToken, notenough, price, isBuy);
-            } else {
-                uint256 settleprofit = myAmountOut - payout; 
-                if (settleprofit > 0) {
-                    _safeTransferWithFee(payoutToken, address(doppiLP), settleprofit);
-                    unchecked {
-                        profitLoss = settleprofit; 
+    function _prepareSettlementPlan(
+        uint8 day,
+        uint64 start,
+        uint64 end,
+        uint256 price
+    ) internal view returns (
+        SettlementPlan[] memory plans,
+        uint256 planCount,
+        uint256 totalA,
+        uint256 totalB,
+        uint256 totalInterestA,
+        uint256 totalInterestB
+    ) {
+        uint256 maxPositions = uint256(end - start) + 1;
+        plans = new SettlementPlan[](maxPositions);
+
+        // In-memory capacity tracking per distinct strike, seeded once from storage.
+        // This prevents stale-read bugs when multiple positions share the same strike:
+        // each position consumes from the remaining virtual pool, not from raw storage.
+        uint256[] memory bStrike   = new uint256[](maxPositions);
+        uint256[] memory bRemSwap  = new uint256[](maxPositions);
+        uint256[] memory bRemOut   = new uint256[](maxPositions);
+        uint256 bCount;
+        uint256[] memory sStrike   = new uint256[](maxPositions);
+        uint256[] memory sRemSwap  = new uint256[](maxPositions);
+        uint256[] memory sRemOut   = new uint256[](maxPositions);
+        uint256 sCount;
+
+        for (uint64 posId = start; posId <= end; ) {
+            if (_posExist(day, posId)) {
+                (DualAssetPosition memory p, bool isBuy) = positions_buy[day][posId].amount > 0
+                    ? (positions_buy[day][posId], true)
+                    : (positions_sell[day][posId], false);
+
+                bool striked = isBuy ? price <= p.strikePrice : price >= p.strikePrice;
+
+                // Locate or register this strike in the in-memory cache.
+                uint256 tradedPortion;
+                uint256 myAmountOut;
+
+                if (isBuy) {
+                    uint256 idx = bCount; // sentinel: not found
+                    for (uint256 k = 0; k < bCount; ) {
+                        if (bStrike[k] == p.strikePrice) { idx = k; break; }
+                        unchecked { ++k; }
                     }
-                    isProfit = true;
+                    if (idx == bCount) {
+                        // First encounter for this buy strike — seed from storage
+                        OpportunityOrders memory opp = opportunityBuy[p.strikePrice];
+                        bStrike[bCount]  = p.strikePrice;
+                        bRemSwap[bCount] = opp.swappedAmount;
+                        bRemOut[bCount]  = opp.outAmount;
+                        unchecked { ++bCount; }
+                        // idx still holds the old bCount value, which is the index just written
+                    }
+                    tradedPortion = bRemSwap[idx] < p.amount ? bRemSwap[idx] : p.amount;
+                    myAmountOut   = bRemSwap[idx] > 0 ? bRemOut[idx] * tradedPortion / bRemSwap[idx] : 0;
+                    bRemSwap[idx] -= tradedPortion;
+                    bRemOut[idx]  = bRemOut[idx] > myAmountOut ? bRemOut[idx] - myAmountOut : 0;
+                } else {
+                    uint256 idx = sCount;
+                    for (uint256 k = 0; k < sCount; ) {
+                        if (sStrike[k] == p.strikePrice) { idx = k; break; }
+                        unchecked { ++k; }
+                    }
+                    if (idx == sCount) {
+                        OpportunityOrders memory opp = opportunitySell[p.strikePrice];
+                        sStrike[sCount]  = p.strikePrice;
+                        sRemSwap[sCount] = opp.swappedAmount;
+                        sRemOut[sCount]  = opp.outAmount;
+                        unchecked { ++sCount; }
+                    }
+                    tradedPortion = sRemSwap[idx] < p.amount ? sRemSwap[idx] : p.amount;
+                    myAmountOut   = sRemSwap[idx] > 0 ? sRemOut[idx] * tradedPortion / sRemSwap[idx] : 0;
+                    sRemSwap[idx] -= tradedPortion;
+                    sRemOut[idx]  = sRemOut[idx] > myAmountOut ? sRemOut[idx] - myAmountOut : 0;
+                }
+
+                uint8 tradeState = tradedPortion == 0 ? 0 : (tradedPortion >= p.amount ? 2 : 1);
+
+                plans[planCount] = SettlementPlan({
+                    posId:         posId,
+                    isBuy:         isBuy,
+                    striked:       striked,
+                    tradeState:    tradeState,
+                    tradedPortion: tradedPortion,
+                    myAmountOut:   myAmountOut
+                });
+                unchecked { ++planCount; }
+
+                // Aggregate settle-call amounts: only the untraded portion of struck positions
+                // needs a fresh swap via _doppiSettleCall.
+                if (striked) {
+                    uint256 untradedPortion = p.amount - tradedPortion;
+                    if (untradedPortion > 0) {
+                        if (isBuy) { totalA += untradedPortion; } else { totalB += untradedPortion; }
+                    }
+                }
+
+                if (isBuy) {
+                    totalInterestA += p.interest;
+                } else {
+                    totalInterestB += p.interest;
                 }
             }
-            payoutToken.safeTransfer(p.owner, payout);            
-            opp.outAmount = opp.outAmount > myAmountOut ? opp.outAmount - myAmountOut : 0;
-            opp.swappedAmount = opp.swappedAmount > p.amount ? opp.swappedAmount - p.amount : 0;
+            unchecked { ++posId; }
         }
-        _createTraderBotUnwindPosition(p, isBuy);
     }
 
-    function _settleNoStrike(
-        DualAssetPosition memory p,
-        uint256 price,
-        bool isBuy,
-        IERC20 payoutToken
-    ) internal returns (bool isProfit, uint256 profitLoss) {
-        
-        bool isTraded = _isPosTraded(p.strikePrice, p.amount, isBuy);
-        mapping(uint256 => OpportunityOrders) storage opporMap = isBuy ? opportunityBuy : opportunitySell; 
-        if(!isTraded){
-            payoutToken.safeTransfer(p.owner, p.amount);
-        }else {
-
-            OpportunityOrders storage opp = opporMap[p.strikePrice];
-            uint256 myAmountOut = opp.swappedAmount > 0 ? opp.outAmount * p.amount / opp.swappedAmount : 0;
-            uint256 amountInOrig = _swapLowLevel(myAmountOut, price, !isBuy);
-            
-            if (amountInOrig >= p.amount) {
-                unchecked {
-                    profitLoss = amountInOrig - p.amount; 
-                }
-                isProfit = true;
-                _safeTransferWithFee(payoutToken, address(doppiLP), profitLoss);
-            }else{
-                uint256 notenough = p.amount - amountInOrig; 
-                _doppiInterestGet(payoutToken, notenough, price, isBuy);
-            }
-            payoutToken.safeTransfer(p.owner, p.amount);
-            
-            opp.outAmount = opp.outAmount > myAmountOut ? opp.outAmount - myAmountOut : 0;
-            opp.swappedAmount = opp.swappedAmount > p.amount ? opp.swappedAmount - p.amount : 0;
-        }
-     
-    }
-
-    function _settle_positions(
+    function _settlePositionsAggregated(
         uint8 day,
         uint64 start,
         uint64 end,
         uint256 price
     ) internal {
-        
-        for (uint64 posId = start; posId <= end; ) {
-            bool exist = _posExist(day, posId);
-            if(!exist) {
-                unchecked { ++posId; }
-                continue;
-            }
-            _settlePosition(day, posId, price);
-            unchecked { ++posId; }
+        (
+            SettlementPlan[] memory plans,
+            uint256 planCount,
+            uint256 totalA,
+            uint256 totalB,
+            uint256 totalInterestA,
+            uint256 totalInterestB
+        ) = _prepareSettlementPlan(day, start, end, price);
+
+        if (totalA > 0) {
+            uint256 amountOutA = (totalA * priceDecimal) / price;
+            _doppiSettleCall(totalA, amountOutA, price, true);
         }
+        if (totalB > 0) {
+            uint256 amountOutB = (totalB * price) / priceDecimal;
+            _doppiSettleCall(totalB, amountOutB, price, false);
+        }
+        if (totalInterestA > 0) {
+            _doppiInterestGet(assetA, totalInterestA, price, true);
+        }
+        if (totalInterestB > 0) {
+            _doppiInterestGet(assetB, totalInterestB, price, false);
+        }
+
+        for (uint256 i = 0; i < planCount; ) {
+            SettlementPlan memory plan = plans[i];
+            _settlePositionWithPlan(day, plan.posId, price, plan.isBuy, plan.striked, plan.tradeState, plan.tradedPortion, plan.myAmountOut);
+            unchecked { ++i; }
+        }
+
         nextProcessId[day] = end + 1;
+    }
+
+    function _settlePositionWithPlan(
+        uint8 day,
+        uint64 posId,
+        uint256 price,
+        bool isBuy,
+        bool striked,
+        uint8 tradeState,
+        uint256 tradedPortion,
+        uint256 myAmountOut
+    ) internal {
+        DualAssetPosition memory p;
+        if (isBuy) {
+            p = positions_buy[day][posId];
+            delete positions_buy[day][posId];
+        } else {
+            p = positions_sell[day][posId];
+            delete positions_sell[day][posId];
+        }
+
+        if (p.expiryTimestamp > block.timestamp) revert NotExpired();
+
+        _removeInterestLiability(p.interest, isBuy);
+        _updateTotalDeposit(p.amount, isBuy);
+
+        IERC20 payoutToken;
+        IERC20 interestToken;
+        bool isProfit;
+        uint256 profitLoss;
+
+        if (striked) {
+            (payoutToken, interestToken) = isBuy ? (assetB, assetA) : (assetA, assetB);
+            (isProfit, profitLoss) = _settleStrikePlanned(p, price, isBuy, tradeState, tradedPortion, myAmountOut, payoutToken);
+        } else {
+            (payoutToken, interestToken) = isBuy ? (assetA, assetA) : (assetB, assetB);
+            (isProfit, profitLoss) = _settleNoStrikePlanned(p, price, isBuy, tradeState, tradedPortion, myAmountOut, payoutToken);
+        }
+
+        _reduceOpportunityOrder(p.strikePrice, p.amount, isBuy);
+
+        if (p.interest > 0) _safeTransferWithFee(interestToken, p.owner, p.interest);
+
+        emit Settled(
+            p.owner,
+            posId,
+            striked,
+            p.strikePrice,
+            price,
+            isProfit,
+            profitLoss,
+            striked ? p.payout : 0,
+            p.interest,
+            address(payoutToken),
+            address(interestToken)
+        );
+    }
+
+    function _settleStrikePlanned(
+        DualAssetPosition memory p,
+        uint256 price,
+        bool isBuy,
+        uint8 tradeState,
+        uint256 tradedPortion,
+        uint256 myAmountOut,
+        IERC20 payoutToken
+    ) internal returns (bool isProfit, uint256 profitLoss) {
+        uint256 payout = p.payout;
+
+        if (tradeState == 0) {
+            // Scenario 1: Strike + Not Traded
+            // LP sent proceeds for the full amount via the aggregated _doppiSettleCall.
+            payoutToken.safeTransfer(p.owner, payout);
+            uint256 amountOut = isBuy ? (p.amount * priceDecimal) / price : (p.amount * price) / priceDecimal;
+            uint256 settleprofit = amountOut > payout ? amountOut - payout : 0;
+            if (settleprofit > 0) {
+                _safeTransferWithFee(payoutToken, address(doppiLP), settleprofit);
+                unchecked { profitLoss = settleprofit; }
+                isProfit = true;
+            }
+        } else {
+            // Scenario 2 (fully traded) or Scenario partial:
+            // myAmountOut and tradedPortion were pre-allocated during planning so they
+            // never double-count across positions sharing the same strike.
+            uint256 untradedPortion = p.amount - tradedPortion;
+            // Proceeds from the untraded slice arrived via the aggregated _doppiSettleCall.
+            uint256 payoutFromSettle = untradedPortion > 0
+                ? (isBuy ? (untradedPortion * priceDecimal) / price : (untradedPortion * price) / priceDecimal)
+                : 0;
+
+            uint256 totalProceeds = myAmountOut + payoutFromSettle;
+            uint256 notenough = payout > totalProceeds ? payout - totalProceeds : 0;
+            if (notenough > 0) {
+                _doppiInterestGet(payoutToken, notenough, price, isBuy);
+            } else {
+                uint256 settleprofit = totalProceeds - payout;
+                if (settleprofit > 0) {
+                    _safeTransferWithFee(payoutToken, address(doppiLP), settleprofit);
+                    unchecked { profitLoss = settleprofit; }
+                    isProfit = true;
+                }
+            }
+            payoutToken.safeTransfer(p.owner, payout);
+
+            // Reduce opp storage by the pre-allocated amounts (ordered reduction is safe
+            // because planning already consumed exactly these values from the in-memory cache).
+            mapping(uint256 => OpportunityOrders) storage opporMap = isBuy ? opportunityBuy : opportunitySell;
+            OpportunityOrders storage opp = opporMap[p.strikePrice];
+            opp.outAmount     = opp.outAmount     > myAmountOut   ? opp.outAmount     - myAmountOut   : 0;
+            opp.swappedAmount = opp.swappedAmount > tradedPortion ? opp.swappedAmount - tradedPortion : 0;
+        }
+
+        _createTraderBotUnwindPosition(p, isBuy);
+    }
+
+    function _settleNoStrikePlanned(
+        DualAssetPosition memory p,
+        uint256 price,
+        bool isBuy,
+        uint8 tradeState,
+        uint256 tradedPortion,
+        uint256 myAmountOut,
+        IERC20 payoutToken
+    ) internal returns (bool isProfit, uint256 profitLoss) {
+        if (tradeState == 0) {
+            // Scenario 3: No Strike + Not Traded — return deposit directly
+            payoutToken.safeTransfer(p.owner, p.amount);
+        } else {
+            // Scenario 4 (fully traded) or partial:
+            // myAmountOut and tradedPortion are pre-allocated from the planning phase.
+            // For partial: untradedPortion sits in this contract already; only swap back the traded slice.
+            // For fully traded: tradedPortion == p.amount, same logic applies uniformly.
+            uint256 amountInOrig = _swapLowLevel(myAmountOut, price, !isBuy);
+
+            // Compare recovered against tradedPortion only (untradedPortion needs no swap).
+            if (amountInOrig >= tradedPortion) {
+                unchecked { profitLoss = amountInOrig - tradedPortion; }
+                isProfit = true;
+                _safeTransferWithFee(payoutToken, address(doppiLP), profitLoss);
+            } else {
+                uint256 notenough = tradedPortion - amountInOrig;
+                _doppiInterestGet(payoutToken, notenough, price, isBuy);
+            }
+            // untradedPortion was already held by this contract; return full amount to user.
+            payoutToken.safeTransfer(p.owner, p.amount);
+
+            mapping(uint256 => OpportunityOrders) storage opporMap = isBuy ? opportunityBuy : opportunitySell;
+            OpportunityOrders storage opp = opporMap[p.strikePrice];
+            opp.outAmount     = opp.outAmount     > myAmountOut   ? opp.outAmount     - myAmountOut   : 0;
+            opp.swappedAmount = opp.swappedAmount > tradedPortion ? opp.swappedAmount - tradedPortion : 0;
+        }
     }
 
     function _posExist(uint8 day, uint64 posId) internal view returns (bool) {
         return positions_buy[day][posId].amount > 0 || positions_sell[day][posId].amount > 0;
-    }
-
-    function _getPos(uint64 posId) internal view returns (bool isBuy, DualAssetPosition memory p, uint8 day, bool found) {
-        
-        for(uint256 i=0; i< supportDays.length; ) {
-            day = supportDays[i];
-            (p, isBuy) = positions_buy[day][posId].amount > 0 ? (positions_buy[day][posId], true) : (positions_sell[day][posId], false);
-            if(p.amount > 0) {
-                found = true;
-                break;
-            } 
-            unchecked { ++i; }
-        }
     }
 
     function _checkOppoOrUnwind(
@@ -863,63 +987,6 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
         emit OppUnwindPerformed(isBuy, price, unwind, myAmountOut, profit, address(profitToken));
     }
 
-    /// Get settle amount for those striked in bulk
-    /// Get interests in bulk 
-    function _batchProcess(
-        uint8 day,
-        uint64 start,
-        uint64 end,
-        uint256 price
-        ) internal {
-        
-        uint256 totalA;
-        uint256 totalB;
-        uint256 totalInterestA;
-        uint256 totalInterestB;
-        
-        for (uint64 posId = start; posId <= end; ) {
-            bool isInTheMoney;
-            bool exist = _posExist(day, posId);
-            if(!exist) {
-                unchecked { ++posId; }
-                continue;
-            }
-            (DualAssetPosition memory p, bool isBuy) = positions_buy[day][posId].amount > 0 ? (positions_buy[day][posId], true) : (positions_sell[day][posId], false);
-            if(isBuy){
-                isInTheMoney = price <= p.strikePrice;
-                if(isInTheMoney){
-                    if(!_isPosTraded(p.strikePrice, p.amount, true)){
-                        totalA += p.amount;
-                    }
-                }
-                totalInterestA += p.interest;
-            }else{
-                isInTheMoney = price >= p.strikePrice;
-                if(isInTheMoney){
-                    if(!_isPosTraded(p.strikePrice, p.amount, false)){
-                        totalB += p.amount;
-                    }
-                }
-                totalInterestB += p.interest;
-            }
-            unchecked { ++posId; }
-        }
-        if(totalA > 0){
-            uint256 amountOut = (totalA * priceDecimal) / price;
-            _doppiSettleCall(totalA, amountOut, price, true);
-        }
-        if(totalB > 0){
-            uint256 amountOut = (totalB * price) / priceDecimal;
-            _doppiSettleCall(totalB, amountOut, price, false);
-        }
-        if(totalInterestA > 0){
-            _doppiInterestGet(assetA, totalInterestA, price, true);
-        }        
-        if(totalInterestB > 0){
-            _doppiInterestGet(assetB, totalInterestB, price, false);
-        }
-    }
-
     function _syncStrikeState(uint256 strikePrice, bool isBuy) internal {
         OpportunityOrders storage opp = isBuy ? opportunityBuy[strikePrice] : opportunitySell[strikePrice];
         bool shouldBeActive = opp.amount > 0 || opp.swappedAmount > 0 || opp.outAmount > 0;
@@ -1058,23 +1125,6 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
         }
 
         _syncStrikeState(strikePrice, isBuy);
-    }
-
-    function _isPosTraded(
-        uint256 strikePrice, 
-        uint256 orderAmount,
-        bool isBuy) internal view returns (bool) 
-    {
-        OpportunityOrders memory order = isBuy ? opportunityBuy[strikePrice] : opportunitySell[strikePrice]; 
-        uint256 swappedAmount = order.swappedAmount;
-        return swappedAmount >= orderAmount;
-    }
-
-    function _getTargetPrice(uint256 _price, uint8 _zone, bool _isBuy) internal view returns (uint256) {
-        uint256 priceGapWithDecimals = doppiOffer.getPriceGapPerOffer() * priceDecimal;
-        require(priceGapWithDecimals > 0, "Invalid price gap");
-        _price = (_price / priceGapWithDecimals) * priceGapWithDecimals;
-        return _isBuy ? _price - (priceGapWithDecimals * (_zone - 1)) : _price + (priceGapWithDecimals * _zone);
     }
 
     function _safeTransferWithFee(IERC20 _asset, address _to, uint256 _amount) internal {

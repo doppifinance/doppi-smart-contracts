@@ -75,7 +75,7 @@ contract DoppiTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCompati
         ratioLP = 5000;
         maxSwap = 200000 ether;
         unwindGapMultiplier = 1;
-        _resetBound();
+        priceDecimals = 10 ** doppiLP.getPriceDecimals();
     }
 
     function start(uint256 _amountA, uint256 _amountB) external nonReentrant {
@@ -188,12 +188,6 @@ contract DoppiTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCompati
         
         _onlyDoppiCore();
 
-        if(_strikePrice > upperBound){
-            upperBound = _strikePrice;
-        }else if (_strikePrice < lowerBound || lowerBound == 0){
-            lowerBound = _strikePrice;
-        }
-
         if(_isBuyUndo) {
             unWindBuy[_strikePrice] += _payout;
             undoStat.undo_assetB += _payout;
@@ -201,6 +195,7 @@ contract DoppiTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCompati
             unWindSell[_strikePrice] += _payout;
             undoStat.undo_assetA += _payout;
         }        
+        _syncStrikeState(_strikePrice, _isBuyUndo);
     }
 
     function checkUpkeep(bytes calldata) external view override returns (bool upkeepNeeded, bytes memory performData) {
@@ -249,7 +244,6 @@ contract DoppiTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCompati
             uint256 amountOut = doppiLP.swap(totalAmount, currentPrice, isNetBuy);
             _clearUnwindMap(targetPricesBuy, true, totalBuyAmountInB);
             _clearUnwindMap(targetPricesSell, false, totalSellAmountInA);  
-            _updateBound();
             emit UnwindPerformed(address(this), isNetBuy, totalAmount, amountOut);
         }
         if(toTopUp) {
@@ -273,6 +267,7 @@ contract DoppiTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCompati
             }else{
                 unWindMap[prices[index]] = reduced;
             }
+            _syncStrikeState(prices[index], isBuy);
             unchecked { --i; }
         }
         if (isBuy) {
@@ -347,7 +342,6 @@ contract DoppiTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCompati
     function _netoutBuySell(uint256 _totalSellAmountInA, uint256 _totalBuyAmountInB, uint256 currentPrice) 
         internal view returns (bool isNetBuy, uint256 netSellOrBuy) 
     {
-        uint256 priceDecimals = 10 ** doppiLP.getPriceDecimals();
         uint256 totalAmountOutInA = _totalBuyAmountInB * currentPrice / priceDecimals;
         uint256 totalAmountOutInB = _totalSellAmountInA * priceDecimals / currentPrice;
         
@@ -452,61 +446,81 @@ contract DoppiTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCompati
         ) {
         
         mapping(uint256 => uint256) storage unwindMap = _isBuy ? unWindBuy : unWindSell; 
+        mapping(uint256 => StrikeNode) storage strikeNodes = _isBuy ? buyStrikeNodes : sellStrikeNodes;
         
-        uint256 round = _getLoopRound(_price, _isBuy);
+        uint256 round = _isBuy ? activeBuyStrikeCount : activeSellStrikeCount;
+        if (round == 0) {
+            targetPrices = new uint256[](0);
+            return (targetPrices, 0);
+        }
         uint256[] memory tempTargetPrice = new uint256[](round);
         uint256 count = 0;
-        uint256 priceDecimals = 10 ** doppiLP.getPriceDecimals();
         uint256 priceGap = impliedVol.getPriceGapPerOffer();
         uint256 priceGapWithDecimals = priceGap * priceDecimals;
         uint256 sPrice = (_price / priceGapWithDecimals) * priceGapWithDecimals;
         uint256 unwindGap = priceGapWithDecimals * unwindGapMultiplier;
+        uint256 unwindSellStrike = sPrice + (2 * priceGapWithDecimals) + unwindGap;
+        uint256 unwindBuyStrike = sPrice - priceGapWithDecimals > unwindGap
+            ? sPrice - priceGapWithDecimals - unwindGap
+            : 0;
         uint256 maxSwapInLocal = maxSwap;
         if (_isBuy) {
             maxSwapInLocal = (maxSwap * priceDecimals) / _price;
         }
 
-        for (uint256 i = round; i > 0; ) {
-
-            uint256 origStrikeprice =  _isBuy ? sPrice - (priceGapWithDecimals * i) - unwindGap: sPrice + (priceGapWithDecimals * (i + 1)) + unwindGap;
-            uint256 amount = unwindMap[origStrikeprice];
-        
+        uint256 strikePrice = _isBuy ? buyHead : sellTail;
+        while (strikePrice != 0) {
+            uint256 nextStrike = _isBuy ? strikeNodes[strikePrice].next : strikeNodes[strikePrice].prev;
+            uint256 amount = unwindMap[strikePrice];
             if(totalAmount >= maxSwapInLocal){
                 break;
             }
             uint256 totalPost = totalAmount + amount;
             uint256 unwindAmount = totalPost > maxSwapInLocal ? amount - (totalPost - maxSwapInLocal) : amount;
             uint256 newTotal = totalAmount + unwindAmount;
+            bool canUnwind = _isBuy
+                ? (strikePrice <= unwindBuyStrike)
+                : (strikePrice >= unwindSellStrike);
 
-            if (amount > 0 && newTotal <= maxSwapInLocal) {
+            if (canUnwind && amount > 0 && newTotal <= maxSwapInLocal) {
                 totalAmount = newTotal;              
-                tempTargetPrice[count] = origStrikeprice;
+                tempTargetPrice[count] = strikePrice;
                 count++;
             }
-            unchecked { --i; }
+            strikePrice = nextStrike;
         }
 
-        targetPrices = new uint256[](count);        
-        for (uint256 j = 0; j < count; ) {
-            targetPrices[j] = tempTargetPrice[count - 1 - j];
+        uint256 arrCount = count < round ? count : round;
+        targetPrices = new uint256[](arrCount);        
+        for (uint256 j = 0; j < arrCount; ) {
+            targetPrices[j] = tempTargetPrice[arrCount - 1 - j];
             unchecked { ++j; }
         }
     }
 
     function _removeMapping() internal {
-
-        uint256 priceDecimals = 10 ** doppiLP.getPriceDecimals();
-        uint256 priceGapWithDecimals = impliedVol.getPriceGapPerOffer() * priceDecimals;
-        uint256 diff = upperBound - lowerBound;
-        uint256 length = diff / priceGapWithDecimals + 1;
-
-        for (uint256 i = length; i > 0 && lowerBound <= upperBound; ) {
-            // uint256 index = i - 1;
-            delete unWindBuy[lowerBound];
-            delete unWindSell[lowerBound];
-            lowerBound += priceGapWithDecimals;
-            unchecked { --i; }
+        uint256 strikePrice = buyHead;
+        while (strikePrice != 0) {
+            uint256 nextStrike = buyStrikeNodes[strikePrice].next;
+            delete unWindBuy[strikePrice];
+            delete buyStrikeNodes[strikePrice];
+            strikePrice = nextStrike;
         }
+
+        strikePrice = sellHead;
+        while (strikePrice != 0) {
+            uint256 nextStrike = sellStrikeNodes[strikePrice].next;
+            delete unWindSell[strikePrice];
+            delete sellStrikeNodes[strikePrice];
+            strikePrice = nextStrike;
+        }
+
+        buyHead = 0;
+        buyTail = 0;
+        sellHead = 0;
+        sellTail = 0;
+        activeBuyStrikeCount = 0;
+        activeSellStrikeCount = 0;
     }
 
     function _deposit(address _token, uint256 _amount) internal returns (uint256 shares) {

@@ -201,7 +201,6 @@ contract DoppiLiquidity is ERC20, Ownable, Pausable, IDoppiLiquidity, Automation
         config.maxSwap = _config.maxSwap;
         config.priceGap = _config.priceGap;
         config.unwindGapMultiplier = _config.unwindGapMultiplier;
-        // _updateBound();
     }
 
     function setDoppiTraderFactory(address _traderFactory) external onlyOwner {
@@ -292,12 +291,10 @@ contract DoppiLiquidity is ERC20, Ownable, Pausable, IDoppiLiquidity, Automation
         }
         _clearOrders(buyindexes, true, totalBuyAmount);
         _clearOrders(sellindexes, false, totalSellAmount);
-        // _updateBound();
     }
 
     function cleanUpUnwind(uint256 toClearAmountBuy, uint256 toClearAmountSell) external onlyLiquidityRouterOrOwner {
         _getRemovingPrices(toClearAmountBuy, toClearAmountSell);
-        // _updateBound();
     }
         
 
@@ -340,29 +337,23 @@ contract DoppiLiquidity is ERC20, Ownable, Pausable, IDoppiLiquidity, Automation
         uint256 removeAmountBuy,
         uint256 removeAmountSell
     ) internal {
-        uint256 priceGap = config.priceGap * config.decimals;
-        require(priceGap > 0, "Invalid price gap");
-
-        (uint256 lowerBound, uint256 upperBound) = _getLowerUpperBound();
-        uint256 price;
-        if(upperBound > 0) {
-            price = upperBound;
-            while (price >= lowerBound && removeAmountBuy > 0) {
+        if (removeAmountBuy > 0) {
+            uint256 price = buyTail;
+            while (price != 0 && removeAmountBuy > 0) {
+                uint256 prevStrike = buyStrikeNodes[price].prev;
                 removeAmountBuy = _deductFromBucket(amountToBuy, price, removeAmountBuy);
                 _syncStrikeState(price, true);
-
-                if (price < priceGap) break;
-                price -= priceGap;
+                price = prevStrike;
             }
         }
-        
-        if(lowerBound > 0) {
-            price = lowerBound;
-            while (price <= upperBound && removeAmountSell > 0) {
+
+        if (removeAmountSell > 0) {
+            uint256 price = sellHead;
+            while (price != 0 && removeAmountSell > 0) {
+                uint256 nextStrike = sellStrikeNodes[price].next;
                 removeAmountSell = _deductFromBucket(amountToSell, price, removeAmountSell);
                 _syncStrikeState(price, false);
-                if (price > upperBound - priceGap) break;
-                price += priceGap;
+                price = nextStrike;
             }
         }
     }
@@ -404,7 +395,7 @@ contract DoppiLiquidity is ERC20, Ownable, Pausable, IDoppiLiquidity, Automation
         uint256 maxSwapInLocal = isBuy ? config.maxSwap : config.maxSwap * config.decimals / currentPrice;
         
         // bool ascending = isBuy != unwind;
-        uint256 strikeprice = isBuy ? buyTail : sellHead; // TODO : To confirm ascending or descending order for buy/sell strike nodes
+        uint256 strikeprice = isBuy ? buyTail : sellHead; 
         
         while (strikeprice != 0) {
             uint256 nextStrike = isBuy ? strikeNodes[strikeprice].prev : strikeNodes[strikeprice].next;
@@ -429,7 +420,7 @@ contract DoppiLiquidity is ERC20, Ownable, Pausable, IDoppiLiquidity, Automation
         }
         uint256 arrCount = count < round ? count : round;
         targetPrices = new uint256[](arrCount);
-]        for (uint256 j = 0; j < arrCount; ) {
+        for (uint256 j = 0; j < arrCount; ) {
             targetPrices[j] = tempTargetPrice[arrCount - 1 - j];
             unchecked { ++j; }
         }
