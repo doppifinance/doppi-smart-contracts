@@ -291,6 +291,47 @@ contract DoppiTraderTest is Test {
 
     }
 
+    function test_paused() public {
+        
+        _start();
+
+        vm.startPrank(trader);        
+        doppiTrader.setPause();
+        vm.stopPrank();
+
+        // ***** START doppiCore settle buy and sell order
+        vm.warp(block.timestamp + 1 days + 1);
+        (bool upkeepNeeded, bytes memory performData) = doppiCore.checkUpkeep("");
+        assertTrue(upkeepNeeded);
+        
+        vm.prank(mockForwarder);
+        doppiCore.performUpkeep(performData);
+        vm.stopPrank();
+
+        DualAssetPosition[] memory positionssell = doppiCore.get_positions_sell(address(doppiTrader));
+        assertEq(positionssell.length, 0);
+        DualAssetPosition[] memory positions = doppiCore.get_positions_buy(address(doppiTrader));
+        assertEq(positions.length, 0);
+
+        // update implied volatility to trigger checkupkeep in trader bot
+        _updateIV();
+
+        // Retest doppiTrader checkUpkeep when paused, should not perform upkeep
+        (upkeepNeeded, performData) = doppiTrader.checkUpkeep("");
+        assertFalse(upkeepNeeded, "Should not perform upkeep when paused");
+
+        // trade unpause it
+        vm.startPrank(trader);        
+        doppiTrader.setUnPause();
+        vm.stopPrank();
+
+        // checkupkeep should be needed now
+        (upkeepNeeded, performData) = doppiTrader.checkUpkeep("");
+        assertTrue(upkeepNeeded, "Should perform upkeep when unpaused");
+
+
+    }
+
     function test_stop_not_yet_settle() public {
         _start();
         vm.prank(trader);

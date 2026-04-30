@@ -95,6 +95,8 @@ contract DeployDoppiAllMainnet is Script {
         console.log("DoppiUpkeepManager:", address(doppiUpkeepManager));
         console.log("DoppiReferral:", address(doppiReferral));
         console.log("DoppiClaim:", address(doppiClaim));
+        console.log("DoppiToken:", address(doppiToken));
+
     }
 
     function _setDoppiCoreProperties(
@@ -109,7 +111,7 @@ contract DeployDoppiAllMainnet is Script {
         _doppiCore.setDoppiTraderFactory(_doppiFactory);
         _doppiCore.setAPRTolerance(500); // 5% of APR difference from UI to smart contract
         _doppiCore.setTreasury(treasury, 1500); // 15% of APR gained and profit
-        _doppiCore.setUpkeeps_per_check(100);
+        _doppiCore.setUpkeeps_per_check(50);
         
     }
 

@@ -82,14 +82,18 @@ contract DoppiTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCompati
         
         _onlyTrader();
         if(_amountA == 0 && _amountB == 0) revert AmountNotSpecified();
-        uint256 forUpkeep = doppiUpkeepManager.getDefault_Amount();
-        if(_amountA <= forUpkeep) revert AmountMustGreaterThanUpkeep();
 
-        _amountA = _amountA - forUpkeep;
+        uint256 forUpkeep;
+        bool shouldInsertNewBot = doppiUpkeepManager.shouldInsertNew(address(this));
+        if(shouldInsertNewBot) {
+            forUpkeep = doppiUpkeepManager.getDefault_Amount();
+            if(_amountA <= forUpkeep) revert AmountMustGreaterThanUpkeep();
+            _amountA = _amountA - forUpkeep;
+        }
         _processDeposit(_amountA, _amountB);
         _placeBulk();
         
-        if(forUpkeep > 0){
+        if(shouldInsertNewBot && forUpkeep > 0){
             assetA.safeTransferFrom(msg.sender, address(doppiUpkeepManager), forUpkeep);
             doppiUpkeepManager.insertNewBot(msg.sender, address(this));
         }
@@ -110,11 +114,17 @@ contract DoppiTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCompati
         uint256 sellPosCount = doppiCore.getSellPositionCount(address(this));
         if (buyPosCount > 0 || sellPosCount > 0) revert ActiveOrders();
 
-        _withdrawFromLP(doppiLP.balanceOf(address(this)));
+        uint256 maxShares = doppiRouter.getWithdrawableAmount(address(this));
+        _withdrawFromLP(maxShares);
         
-        assetA.safeTransfer(msg.sender, assetA.balanceOf(address(this)));
-        assetB.safeTransfer(msg.sender, assetB.balanceOf(address(this)));
-
+        uint256 balanceA = assetA.balanceOf(address(this));
+        uint256 balanceB = assetB.balanceOf(address(this));
+        if(balanceA > 0) {
+            assetA.safeTransfer(msg.sender, assetA.balanceOf(address(this)));
+        }
+        if(balanceB > 0) {
+            assetB.safeTransfer(msg.sender, assetB.balanceOf(address(this)));
+        }
         undoStat.undo_assetB = 0;
         undoStat.undo_assetA = 0;
         _removeMapping();
@@ -201,6 +211,8 @@ contract DoppiTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCompati
     function checkUpkeep(bytes calldata) external view override returns (bool upkeepNeeded, bytes memory performData) {
         
         if(s_forwarderAddress == address(0)) return (false, bytes(""));
+        if(paused()) return (false, bytes(""));
+
         uint256 price = doppiLP.getPrice();
         
         uint256[] memory targetPricesBuy;
@@ -324,17 +336,9 @@ contract DoppiTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCompati
         
         if (buyPosCount == 0 && availableA > 0 && offerBuy.apr > 0) {
             hasValidBuyOrder = _hasValidOrderConfig(true, availableA);
-            if(hasValidBuyOrder){
-                uint256 eachOrderA = availableA / orderConfigs.length;
-                hasValidBuyOrder = doppiCore.canAcceptDeposit(true, eachOrderA);
-            }
         }
         if (sellPosCount == 0 && availableB > 0 && offerSell.apr > 0) {
             hasValidSellOrder = _hasValidOrderConfig(false, availableB);
-            if(hasValidSellOrder){
-                uint256 eachOrderB = availableB / orderConfigs.length;
-                hasValidSellOrder = doppiCore.canAcceptDeposit(false, eachOrderB);
-            }
         }
         return (hasValidBuyOrder, hasValidSellOrder);
     }
@@ -395,15 +399,12 @@ contract DoppiTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCompati
 
         uint256 min = isBuy ? doppiCore.minOrderA() : doppiCore.minOrderB();
         uint256 validCount = 0;
-        uint256 acceptedDeposit = doppiCore.acceptedDeposit(isBuy);
 
         for (uint256 i = 0; i < length; ) {
             uint256 depositAmount = (availableAsset * orderConfigs[i].weight) / 10000;
-            bool canAccept = acceptedDeposit > depositAmount;
-            if (depositAmount >= min && canAccept) {
+            if (depositAmount >= min) {
                 unchecked { ++validCount; }
             }
-            acceptedDeposit = acceptedDeposit > depositAmount ? acceptedDeposit - depositAmount : 0;
             unchecked { ++i; }
         }
 

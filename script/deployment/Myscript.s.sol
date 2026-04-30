@@ -14,11 +14,11 @@ import {TestParamLib} from "../../src/Library/TestParamLib.sol";
 
 contract MyScript is Script {
 
-    address DOPPI_OFFER = address(0xDC7496D2f26A751a58a6e4AA9AF01041e5dafF22);
-    address DOPPI_LP = address(0x2ED0526Efa7638c65964fCf5650dad187cA70027);
-    address DOPPI_CORE = address(0x32A79472c47dBaf1feD227eefC2f9628BAD35277);
-    address DOPPI_OPPO = address(0x9Be64C18A0fED52909040D3c97F1A420F589F389);
-    address DOPPI_UPKEEP = address(0xA30B4e817fb8acB2f0A823f79BdBa977190AA4f4);
+    address DOPPI_OFFER = address(0x083F2aFDafb76207eFFccabF7166D86504943a8E);
+    address DOPPI_LP = address(0x4Dce091BdAb9CBD8eF972aca1923315F8C2be652);
+    address DOPPI_CORE = address(0x0C049C1A2c8DaB66cf44e36F654e93Dd951390b2);
+    address DOPPI_OPPO = address(0x3Ca7813860ef7aF2A4D42717ddBa492F967bC02f);
+    address DOPPI_UPKEEP = address(0xA2918099Dd898b537EAA60476E809Bdaa849bb2a);
     
     function run() external {
         
@@ -27,13 +27,13 @@ contract MyScript is Script {
         // Start broadcasting transactions
         vm.startBroadcast(deployerPrivateKey);
 
-        // address bot = address(0x9c1387c63EA3BA4A0F69702E6f39a0b4100D3dF7);
+        // address bot = address(0x4F7554796137C8C9B0F76665a2e0dFD4aB1B2231);
         // _traderBotInfo(bot);
         // _getUpkeepData(bot);
-        _getBuffer();
+        // _getBuffer();
         // _getTotalOrders();
 
-        // _manipulateRealChainlink(int256(71_000 * 1e8)); 
+        _manipulateRealChainlink(int256(77_400 * 1e8)); 
         _getOpportunityData();
 
         

@@ -14,14 +14,12 @@ contract PerformUpkeepDoppiTraderBot is Script {
 
         vm.startBroadcast(deployerPrivateKey);
 
-        bots.push(address(0x9c1387c63EA3BA4A0F69702E6f39a0b4100D3dF7));
-        // bots.push(address(0x344F302F0c7609FF9526AB7ceF2a9e62d8991431));
-        // bots.push(address(0x163D6BA3de75cac4C2D57aeD5Ce94AcF5617f043));
-
+        bots.push(address(0x4F7554796137C8C9B0F76665a2e0dFD4aB1B2231));
+        bots.push(address(0x3B6430fEcf60A06bB5c94D968B17d950EDf0b79c));
+        
         for(uint256 i=0; i< bots.length; i++){
             DoppiTrader doppiTrader = DoppiTrader(bots[i]);
 
-            console.log(doppiTrader.s_forwarderAddress(), "==", FORWARDER);
             console.log("Bot:", bots[i], "Asset A balance:", doppiTrader.assetA().balanceOf(bots[i]));
             console.log("Bot:", bots[i], "Asset B balance:", doppiTrader.assetB().balanceOf(bots[i]));
 

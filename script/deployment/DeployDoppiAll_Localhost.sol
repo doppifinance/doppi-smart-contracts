@@ -93,6 +93,8 @@ contract DeployDoppiAll is Script {
         console.log("DoppiUpkeepManager:", address(doppiUpkeepManager));
         console.log("DoppiReferral:", address(doppiReferral));
         console.log("DoppiClaim:", address(doppiClaim));
+        console.log("DoppiToken:", address(doppiToken));
+
     }
 
     function _setDoppiCoreProperties(

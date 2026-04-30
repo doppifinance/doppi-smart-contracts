@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.26;
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
+import {Pausable} from "@openzeppelin/contracts/utils/Pausable.sol";
 import {IDoppiCore} from "../Interface/IDoppiCore.sol";
 import {IDoppiLiquidity} from "../Interface/IDoppiLiquidity.sol";
 import {IDoppiOffer} from "../Interface/IDoppiOffer.sol";
@@ -8,10 +9,10 @@ import {IDoppiUpkeepManager} from "../Interface/IDoppiUpkeepManager.sol";
 import {IDoppiLiquidityRouter} from "../Interface/IDoppiLiquidityRouter.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "./DoppiCoreTypes.sol";
-// import "forge-std/console.sol";
+import "forge-std/console.sol";
 
 
-abstract contract DoppiTraderAdminView is Ownable {
+abstract contract DoppiTraderAdminView is Ownable, Pausable {
     
     IERC20 public assetA;
     IERC20 public assetB;
@@ -46,10 +47,7 @@ abstract contract DoppiTraderAdminView is Ownable {
 
     
     function getTotalBalancesInLP() external view returns (uint256 totalAssetA, uint256 totalAssetB) {
-        uint256 totalAssetLP = doppiLP.totalAssetsInAssetA();
-        (uint256 ratioA, ) = doppiLP.assetRatio();        
-        totalAssetA = totalAssetLP * ratioA / 1e18;
-        totalAssetB = totalAssetLP - totalAssetA;
+        return doppiLP.getBalances(address(this));
     }
 
     function getTotalBalances() external view returns (uint256 totalAssetA, uint256 totalAssetB, uint256 price) {
@@ -78,6 +76,16 @@ abstract contract DoppiTraderAdminView is Ownable {
         int256 pnlprofit = _calcPnL(price, true);
         int256 pnlloss = _calcPnL(price, false);
         pnl = pnlprofit + pnlloss;  
+    }
+
+    function setPause() external {
+        _onlyTrader();
+        _pause();
+    }
+
+    function setUnPause() external {
+        _onlyTrader();
+        _unpause();
     }
 
     function setDefaultDay(uint8 _day) external onlyOwner {

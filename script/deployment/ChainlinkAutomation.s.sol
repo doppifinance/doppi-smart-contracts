@@ -13,10 +13,10 @@ import "../../src/Interface/IAutomationRegistryConsumer.sol";
 contract ChainlinkAutomation is Script {
 
     IAutomationRegistryConsumer public registryConsumer;
-    uint256 upkeepId = 16531882998370319773276920806591893588096275106134558017517017460775116440086;
+    uint256 upkeepId = 7887707695776849999432413663142534865625201528489189477999948805364768675837;
     address constant CHAINLINK_RegistryConsumer = address(0xDc21E279934fF6721CaDfDD112DAfb3261f09A2C);
     address constant CHAINLINK_Registrar = address(0xf671F60bCC964B309D22424886FF202807381B32);
-    address payable DOPPI_UPKEEP = payable(0x84223a8a269103fB590Bf6aaDE2977a27a4CB93d);
+    address payable DOPPI_UPKEEP = payable(0xA2918099Dd898b537EAA60476E809Bdaa849bb2a);
 
 
     function run() external {
@@ -43,9 +43,9 @@ contract ChainlinkAutomation is Script {
 
 
         DoppiUpkeepManager doppiupkeep = DoppiUpkeepManager(DOPPI_UPKEEP);
-        console.log("getUpkeepIdByBot:", doppiupkeep.getUpkeepIdByBot(address(0x3555B406B689B438A6CABC3Da43C6C59782cf84e)));
+        console.log("getUpkeepIdByBot:", doppiupkeep.getUpkeepIdByBot(address(0x4F7554796137C8C9B0F76665a2e0dFD4aB1B2231)));
         
-        (uint96 fee, address trader) = doppiupkeep.getUnPaidDoppiFee(16531882998370319773276920806591893588096275106134558017517017460775116440086);
+        (uint96 fee, address trader) = doppiupkeep.getUnPaidDoppiFee(7887707695776849999432413663142534865625201528489189477999948805364768675837);
 
         console.log("getUnPaidDoppiFee:", fee, trader);
 

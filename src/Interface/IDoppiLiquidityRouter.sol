@@ -16,4 +16,5 @@ interface IDoppiLiquidityRouter {
     function paused() external view returns (bool);
     function emergencyWithdraw() external;
     function isEmergency() external returns (bool);
+    function getWithdrawableAmount(address user) external view returns (uint256 maxWithdrawable);
 }

@@ -282,6 +282,12 @@ contract DoppiUpkeepManager is Ownable {
         (topUpInfo, needTopUp) = _getTopUpInfo(upkeepId);
     }
 
+    function shouldInsertNew(address traderBot) external view returns (bool needInsert) {
+ 
+        DoppiUpkeepInfo memory info = doppiUpkeeps[traderBot];
+        needInsert = !info.isRegistered && DEFAULT_AMOUNT > 0;
+    }
+
     function _getTopUpInfo(uint256 upkeepId) internal view returns (TopUpInfo memory topUpInfo, bool needTopUp) {
  
         IAutomationRegistryConsumer.UpkeepInfo memory result = registryConsumer.getUpkeep(upkeepId);

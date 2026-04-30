@@ -31,6 +31,8 @@ contract MockDoppiUpKeepManager {
     function shouldTopUpkeep(uint256 upkeepId) external view returns (TopUpInfo memory topUpInfo, bool needTopUp) {
         return (topUpInfo, false);
     }
-    
-    
+
+    function shouldInsertNew(address traderBot) external view returns (bool needInsert) {
+        return true;
+    }    
 }

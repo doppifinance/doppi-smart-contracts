@@ -52,7 +52,7 @@ contract DoppiLiquidityRouter is Ownable, Pausable, ReentrancyGuard {
 
     function redeem(uint256 _shares) external nonReentrant whenNotPaused returns (uint256 assetsA, uint256 assetsB) {
         
-        uint256 maxWithdrawable = getWithdrawableAmount(msg.sender);
+        uint256 maxWithdrawable = _getWithdrawableAmount(msg.sender);
         require(_shares <= maxWithdrawable, "exceeds available capacity");
         (assetsA, assetsB) = _redeem(_shares);
         emit Redeemed(msg.sender, _shares, assetsA, assetsB);
@@ -96,7 +96,11 @@ contract DoppiLiquidityRouter is Ownable, Pausable, ReentrancyGuard {
         _unpause();
     }
 
-    function getWithdrawableAmount(address user) public view returns (uint256 maxWithdrawable) {
+    function getWithdrawableAmount(address user) external view returns (uint256 maxWithdrawable) {
+        return _getWithdrawableAmount(user);
+    }
+
+    function _getWithdrawableAmount(address user) internal view returns (uint256 maxWithdrawable) {
         uint256 userShares = doppiLP.balanceOf(user);
         uint256 totalShares = doppiLP.totalSupply();
         
@@ -118,10 +122,6 @@ contract DoppiLiquidityRouter is Ownable, Pausable, ReentrancyGuard {
             return 0; 
         }
 
-        // Calculate available assets after reserving for liabilities
-        if (totalPoolAssetsInA <= requiredReserve) {
-            return 0;
-        }
         uint256 availableAsset = totalPoolAssetsInA - requiredReserve;
         maxWithdrawable = (availableAsset * userShares) / totalPoolAssetsInA;
 

@@ -9,4 +9,5 @@ interface IDoppiUpkeepManager {
     function insertNewBot(address trader, address bot) external;
     function shouldTopUpkeep(uint256 upkeepId) external view returns (TopUpInfo memory topUpInfo, bool needTopUp);
     function performTopUpkeep(uint256 upkeepId) external;
+    function shouldInsertNew(address traderBot) external view returns (bool needInsert);
 }

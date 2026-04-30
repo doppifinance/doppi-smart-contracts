@@ -76,7 +76,7 @@ contract MockRegistryConsumer is IAutomationRegistryConsumer {
 
 	function updateAmountSpent (uint256 keepId, uint96 amount) public {
 		upkeepInfos[keepId].amountSpent = upkeepInfos[keepId].amountSpent + amount;
-		upkeepInfos[keepId].balance = upkeepInfos[keepId].balance - amount;
+		upkeepInfos[keepId].balance = upkeepInfos[keepId].balance == 0 ? 0 : upkeepInfos[keepId].balance - amount;
 		upkeepInfos[keepId].lastPerformBlockNumber = uint32(block.number);
 	}
 

@@ -247,6 +247,18 @@ contract DoppiLiquidity is ERC20, Ownable, Pausable, IDoppiLiquidity, Automation
         return _getLowerUpperBound();
     }
 
+    function getBalances(address user) public view returns (uint256 assetABal, uint256 assetBBal) {
+        
+        (uint256 ratioA, uint256 ratioB) = this.assetRatio();  
+        uint256 totalAssetA = totalAssetsInAssetA() * ratioA / 1e27;
+        uint256 totalAssetB = totalAssetsInAssetB() * ratioB / 1e27;
+        uint256 userShare = balanceOf(user);
+        uint256 totalShares = totalSupply();
+        assetABal = totalShares > 0 ? (totalAssetA * userShare) / totalShares : 0;
+        assetBBal = totalShares > 0 ? (totalAssetB * userShare) / totalShares : 0;
+
+    }
+
     function checkUpkeep(bytes calldata)
         external
         view
