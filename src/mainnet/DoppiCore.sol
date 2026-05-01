@@ -141,6 +141,7 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
             // Core derives the authoritative offer — caller cannot manipulate strikePrice/apr/expiry
             DualAssetOffer memory offer = doppiOffer.getSingleOffer(isBuy, param.numDays, param.strikeZone, price);
             if (offer.price == 0) revert InvalidStrikePriceOrPrice();
+            if (offer.apr == 0) revert InvalidAPR();
 
             // Reconstruct a DepositParams so _depositBuy/_depositSell signatures are unchanged
             DepositParams memory dp = DepositParams({

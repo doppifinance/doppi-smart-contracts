@@ -25,11 +25,11 @@ import {TestParamLib} from "../../src/Library/TestParamLib.sol";
 
 contract DeployDoppiAll is Script {
     
-    address constant BlackS = address(0x327eB624E621240BDe98C88F85678b03645212Fb);
-    address constant DoppiRef = address(0x5B45FC2D029611e2EE9ee87791BB2df81efA5a24);
-    address constant DoppiCl = address(0x442d30AE0C86eb0933B841c62FD30177d7b804d5);
-    address constant DoppiTk = address(0x69a9C96819d048b138f159E71Febc5Bd51AC83A1);
-    address constant DoppiPts = address(0x8AEbE38222f4E2261c907198aBfB30bFf41Ae6a0);
+    address constant BlackS = address(0x8dB0E34Ce3C33AF84A0E50cfbF733091f66aD52b);
+    address constant DoppiRef = address(0x35e1A18F0900982F0712B18e9125148C26Cf5D8E);
+    address constant DoppiCl = address(0x37Ac8375cdEfe015AabE24C5530b123812bE3acF);
+    address constant DoppiTk = address(0xD9C3fecCe1e8974729e629Ade97eFdFb68c1b086);
+    address constant DoppiPts = address(0xc77bE67A9043d7aDE933DD5dD9d5Acc7154D90C5);
     
     address constant LINK = address(0x404460C6A5EdE2D891e8297795264fDe62ADBB75);
     address constant USDT = address(0x55d398326f99059fF775485246999027B3197955);
@@ -81,7 +81,8 @@ contract DeployDoppiAll is Script {
 
         _setDoppiCoreProperties(doppiCore, doppiFactory, address(doppiOpportunity));
 
-        doppiPoints.setDoppiTraderFactory(address(doppiFactory));
+        doppiPoints.setCoreTraderFactory(address(doppiCore), address(doppiFactory));
+        
         
         vm.stopBroadcast();
 
@@ -189,6 +190,7 @@ contract DeployDoppiAll is Script {
         console.log("DoppiOffer deployed at:", address(impliedVol));
         impliedVol.setTwapDuration(3600);
         impliedVol.setPancakeV3Pool(PCSWAP_V3Pool);
+        impliedVol.setMaxOfferAPR(60000); // 600% max APR
         return impliedVol;
     }
 

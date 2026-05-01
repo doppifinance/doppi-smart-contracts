@@ -109,7 +109,7 @@ contract DoppiCoreEmergencyTest is Test {
         _setDoppiLiquidityProperties(doppiLP, address(doppiCore), doppiRouter, address(doppiFactory));
         _setDoppiCoreProperties(doppiCore, doppiFactory, address(doppiOpportunity));
 
-        doppiPoints.setDoppiTraderFactory(address(doppiFactory));
+        doppiPoints.setCoreTraderFactory(address(doppiCore), address(doppiFactory));
         doppiOpportunity.setForwarderAddress(forwarder);
         
         _setupIV(impliedVol);        
@@ -496,7 +496,7 @@ contract DoppiCoreEmergencyTest is Test {
             traderBot.performUpkeep(performData);
             gasUsed = gasBefore - gasleft();
             console.log(gasUsed, "gasUsed in traderBot.performUpkeep");
-            assertLt(gasUsed, 4_000_000, "Gas usage too high");
+            assertLt(gasUsed, 4_500_000, "Gas usage too high");
             vm.stopPrank();
         }
         

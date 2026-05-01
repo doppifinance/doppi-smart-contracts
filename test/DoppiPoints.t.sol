@@ -197,4 +197,184 @@ contract DoppiPointsTest is Test {
         }
     }
 
+    // ---------------------------------------------------------------------------
+    // Multi-factory (per-core) tests
+    // ---------------------------------------------------------------------------
+
+    // Minimal mock factory so we can control isTraderBot() without deploying real contracts
+    MockTraderFactory mockFactory;
+    MockTraderBot    mockBot;
+
+    function _deployMultiFactoryFixture() internal {
+        mockFactory = new MockTraderFactory();
+        mockBot     = new MockTraderBot(trader1);
+        doppiPoints.setCoreTraderFactory(mockDoppiCore, address(mockFactory));
+    }
+
+    function testSetCoreTraderFactory_StoredCorrectly() public {
+        MockTraderFactory factory = new MockTraderFactory();
+        vm.expectEmit(true, true, false, false);
+        emit DoppiPoints.CoreTraderFactorySet(mockDoppiCore, address(factory));
+        doppiPoints.setCoreTraderFactory(mockDoppiCore, address(factory));
+
+        assertEq(
+            address(doppiPoints.coreToTraderFactory(mockDoppiCore)),
+            address(factory),
+            "Factory should be stored for the given core"
+        );
+    }
+
+    function testSetCoreTraderFactory_RevertsOnZeroCore() public {
+        MockTraderFactory factory = new MockTraderFactory();
+        vm.expectRevert(bytes("Zero address"));
+        doppiPoints.setCoreTraderFactory(address(0), address(factory));
+    }
+
+    function testSetCoreTraderFactory_RevertsOnZeroFactory() public {
+        vm.expectRevert(bytes("Zero address"));
+        doppiPoints.setCoreTraderFactory(mockDoppiCore, address(0));
+    }
+
+    function testSetCoreTraderFactory_OnlyOwner() public {
+        MockTraderFactory factory = new MockTraderFactory();
+        vm.prank(trader1);
+        vm.expectRevert();
+        doppiPoints.setCoreTraderFactory(mockDoppiCore, address(factory));
+    }
+
+    function testBotVolumeAttributedToRealTrader() public {
+        _deployMultiFactoryFixture();
+
+        // Register the bot as known in the mock factory
+        mockFactory.registerBot(address(mockBot));
+
+        vm.prank(mockDoppiCore);
+        doppiPoints.recordTrade(address(mockBot), 500);
+
+        uint24 monthId = doppiPoints.getCurrentMonthId();
+
+        // Volume must be under the real trader (trader1), not the bot address
+        assertEq(doppiPoints.getMonthlyVolume(trader1, monthId),        500, "Real trader should have volume");
+        assertEq(doppiPoints.getMonthlyVolume(address(mockBot), monthId), 0,  "Bot address should have no volume");
+    }
+
+    function testUnknownBotFallsBackToItsOwnAddress() public {
+        _deployMultiFactoryFixture();
+        // mockBot is NOT registered in the factory → isTraderBot returns false
+
+        vm.prank(mockDoppiCore);
+        doppiPoints.recordTrade(address(mockBot), 300);
+
+        uint24 monthId = doppiPoints.getCurrentMonthId();
+
+        assertEq(doppiPoints.getMonthlyVolume(address(mockBot), monthId), 300, "Unregistered bot falls back to its own address");
+        assertEq(doppiPoints.getMonthlyVolume(trader1, monthId),           0,  "Real trader should be untouched");
+    }
+
+    function testEOATraderUnaffectedByFactory() public {
+        _deployMultiFactoryFixture();
+
+        // trader1 is just a plain EOA, not a bot
+        vm.prank(mockDoppiCore);
+        doppiPoints.recordTrade(trader1, 200);
+
+        uint24 monthId = doppiPoints.getCurrentMonthId();
+        assertEq(doppiPoints.getMonthlyVolume(trader1, monthId), 200, "EOA volume should be recorded directly");
+    }
+
+    function testTwoCoresEachResolveTheirOwnBots() public {
+        address mockDoppiCore2 = address(0x5);
+        doppiPoints.setDoppiCore(mockDoppiCore2, true);
+
+        MockTraderFactory factoryA = new MockTraderFactory();
+        MockTraderFactory factoryB = new MockTraderFactory();
+
+        MockTraderBot botA = new MockTraderBot(trader1); // belongs to core A
+        MockTraderBot botB = new MockTraderBot(trader2); // belongs to core B
+
+        factoryA.registerBot(address(botA));
+        factoryB.registerBot(address(botB));
+
+        doppiPoints.setCoreTraderFactory(mockDoppiCore,  address(factoryA));
+        doppiPoints.setCoreTraderFactory(mockDoppiCore2, address(factoryB));
+
+        // core A records a trade via botA
+        vm.prank(mockDoppiCore);
+        doppiPoints.recordTrade(address(botA), 1000);
+
+        // core B records a trade via botB
+        vm.prank(mockDoppiCore2);
+        doppiPoints.recordTrade(address(botB), 2000);
+
+        uint24 monthId = doppiPoints.getCurrentMonthId();
+
+        assertEq(doppiPoints.getMonthlyVolume(trader1, monthId), 1000, "trader1 should have 1000 from botA via coreA");
+        assertEq(doppiPoints.getMonthlyVolume(trader2, monthId), 2000, "trader2 should have 2000 from botB via coreB");
+        assertEq(doppiPoints.getMonthlyVolume(address(botA), monthId), 0, "botA address should have zero volume");
+        assertEq(doppiPoints.getMonthlyVolume(address(botB), monthId), 0, "botB address should have zero volume");
+    }
+
+    function testCoreWithNoFactoryDoesNotResolveBot() public {
+        // mockDoppiCore has no factory configured (no setCoreTraderFactory call)
+        MockTraderBot orphanBot = new MockTraderBot(trader1);
+
+        vm.prank(mockDoppiCore);
+        doppiPoints.recordTrade(address(orphanBot), 400);
+
+        uint24 monthId = doppiPoints.getCurrentMonthId();
+
+        // No factory → bot address is used as-is
+        assertEq(doppiPoints.getMonthlyVolume(address(orphanBot), monthId), 400, "Orphan bot should accumulate under its own address");
+        assertEq(doppiPoints.getMonthlyVolume(trader1, monthId),             0,  "Real trader untouched when no factory configured");
+    }
+
+    function testBotVolumeAccumulatesAcrossMultipleTrades() public {
+        _deployMultiFactoryFixture();
+        mockFactory.registerBot(address(mockBot));
+
+        vm.prank(mockDoppiCore);
+        doppiPoints.recordTrade(address(mockBot), 100);
+
+        vm.prank(mockDoppiCore);
+        doppiPoints.recordTrade(address(mockBot), 250);
+
+        uint24 monthId = doppiPoints.getCurrentMonthId();
+        assertEq(doppiPoints.getMonthlyVolume(trader1, monthId), 350, "Accumulated volume should be 350 under real trader");
+    }
+
+    function testCoreTraderFactoryCanBeUpdated() public {
+        MockTraderFactory factoryOld = new MockTraderFactory();
+        MockTraderFactory factoryNew = new MockTraderFactory();
+
+        doppiPoints.setCoreTraderFactory(mockDoppiCore, address(factoryOld));
+        assertEq(address(doppiPoints.coreToTraderFactory(mockDoppiCore)), address(factoryOld));
+
+        doppiPoints.setCoreTraderFactory(mockDoppiCore, address(factoryNew));
+        assertEq(address(doppiPoints.coreToTraderFactory(mockDoppiCore)), address(factoryNew), "Factory should be updated to new one");
+    }
+
+}
+
+// ---------------------------------------------------------------------------
+// Minimal mocks
+// ---------------------------------------------------------------------------
+
+contract MockTraderFactory {
+    mapping(address => bool) private _bots;
+
+    function registerBot(address bot) external {
+        _bots[bot] = true;
+    }
+
+    function isTraderBot(address bot) external view returns (bool) {
+        return _bots[bot];
+    }
+}
+
+contract MockTraderBot {
+    address public validTrader;
+
+    constructor(address _validTrader) {
+        validTrader = _validTrader;
+    }
 }

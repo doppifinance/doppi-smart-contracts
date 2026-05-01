@@ -109,7 +109,7 @@ contract DoppiLiquidityGasTest is Test {
         _setDoppiLiquidityProperties(doppiLP, address(doppiCore), doppiRouter, address(doppiFactory));
         _setDoppiCoreProperties(doppiCore, doppiFactory, address(doppiOpportunity));
 
-        doppiPoints.setDoppiTraderFactory(address(doppiFactory));
+        doppiPoints.setCoreTraderFactory(address(doppiCore), address(doppiFactory));
         doppiOpportunity.setForwarderAddress(forwarder);
         
         _setupIV(impliedVol);        

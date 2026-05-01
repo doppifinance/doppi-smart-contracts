@@ -10,10 +10,10 @@ import "../../src/mainnet/DoppiLiquidityRouter.sol";
 contract EmergencyWithdrawAndSetup is Script {
     
     // Replace with your actual DoppiCore contract address
-    address public constant DOPPI_LP_ROUTER = 0x74c04510B68FE415185086CEE5Db74138199A27a; 
-    address public constant DOPPI_CORE = 0x0C049C1A2c8DaB66cf44e36F654e93Dd951390b2; 
-    address public constant DOPPI_LP_ROUTER_ETH = 0xC582657B68Cbb9EE049fE36b07a323f9e417D6d5; 
-    address public constant DOPPI_CORE_ETH = 0x80def7B2FFc1f57e7f15E9ec3fA9Ca2ca4F5A240; 
+    address public constant DOPPI_LP_ROUTER = 0x4Ea3706871E9188eC7aae2954b6B08a877b6788d; 
+    address public constant DOPPI_CORE = 0x0Fd25f185431480dC698Bd01DD4F288972626cdA; 
+    address public constant DOPPI_LP_ROUTER_ETH = 0x0AaC69215187Aa582D0D1DFaC7C738A6Cf4A7454; 
+    address public constant DOPPI_CORE_ETH = 0x278984A1527202a956641b8389B6568CA4FBC140; 
     DoppiCore doppiCore;
     DoppiLiquidityRouter doppiRouter;
 
@@ -31,10 +31,10 @@ contract EmergencyWithdrawAndSetup is Script {
         // _executeEmergencySettlement();
 
 
-        doppiCore  = DoppiCore(DOPPI_CORE_ETH);
-        doppiRouter = DoppiLiquidityRouter(DOPPI_LP_ROUTER_ETH);        
+        // doppiCore  = DoppiCore(DOPPI_CORE_ETH);
+        // doppiRouter = DoppiLiquidityRouter(DOPPI_LP_ROUTER_ETH);        
         // _setPauseProtocol();
-        _setUnPauseProtocol();
+        // _setUnPauseProtocol();
         // _executeEmergencySettlement();
 
 

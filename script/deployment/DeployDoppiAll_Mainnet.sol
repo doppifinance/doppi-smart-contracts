@@ -78,7 +78,7 @@ contract DeployDoppiAllMainnet is Script {
 
         _setDoppiCoreProperties(doppiCore, doppiFactory, address(doppiOpportunity));
 
-        doppiPoints.setDoppiTraderFactory(address(doppiFactory));
+        doppiPoints.setCoreTraderFactory(address(doppiCore), address(doppiFactory));
         
         vm.stopBroadcast();
 
@@ -197,6 +197,7 @@ contract DeployDoppiAllMainnet is Script {
         console.log("DoppiOffer deployed at:", address(impliedVol));
         impliedVol.setTwapDuration(3600);
         impliedVol.setPancakeV3Pool(PCSWAP_V3Pool);
+        impliedVol.setMaxOfferAPR(40000); // 400% max APR
         return impliedVol;
     }
 

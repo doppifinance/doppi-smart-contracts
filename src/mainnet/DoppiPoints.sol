@@ -14,7 +14,7 @@ interface IDoppiReferral {
 contract DoppiPoints is Ownable, Pausable {
     
     address public doppiClaim;
-    IDoppiTraderFactory public doppiTraderFactory;
+    mapping(address => IDoppiTraderFactory) public coreToTraderFactory;
     IDoppiReferral public doppiReferral;
     mapping(address => bool) public doppiCore;
     uint256 public totalVolume;
@@ -41,6 +41,7 @@ contract DoppiPoints is Ownable, Pausable {
     event TradeRecorded(address indexed trader, uint256 volume);
     event PointsReset(address indexed trader, uint256 points);
     event ReferralChainUpdated(address indexed trader, address l1, address l2, address l3);
+    event CoreTraderFactorySet(address indexed core, address indexed factory);
 
     constructor()
         Ownable(msg.sender)
@@ -53,7 +54,7 @@ contract DoppiPoints is Ownable, Pausable {
         require(volumeInUSDT > 0, "volume must be > 0");
 
         // Determine the actual trader (handle trader bots internally)
-        address actualTrader = _getActualTrader(trader);
+        address actualTrader = _getActualTrader(msg.sender, trader);
         uint24 monthId = _currentMonthId();
 
         monthlyVolume[monthId][actualTrader] += volumeInUSDT;
@@ -140,9 +141,11 @@ contract DoppiPoints is Ownable, Pausable {
         doppiReferral = IDoppiReferral(_doppiReferral);
     }
 
-     function setDoppiTraderFactory(address _traderFactory) external onlyOwner {
-        require(_traderFactory != address(0), "Zero address");
-        doppiTraderFactory = IDoppiTraderFactory(_traderFactory);
+    function setCoreTraderFactory(address _core, address _factory) external onlyOwner {
+        require(_core != address(0), "Zero address");
+        require(_factory != address(0), "Zero address");
+        coreToTraderFactory[_core] = IDoppiTraderFactory(_factory);
+        emit CoreTraderFactorySet(_core, _factory);
     }
 
     function setPause() external onlyOwner {
@@ -177,14 +180,14 @@ contract DoppiPoints is Ownable, Pausable {
         totalClaimedPoint = claimed.totalPointClaimed;
     }
 
-    function _getActualTrader(address positionOwner) internal view returns (address owner) {
-        
+    function _getActualTrader(address core, address positionOwner) internal view returns (address owner) {
+        IDoppiTraderFactory factory = coreToTraderFactory[core];
         if (
-            address(doppiTraderFactory) != address(0) &&
-            doppiTraderFactory.isTraderBot(positionOwner)
+            address(factory) != address(0) &&
+            factory.isTraderBot(positionOwner)
         ) {
             owner = IDoppiTrader(positionOwner).validTrader();
-        }else{
+        } else {
             owner = positionOwner;
         }
     }
