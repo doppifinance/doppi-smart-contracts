@@ -18,6 +18,8 @@ contract DoppiPoints is Ownable, Pausable {
     IDoppiReferral public doppiReferral;
     mapping(address => bool) public doppiCore;
     uint256 public totalVolume;
+    uint256 public botVolumeMultiplierNum = 1;
+    uint256 public botVolumeMultiplierDen = 1;
 
     struct ClaimedPoint {
         uint24 claimedMonthId;
@@ -42,6 +44,7 @@ contract DoppiPoints is Ownable, Pausable {
     event PointsReset(address indexed trader, uint256 points);
     event ReferralChainUpdated(address indexed trader, address l1, address l2, address l3);
     event CoreTraderFactorySet(address indexed core, address indexed factory);
+    event BotVolumeMultiplierUpdated(uint256 numerator, uint256 denominator);
 
     constructor()
         Ownable(msg.sender)
@@ -53,29 +56,33 @@ contract DoppiPoints is Ownable, Pausable {
         
         require(volumeInUSDT > 0, "volume must be > 0");
 
-        // Determine the actual trader (handle trader bots internally)
-        address actualTrader = _getActualTrader(msg.sender, trader);
+        // Determine actual trader and whether position owner is a registered bot
+        (address actualTrader, bool isTraderBot) = _resolveTrader(msg.sender, trader);
+        uint256 effectiveVolume = volumeInUSDT;
+        if (isTraderBot) {
+            effectiveVolume = (volumeInUSDT * botVolumeMultiplierNum) / botVolumeMultiplierDen;
+        }
         uint24 monthId = _currentMonthId();
 
-        monthlyVolume[monthId][actualTrader] += volumeInUSDT;
-        totalVolume += volumeInUSDT;
+        monthlyVolume[monthId][actualTrader] += effectiveVolume;
+        totalVolume += effectiveVolume;
         _ensureMonthId(monthId);
 
         // cache referral volume per level from the current active referral chain
         if (address(doppiReferral) != address(0)) {
             (address l1, address l2, address l3) = doppiReferral.getUplineChain(actualTrader);
             if (l1 != address(0)) {
-                monthlyReferralVolume[monthId][l1].level1Volume += volumeInUSDT;
+                monthlyReferralVolume[monthId][l1].level1Volume += effectiveVolume;
             }
             if (l2 != address(0)) {
-                monthlyReferralVolume[monthId][l2].level2Volume += volumeInUSDT;
+                monthlyReferralVolume[monthId][l2].level2Volume += effectiveVolume;
             }
             if (l3 != address(0)) {
-                monthlyReferralVolume[monthId][l3].level3Volume += volumeInUSDT;
+                monthlyReferralVolume[monthId][l3].level3Volume += effectiveVolume;
             }
             emit ReferralChainUpdated(actualTrader, l1, l2, l3);
         }
-        emit TradeRecorded(actualTrader, volumeInUSDT);
+        emit TradeRecorded(actualTrader, effectiveVolume);
     }
 
     function resetPoint(address trader) external onlyDoppiClaim {
@@ -148,6 +155,13 @@ contract DoppiPoints is Ownable, Pausable {
         emit CoreTraderFactorySet(_core, _factory);
     }
 
+    function setBotVolumeMultiplier(uint256 numerator, uint256 denominator) external onlyOwner {
+        require(denominator > 0, "Zero denominator");
+        botVolumeMultiplierNum = numerator;
+        botVolumeMultiplierDen = denominator;
+        emit BotVolumeMultiplierUpdated(numerator, denominator);
+    }
+
     function setPause() external onlyOwner {
         _pause();
     }
@@ -180,13 +194,14 @@ contract DoppiPoints is Ownable, Pausable {
         totalClaimedPoint = claimed.totalPointClaimed;
     }
 
-    function _getActualTrader(address core, address positionOwner) internal view returns (address owner) {
+    function _resolveTrader(address core, address positionOwner) internal view returns (address owner, bool isTraderBot) {
         IDoppiTraderFactory factory = coreToTraderFactory[core];
         if (
             address(factory) != address(0) &&
             factory.isTraderBot(positionOwner)
         ) {
             owner = IDoppiTrader(positionOwner).validTrader();
+            isTraderBot = true;
         } else {
             owner = positionOwner;
         }

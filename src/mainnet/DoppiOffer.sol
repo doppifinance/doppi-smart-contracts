@@ -28,7 +28,7 @@ contract DoppiOffer is IDoppiOffer, Ownable {
     uint256 public MAX_BUFFER = 500;
     uint256 public HEDGE_ADJUST = 10;
     uint256 public TOTAL_OFFER = 5;
-    uint32 public MAX_OFFER_APR = 50000; // 500% APR in basis points
+    uint32 public MAX_OFFER_APR = 100000; // 1000% APR in basis points
     uint256 public PRICE_GAP_PEROFFER;
     uint256 public priceGapWithDecimals;
     AggregatorV3Interface chainLinkFeed; 

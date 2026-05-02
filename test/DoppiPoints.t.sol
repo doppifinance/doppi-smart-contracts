@@ -342,6 +342,73 @@ contract DoppiPointsTest is Test {
         assertEq(doppiPoints.getMonthlyVolume(trader1, monthId), 350, "Accumulated volume should be 350 under real trader");
     }
 
+    function testBotVolumeMultiplier_DefaultOneToOne() public {
+        _deployMultiFactoryFixture();
+        mockFactory.registerBot(address(mockBot));
+
+        vm.prank(mockDoppiCore);
+        doppiPoints.recordTrade(address(mockBot), 500);
+
+        uint24 monthId = doppiPoints.getCurrentMonthId();
+        assertEq(doppiPoints.getMonthlyVolume(trader1, monthId), 500, "Default 1:1 multiplier should keep volume unchanged");
+    }
+
+    function testBotVolumeMultiplier_AppliesOnlyToBot() public {
+        _deployMultiFactoryFixture();
+        mockFactory.registerBot(address(mockBot));
+        doppiPoints.setBotVolumeMultiplier(2, 1);
+
+        vm.prank(mockDoppiCore);
+        doppiPoints.recordTrade(address(mockBot), 500);
+
+        vm.prank(mockDoppiCore);
+        doppiPoints.recordTrade(trader2, 200);
+
+        uint24 monthId = doppiPoints.getCurrentMonthId();
+        assertEq(doppiPoints.getMonthlyVolume(trader1, monthId), 1000, "Bot volume should be multiplied");
+        assertEq(doppiPoints.getMonthlyVolume(trader2, monthId), 200, "EOA volume should stay unchanged");
+    }
+
+    function testSetBotVolumeMultiplier_RevertsOnZeroDenominator() public {
+        vm.expectRevert(bytes("Zero denominator"));
+        doppiPoints.setBotVolumeMultiplier(1, 0);
+    }
+
+    function testSetBotVolumeMultiplier_OnlyOwner() public {
+        vm.prank(trader1);
+        vm.expectRevert();
+        doppiPoints.setBotVolumeMultiplier(3, 2);
+    }
+
+    function testBotVolumeMultiplier_AppliesToReferralVolume() public {
+        _deployMultiFactoryFixture();
+        mockFactory.registerBot(address(mockBot));
+
+        MockReferral referral = new MockReferral();
+        referral.setUplineChain(trader1, address(0xAA), address(0xBB), address(0xCC));
+        doppiPoints.setDoppiReferral(address(referral));
+        doppiPoints.setBotVolumeMultiplier(3, 2); // 1.5x
+
+        vm.prank(mockDoppiCore);
+        doppiPoints.recordTrade(address(mockBot), 200);
+
+        uint24 monthId = doppiPoints.getCurrentMonthId();
+        (uint256 l1, uint256 l2, uint256 l3) = doppiPoints.getReferralVolumeByMonth(address(0xAA), monthId);
+        assertEq(l1, 300, "L1 for first referrer should include multiplied volume");
+        assertEq(l2, 0, "No level2 volume should be recorded for L1 address");
+        assertEq(l3, 0, "No level3 volume should be recorded for L1 address");
+
+        (l1, l2, l3) = doppiPoints.getReferralVolumeByMonth(address(0xBB), monthId);
+        assertEq(l1, 0, "No level1 volume should be recorded for L2 address");
+        assertEq(l2, 300, "L2 for second referrer should include multiplied volume");
+        assertEq(l3, 0, "No level3 volume should be recorded for L2 address");
+
+        (l1, l2, l3) = doppiPoints.getReferralVolumeByMonth(address(0xCC), monthId);
+        assertEq(l1, 0, "No level1 volume should be recorded for L3 address");
+        assertEq(l2, 0, "No level2 volume should be recorded for L3 address");
+        assertEq(l3, 300, "L3 for third referrer should include multiplied volume");
+    }
+
     function testCoreTraderFactoryCanBeUpdated() public {
         MockTraderFactory factoryOld = new MockTraderFactory();
         MockTraderFactory factoryNew = new MockTraderFactory();
@@ -376,5 +443,26 @@ contract MockTraderBot {
 
     constructor(address _validTrader) {
         validTrader = _validTrader;
+    }
+}
+
+contract MockReferral {
+    struct Chain {
+        address l1;
+        address l2;
+        address l3;
+    }
+
+    mapping(address => Chain) private _chains;
+
+    function setUplineChain(address trader, address l1, address l2, address l3) external {
+        _chains[trader] = Chain({l1: l1, l2: l2, l3: l3});
+    }
+
+    function getUplineChain(address trader) external view returns (address l1, address l2, address l3) {
+        Chain memory c = _chains[trader];
+        l1 = c.l1;
+        l2 = c.l2;
+        l3 = c.l3;
     }
 }

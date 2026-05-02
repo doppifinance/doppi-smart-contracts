@@ -5,5 +5,6 @@ interface IDoppiPoints {
     
     function recordTrade(address trader, uint256 volumeInUSDT) external;
     function resetPoint(address trader) external;
+    function setBotVolumeMultiplier(uint256 numerator, uint256 denominator) external;
     function paused() external view returns (bool);
 }
