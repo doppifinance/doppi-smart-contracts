@@ -243,7 +243,7 @@ contract DoppiLiquidity is ERC20, Ownable, Pausable, IDoppiLiquidity, Automation
         _spendAllowance(owner, spender, amount);
     }
 
-    function getLowerUpperBound() public view returns (uint256, uint256) {
+    function getLowerUpperBound() public view returns (uint256 lower, uint256 upper) {
         return _getLowerUpperBound();
     }
 
@@ -654,15 +654,15 @@ contract DoppiLiquidity is ERC20, Ownable, Pausable, IDoppiLiquidity, Automation
         }
     }
 
-    function _getLowerUpperBound() internal view returns (uint256, uint256) {
+    function _getLowerUpperBound() internal view returns (uint256 lower, uint256 upper) {
         
-        uint256 lower = buyHead == 0
+        lower = buyHead == 0
             ? sellHead
             : sellHead == 0
                 ? buyHead
                 : (buyHead < sellHead ? buyHead : sellHead);
 
-        uint256 upper = buyTail > sellTail ? buyTail : sellTail;
+        upper = buyTail > sellTail ? buyTail : sellTail;
         return (lower, upper);
     }
 

@@ -476,8 +476,8 @@ contract DoppiTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCompati
             if(totalAmount >= maxSwapInLocal){
                 break;
             }
-            uint256 totalPost = totalAmount + amount;
-            uint256 unwindAmount = totalPost > maxSwapInLocal ? amount - (totalPost - maxSwapInLocal) : amount;
+            uint256 remaining = maxSwapInLocal > totalAmount ? maxSwapInLocal - totalAmount : 0;
+            uint256 unwindAmount = amount > remaining ? remaining : amount;
             uint256 newTotal = totalAmount + unwindAmount;
             bool canUnwind = _isBuy
                 ? (strikePrice <= unwindBuyStrike)

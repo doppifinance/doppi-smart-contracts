@@ -530,7 +530,7 @@ contract DoppiCoreExtTest is Test {
         _depositUSDT();
         // 3rd order 50k
         _depositUSDT();
-        _depositUSDT();
+        // _depositUSDT();
         
         // 4th order 50k, should fail
         DepositParams memory params = DepositParams({
@@ -561,7 +561,7 @@ contract DoppiCoreExtTest is Test {
         _depositBTC();
         // 3rd order 0.5
         _depositBTC();
-        _depositBTC();
+        // _depositBTC();
         
         // 4th order 0.5, should fail
         DepositParams memory params = DepositParams({

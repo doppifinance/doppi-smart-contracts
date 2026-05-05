@@ -149,10 +149,13 @@ contract DoppiLiquidityETHTest is Test {
         uint256 buyCount = doppiCore.getBuyPositionCount(trader);
         assertEq(buyCount, 1, "Trader should have 1 buy position");
 
+        (uint256 interestLiabilitiesA, uint256 interestLiabilitiesB) = doppiCore.getInterestLiabilities();
+
         uint256 maxBuy = doppiCore.acceptedDeposit(true);
         uint256 maxSell = doppiCore.acceptedDeposit(false);
-        assertEq(maxBuy, 1500 ether, "maxBuy should be 1500 USDT after 500 USDT buy position");
-        assertApproxEqAbs(maxSell, (1500 ether / uint256(newPrice) * 1e8), 0.0000001 ether,  "maxSell should be 1500 USDT equivalent in ETH after 500 USDT buy position"); 
+        
+        assertEq(maxBuy, 1500 ether - interestLiabilitiesA, "maxBuy should be 1500 USDT - interest after 500 USDT buy position");
+        assertApproxEqAbs(maxSell, ((1500 ether - interestLiabilitiesA) / uint256(newPrice) * 1e8), 0.0000001 ether,  "maxSell should be 1500 USDT - interest equivalent in ETH after 500 USDT buy position"); 
         
     }
 

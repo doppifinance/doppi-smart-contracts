@@ -18,25 +18,33 @@ import {DoppiClaim} from "../../src/mainnet/DoppiClaim.sol";
 import {DOPPI} from "../../src/test/Doppi.sol";
 import {DoppiOpportunity} from "../../src/mainnet/DoppiOpportunity.sol";
 import {DoppiUpkeepManager} from "../../src/mainnet/DoppiUpkeepManager.sol";
-import {MockRegistryConsumer} from "../../src/test/MockRegistryConsumer.sol";
+import {MockRegistryConsumer} from "../../src/test/MockRegistryConsumerLocalhost.sol";
 import {DoppiReferral} from "../../src/mainnet/DoppiReferral.sol";
 import "../../src/mainnet/DoppiLiquidityTypes.sol";
 import {TestParamLib} from "../../src/Library/TestParamLib.sol";
 
 contract DeployDoppiAll is Script {
     
-    address constant BlackS = address(0x8dB0E34Ce3C33AF84A0E50cfbF733091f66aD52b);
-    address constant DoppiRef = address(0x35e1A18F0900982F0712B18e9125148C26Cf5D8E);
-    address constant DoppiCl = address(0x37Ac8375cdEfe015AabE24C5530b123812bE3acF);
-    address constant DoppiTk = address(0xD9C3fecCe1e8974729e629Ade97eFdFb68c1b086);
-    address constant DoppiPts = address(0xc77bE67A9043d7aDE933DD5dD9d5Acc7154D90C5);
+    uint256 minOrderA = 50 ether;
+    uint256 minOrderB = 0.02 ether;
+    uint256 botVolumeMultiplier = 3;
+
+
+    address constant BlackS = address(0xb1571Cc8f8FAB62F9922F86904787d7AEdf64E1F);
+    address constant DoppiRef = address(0xB23482c7144e5EcA26070d3F0012FB031164256C);
+    address constant DoppiCl = address(0x46A82006F340AF01C8B1d49753B479E00F1368Df);
+    address constant DoppiTk = address(0x4A50B7fB2Abe8d49EA09507C4f05EBEC79405CcE);
+    address constant DoppiPts = address(0x4f912dC0a656122bAf396B1a3156f1cBBc3f5256);
     
     address constant LINK = address(0x404460C6A5EdE2D891e8297795264fDe62ADBB75);
     address constant USDT = address(0x55d398326f99059fF775485246999027B3197955);
     address constant BTC = address(0x2170Ed0880ac9A755fd29B2688956BD959F933F8); // ETH
     address constant BNBLINK = address(0xF8A0BF9cF54Bb92F17374d9e9A321E6a111a51bD);
-    address constant CHAINLINK_BTC_USD = address(0x9ef1B8c0E4F7dc8bF5719Ea496883DC6401d5b2e);
-    address constant CHAINLINK_LINK_USD = address(0xca236E327F629f9Fc2c30A4E95775EbF0B89fac8);
+    // address constant CHAINLINK_BTC_USD = address(0x9ef1B8c0E4F7dc8bF5719Ea496883DC6401d5b2e);
+    address constant CHAINLINK_BTC_USD = address(0xe48a5Fd74d4A5524D76960ef3B52204C0e11fCD1); // SVR
+    // address constant CHAINLINK_LINK_USD = address(0xca236E327F629f9Fc2c30A4E95775EbF0B89fac8);
+    address constant CHAINLINK_LINK_USD = address(0x933458F222023B7E9f0AB2194e30d7ACcfE3603D); // SVR
+
     address constant LINK_PEGGED_SWAP = address(0x1FCc3B22955e76Ca48bF025f1A6993685975Bb9e);
     address constant PCSWAP_V3_ROUTER = address(0x13f4EA83D0bd40E75C8222255bc855a974568Dd4);
     address constant PCSWAP_V3_QUOTER = address(0xB048Bbc1Ee6b733FFfCFb9e9CeF7375518e25997);
@@ -139,6 +147,7 @@ contract DeployDoppiAll is Script {
         DoppiCore doppiCore = new DoppiCore(USDT, BTC, _doppiLP, _impliedVol, address(_doppiPoints));
         console.log("DoppiCore deployed at:", address(doppiCore));
         _doppiPoints.setDoppiCore(address(doppiCore), true);
+        doppiCore.setMinOrder(minOrderA, minOrderB);
         return doppiCore;
     }
         
@@ -198,6 +207,7 @@ contract DeployDoppiAll is Script {
         
         console.log("Initiating Existing DoppiPoints...");        
         DoppiPoints doppiPoints = DoppiPoints(DoppiPts);
+        doppiPoints.setBotVolumeMultiplier(botVolumeMultiplier, 1);
         return doppiPoints;
     }
 

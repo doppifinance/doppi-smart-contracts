@@ -4,6 +4,7 @@ pragma solidity ^0.8.26;
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {AutomationCompatibleInterface} from "../Interface/AutomationCompatibleInterface.sol";
 import {IDoppiTrader} from "../Interface/IDoppiTrader.sol";
 import {IDoppiPoints} from "../Interface/IDoppiPoints.sol";
@@ -133,13 +134,19 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
 
         // Fetch price once — all per-slot getSingleOffer calls below are pure math
         uint256 price = _getPriceFromLP();
+        uint256 zeroZoneAPR;
+        DualAssetOffer memory offer;
 
         for (uint256 i = 0; i < length; ) {
             BulkDepositParam calldata param = params[i];
             if (param.amount == 0) revert InvalidAmount();
-
-            // Core derives the authoritative offer — caller cannot manipulate strikePrice/apr/expiry
-            DualAssetOffer memory offer = doppiOffer.getSingleOffer(isBuy, param.numDays, param.strikeZone, price);
+            // get the zone zero apr first
+            if(param.strikeZone == 0){
+                offer = doppiOffer.getSingleOffer(isBuy, param.numDays, param.strikeZone, price);
+                zeroZoneAPR = offer.apr;
+            }else{
+                offer = doppiOffer.verifyOffer(isBuy, param.numDays, param.strikeZone, price, zeroZoneAPR);
+            }
             if (offer.price == 0) revert InvalidStrikePriceOrPrice();
             if (offer.apr == 0) revert InvalidAPR();
 
@@ -341,7 +348,7 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
                     OpportunityOrders memory opp = isBuy ? opportunityBuy[pos.strikePrice] : opportunitySell[pos.strikePrice];
                     uint256 tradedPortion = opp.swappedAmount < pos.amount ? opp.swappedAmount : pos.amount;
                     uint8 tradeState = tradedPortion == 0 ? 0 : (tradedPortion >= pos.amount ? 2 : 1);
-                    uint256 myAmountOut = opp.swappedAmount > 0 ? opp.outAmount * tradedPortion / opp.swappedAmount : 0;
+                    uint256 myAmountOut = opp.swappedAmount > 0 ? Math.mulDiv(opp.outAmount, tradedPortion, opp.swappedAmount) : 0;
 
                     // Update total deposits (prevent underflow)
                     _updateTotalDeposit(amountToReturn, isBuy);
@@ -1103,15 +1110,15 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
         }
     }
 
-    function getLowerUpperBound() public view returns (uint256, uint256) {
+    function getLowerUpperBound() public view returns (uint256 lower, uint256 upper) {
         
-        uint256 lower = buyHead == 0
+        lower = buyHead == 0
             ? sellHead
             : sellHead == 0
                 ? buyHead
                 : (buyHead < sellHead ? buyHead : sellHead);
 
-        uint256 upper = buyTail > sellTail ? buyTail : sellTail;
+        upper = buyTail > sellTail ? buyTail : sellTail;
         return (lower, upper);
     }
 

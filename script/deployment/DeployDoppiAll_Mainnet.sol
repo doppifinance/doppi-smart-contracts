@@ -25,19 +25,25 @@ import {TestParamLib} from "../../src/Library/TestParamLib.sol";
 
 contract DeployDoppiAllMainnet is Script {
     
+    uint256 minOrderA = 50 ether;
+    uint256 minOrderB = 0.0005 ether;
+    uint256 botVolumeMultiplier = 3;
+
     address constant LINK = address(0x404460C6A5EdE2D891e8297795264fDe62ADBB75);
     address constant USDT = address(0x55d398326f99059fF775485246999027B3197955);
     address constant BTC = address(0x7130d2A12B9BCbFAe4f2634d864A1Ee1Ce3Ead9c);
     address constant BNBLINK = address(0xF8A0BF9cF54Bb92F17374d9e9A321E6a111a51bD);
-    address constant CHAINLINK_BTC_USD = address(0x264990fbd0A4796A3E3d8E37C4d5F87a3aCa5Ebf);
-    address constant CHAINLINK_LINK_USD = address(0xca236E327F629f9Fc2c30A4E95775EbF0B89fac8);
+    // address constant CHAINLINK_BTC_USD = address(0x264990fbd0A4796A3E3d8E37C4d5F87a3aCa5Ebf);
+    address constant CHAINLINK_BTC_USD = address(0x8ECF7dE377F788A813F5215668E282556b35f300); // SVR
+    // address constant CHAINLINK_LINK_USD = address(0xca236E327F629f9Fc2c30A4E95775EbF0B89fac8);
+    address constant CHAINLINK_LINK_USD = address(0x933458F222023B7E9f0AB2194e30d7ACcfE3603D); // SVR
     address constant LINK_PEGGED_SWAP = address(0x1FCc3B22955e76Ca48bF025f1A6993685975Bb9e);
     address constant PCSWAP_V3_ROUTER = address(0x13f4EA83D0bd40E75C8222255bc855a974568Dd4);
     address constant PCSWAP_V3_QUOTER = address(0xB048Bbc1Ee6b733FFfCFb9e9CeF7375518e25997);
     address constant PCSWAP_V3Pool = address(0x46Cf1cF8c69595804ba91dFdd8d6b960c9B0a7C4);
     address constant CHAINLINK_RegistryConsumer = address(0xDc21E279934fF6721CaDfDD112DAfb3261f09A2C);
     address constant CHAINLINK_Registrar = address(0xf671F60bCC964B309D22424886FF202807381B32);
-    address constant treasury = address(0x5dE88c6A183E8BE8A630dfa6BAc1926e1e323CF1);
+    address constant treasury = address(0x7E8c87Feb8D30706ca43A8049ee654875426A721);
     // address constant admin = address(0xaD8234bC07168d9f7E49c3780e4b5fefa6620f8A);
     // address constant forwarder = address(0x70997970C51812dc3A010C7d01b50e0d17dc79C8);
     ConfigParam configLP;
@@ -135,6 +141,7 @@ contract DeployDoppiAllMainnet is Script {
         DoppiCore doppiCore = new DoppiCore(USDT, BTC, _doppiLP, _impliedVol, address(_doppiPoints));
         console.log("DoppiCore deployed at:", address(doppiCore));
         _doppiPoints.setDoppiCore(address(doppiCore), true);
+        doppiCore.setMinOrder(minOrderA, minOrderB);
         return doppiCore;
     }
         
@@ -185,7 +192,7 @@ contract DeployDoppiAllMainnet is Script {
         console.log("Deploying DoppiReferral...");
         DoppiReferral doppiReferral = new DoppiReferral(_doppiPoints, 300, 200, 100); // 3.0%, 2.0%, 1.0%
         console.log("DoppiReferral deployed at:", address(doppiReferral));
-        doppiReferral.setMinVolumeForL2L3(100_000 ether, 300_000 ether); // for pre launch only
+        doppiReferral.setMinVolumeForL2L3(10_000 ether, 50_000 ether); // for pre launch only
         DoppiPoints(_doppiPoints).setDoppiReferral(address(doppiReferral));
         return doppiReferral;
     }
@@ -205,6 +212,7 @@ contract DeployDoppiAllMainnet is Script {
         console.log("Deploying DoppiPoints...");
         DoppiPoints doppiPoints = new DoppiPoints();
         console.log("DoppiPoints deployed at:", address(doppiPoints));
+        doppiPoints.setBotVolumeMultiplier(botVolumeMultiplier, 1);
         return doppiPoints;
     }
 

@@ -9,20 +9,26 @@ import "../../src/mainnet/DoppiOpportunity.sol";
 import "../../src/mainnet/DoppiUpkeepManager.sol";
 import "../../src/mainnet/DoppiTrader.sol";
 import "../../src/mainnet/DoppiPoints.sol";
+import "../../src/mainnet/DoppiReferral.sol";
 import {MockOracle} from "../../src/test/MockOracle.sol";
 import {DoppiTraderFactory} from "../../src/mainnet/DoppiTraderFactory.sol";
 import {TestParamLib} from "../../src/Library/TestParamLib.sol";
+import {DALiquidityLib} from "../../src/Library/DALiquidityLib.sol";
+import {AggregatorV3Interface} from "../../src/Interface/AggregatorV3Interface.sol";
+
 
 contract MyScript is Script {
 
-    address DOPPI_OFFER = address(0xb4ED6eddc9361D164C0deDA1da5D02359f87DF18);
-    address DOPPI_LP = address(0x7f6283d037d51588D74cfbD677096Cff8Be4A73f);
-    address DOPPI_OFFER_ETH = address(0xA8787E6F7c796eF644F734a6F4EF23B06032E4Ee);
-    address DOPPI_LP_ETH = address(0x4f912dC0a656122bAf396B1a3156f1cBBc3f5256);
-    address DOPPI_CORE = address(0x0Fd25f185431480dC698Bd01DD4F288972626cdA);
-    address DOPPI_OPPO = address(0x684331E18F47505aeB903A9a10dD8312142A4415);
-    address DOPPI_UPKEEP = address(0xA926721fe5A3465F06Af52BCdc46F22b5fE8B103);
-    address DOPPI_POINTS = address(0xc77bE67A9043d7aDE933DD5dD9d5Acc7154D90C5);
+    address DOPPI_OFFER = address(0xA8787E6F7c796eF644F734a6F4EF23B06032E4Ee);
+    address DOPPI_LP = address(0x05956ED80c19ebf5B87933c88AbC855B7546aE68);
+    address DOPPI_OFFER_ETH = address(0xE76DF259554caD86fFA446bD80c501d18b6d07E4);
+    address DOPPI_LP_ETH = address(0x8d0B50DCeA58cdA6C836241914261A2860bDCA1A);
+    address DOPPI_CORE = address(0xDca3163e914bf4Cb4D45FC81a863D881F43e9c7E);
+    address DOPPI_CORE_ETH = address(0x375ebC1196d84D817A8E3b58d662b3A4A71665b1);
+    address DOPPI_OPPO = address(0x77938b6F8F280D8dF8aBdc0A8c63ce9f3D9A43E0);
+    address DOPPI_UPKEEP = address(0x17C5c66203C6865ABF71c114723c620D82D6ab6A);
+    address DOPPI_REF = address(0xB23482c7144e5EcA26070d3F0012FB031164256C);
+    address DOPPI_POINTS = address(0x4f912dC0a656122bAf396B1a3156f1cBBc3f5256);
     
     function run() external {
         
@@ -30,20 +36,32 @@ contract MyScript is Script {
         
         // Start broadcasting transactions
         vm.startBroadcast(deployerPrivateKey);
+        
+
+        AggregatorV3Interface chainLinkFeed = AggregatorV3Interface(address(0xca236E327F629f9Fc2c30A4E95775EbF0B89fac8));
+        uint256 price = DALiquidityLib.getPrice(chainLinkFeed, 10 days);
+        console.log("Price from DALiquidityLib:", price);
 
         // _getDoppiPoints();
-        // address bot = address(0x4F7554796137C8C9B0F76665a2e0dFD4aB1B2231);
+        address bot = address(0xDF1365c368c1d182a06c1f2C26e565c932b865A1);
         // _traderBotInfo(bot);
-        // _getUpkeepData(bot);
+        _getUpkeepData(bot);
         // _getBuffer(DOPPI_OFFER, DOPPI_LP);
         // _getBuffer(DOPPI_OFFER_ETH, DOPPI_LP_ETH);
-        // _getTotalOrders();
+        // _getTotalOrders(DOPPI_CORE);
+        // _getTotalOrders(DOPPI_CORE_ETH);
 
-        // _manipulateRealChainlink(int256(77_400 * 1e8)); 
+        // _manipulateRealChainlink(int256(79_400 * 1e8)); 
         // _getOpportunityData();
 
-        _updateMaxOfferDoppiOffers(DOPPI_OFFER);
+        // _updateMaxOfferDoppiOffers(DOPPI_OFFER);
         // _updateMaxOfferDoppiOffers(DOPPI_OFFER_ETH);
+
+        // _setMinOrders(DOPPI_CORE);
+
+        // _getDoppiReferral();
+
+        // _getDoppiLP(DOPPI_LP);
 
         
         vm.stopBroadcast();
@@ -84,6 +102,34 @@ contract MyScript is Script {
 
     }
 
+    function _getDoppiReferral() internal view {
+        
+        // address trader = address(0xB91a71FA558ec371eA09477c1D9f46E6AbA60719); 
+        // address bot1 = address(0x0cEf2894D5aE740016a9b1ad3c40e6A2986d8600); 
+        // address bot2 = address(0x89CcbcC1e1260cf52190FdB7b979461cd0066dd2);
+        // address bot3 = address(0x48034E691f1F9D1919259Cf5FFc636F694462755);
+
+        DoppiReferral doppiReferral = DoppiReferral(DOPPI_REF);
+        (uint24 effectiveMonthId0, uint256 minL2_0, uint256 minL3_0) = doppiReferral.getMinVolumeCheckpoint(0);
+        (uint24 effectiveMonthId1, uint256 minL2_1, uint256 minL3_1) = doppiReferral.getMinVolumeCheckpoint(1);
+        // (uint24 effectiveMonthId2, uint256 minL2_2, uint256 minL3_2) = doppiReferral.getMinVolumeCheckpoint(2);
+        console.log("Level 2 Min Volume Checkpoint:", effectiveMonthId0, minL2_0);
+        console.log("Level 3 Min Volume Checkpoint:", effectiveMonthId1, minL3_1);
+
+        (uint16 level1Bps, uint16 level2Bps, uint16 level3Bps) = doppiReferral.getRatesForMonth(effectiveMonthId1);
+        console.log("Referral rates for month", level1Bps, level2Bps, level3Bps);
+
+
+        DoppiPoints doppiPoints = DoppiPoints(DOPPI_POINTS);
+        console.log("Current Month ID:", doppiPoints.getCurrentMonthId());
+
+
+        // console.log("Level 3 Min Volume Checkpoint:", effectiveMonthId2, minL3_2);
+        
+
+
+    }
+
     function _traderBotInfo(address bot) internal view {
         DoppiTrader bot = DoppiTrader(bot);
         (uint256 totalAssetA, uint256 totalAssetB, uint256 price) = bot.getTotalBalances();
@@ -92,7 +138,7 @@ contract MyScript is Script {
         console.log("Current Price:", price);
     }
 
-    function _getUpkeepData(address bot) internal view {
+    function _getUpkeepData(address bot) internal {
 
         DoppiUpkeepManager doppiUpkeepManager = DoppiUpkeepManager(DOPPI_UPKEEP);
         uint256 keepId = doppiUpkeepManager.getUpkeepIdByBot(bot);
@@ -105,6 +151,8 @@ contract MyScript is Script {
         uint256 upkeepBalance = doppiUpkeepManager.getUpkeepBalance(keepId);
         console.log("Upkeep ID for bot:", keepId);
         console.log("Upkeep balance:", doppiUpkeepManager.getUpkeepBalance(keepId));
+
+        // doppiUpkeepManager.setMaxDelay(5 days);
     }
 
     function _getBuffer(address doppiOfferAddress, address doppiLPAddress) internal view {
@@ -118,9 +166,20 @@ contract MyScript is Script {
         console.log("sellBuffer", sellBuffer);
     }
 
-    function _getTotalOrders() internal view {
+    function _setMinOrders(address _address) internal {
 
-        DoppiCore doppiCore = DoppiCore(DOPPI_CORE);
+        DoppiCore doppiCore = DoppiCore(_address);
+        doppiCore.setMinOrder(50 ether, 0.0005 ether);
+        console.log(doppiCore.minOrderA(), "Min Order A");
+        console.log(doppiCore.minOrderB(), "Min Order B");
+    }
+
+    function _getTotalOrders(address _address) internal view {
+
+        DoppiCore doppiCore = DoppiCore(_address);
+        console.log(doppiCore.minOrderA(), "Min Order A");
+        console.log(doppiCore.minOrderB(), "Min Order B");
+
         uint64 length = doppiCore.getPositionLength(1);
         uint64 nextId = doppiCore.nextProcessId(1);
         uint64 end = nextId + length;
@@ -150,16 +209,18 @@ contract MyScript is Script {
         (uint256 lowerBound, uint256 upperBound) = doppiCore.getLowerUpperBound();
         console.log(lowerBound, upperBound, "lowerBound, upperBound");
         
+        if(upperBound == 0){
+            console.log("No orders in the book");
+            return;
+        }
+
         for (uint256 price = upperBound; price >= lowerBound; ) {
             // console.log(price, "price");
             bool isBuy = true;
             (uint256 amount, uint256 swappedAmount, uint256 outAmount) = doppiCore.opportunityBuy(price);
-            
-            if(amount == 0){
-                isBuy = false;
-                (amount, swappedAmount, outAmount) = doppiCore.opportunitySell(price);
-            }
-            console.log(isBuy, price, swappedAmount, outAmount);
+            console.log("Buy", price, swappedAmount, outAmount);
+            (amount, swappedAmount, outAmount) = doppiCore.opportunitySell(price);
+            console.log("Sell", price, swappedAmount, outAmount);
             price -= (500 * 1e8); 
         }
 
@@ -181,12 +242,30 @@ contract MyScript is Script {
         
     }
 
+    function _getDoppiLP(address lpaddress) internal {
+
+        DoppiLiquidity doppiLP = DoppiLiquidity(lpaddress);
+        uint256 price = doppiLP.getPrice();
+        console.log(price, "Current price");
+
+        uint256 maxDepositAmounts = doppiLP.getMaxDepositAmount(true);
+        console.log(maxDepositAmounts, "Max deposit amounts");
+
+        (,,,,,,,,,, uint24 maxDepositPercentage,,,,) = doppiLP.config();
+        console.log(maxDepositPercentage, "Max deposit percentage");
+
+        (uint256 currentDeposits,
+        uint256 maxDepositAmount,
+        uint256 availableCapacity) = doppiLP.getPoolCapacityInfo(true);
+        console.log(currentDeposits, maxDepositAmount, availableCapacity, "Current deposits, Max deposit amount, Available capacity");
+    }
+
     function _manipulateRealChainlink(int256 newPrice) internal {
         
         // Then override the feed address
         MockOracle oracle = new MockOracle(int256(100_000 * 1e8), 8);
         oracle.setPrice(newPrice);
-        ConfigParam memory configLP = TestParamLib.get_configLP();
+        ConfigParam memory configLP = TestParamLib.get_configLP_localhost();
         configLP.chainLinkFeed = address(oracle);
         configLP.slippage = 500; // 5% slippage for testing
         DoppiLiquidity doppiLP = DoppiLiquidity(DOPPI_LP);

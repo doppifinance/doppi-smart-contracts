@@ -128,15 +128,15 @@ abstract contract DoppiTraderAdminView is Ownable, Pausable {
         return isBuy ? unWindBuy[strikePrice] : unWindSell[strikePrice];
     }
 
-    function getLowerUpperBound() public view returns (uint256, uint256) {
+    function getLowerUpperBound() public view returns (uint256 lower, uint256 upper) {
         
-        uint256 lower = buyHead == 0
+        lower = buyHead == 0
             ? sellHead
             : sellHead == 0
                 ? buyHead
                 : (buyHead < sellHead ? buyHead : sellHead);
 
-        uint256 upper = buyTail > sellTail ? buyTail : sellTail;
+        upper = buyTail > sellTail ? buyTail : sellTail;
         return (lower, upper);
     }
 

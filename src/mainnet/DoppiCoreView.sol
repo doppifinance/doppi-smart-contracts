@@ -2,7 +2,7 @@
 pragma solidity ^0.8.26;
 import {IDoppiLiquidity} from "../Interface/IDoppiLiquidity.sol";
 import "./DoppiCoreTypes.sol";
-import "forge-std/console.sol";
+// import "forge-std/console.sol";
 
 abstract contract DoppiCoreView {
     
@@ -79,16 +79,17 @@ abstract contract DoppiCoreView {
         uint256 priceDecimal = 10 ** doppiLP.getPriceDecimals();
         if(isBuy) {
             uint256 sellInA = totalSellDeposits * price / priceDecimal;
-            currentDeposits = totalBuyDeposits + sellInA;
+            uint256 liabilityInA = totalInterestLiabilityB * price / priceDecimal;
+            currentDeposits = totalBuyDeposits + sellInA + liabilityInA + totalInterestLiabilityA;
         }else{
             uint256 buyInB = totalBuyDeposits * priceDecimal / price;
-            currentDeposits = totalSellDeposits + buyInB;
+            uint256 liabilityInB = totalInterestLiabilityA * priceDecimal / price;
+            currentDeposits = totalSellDeposits + buyInB + liabilityInB + totalInterestLiabilityB;
         }
     }
 
     function getPositionLength(uint8 day) public view returns (uint64){
-        console.log("getPositionLength", day, nextProcessId[day], nextPositionId[day]);
-        return nextPositionId[day] - nextProcessId[day];
+        return nextPositionId[day] > nextProcessId[day] ? nextPositionId[day] - nextProcessId[day] : 0;
     } 
 
     function canAcceptDeposit(bool isBuy, uint256 depositAmount) public view returns (bool) {

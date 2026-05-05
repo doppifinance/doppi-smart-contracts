@@ -67,7 +67,9 @@ contract DoppiLiquidityRouter is Ownable, Pausable, ReentrancyGuard {
 
         IERC20(doppiLP).safeTransferFrom(msg.sender, address(this), userShares);
         (uint256 ratioA, uint256 ratioB) = doppiLP.assetRatio();
-        uint256 firstHalf = userShares * ratioA / (ratioA + ratioB);
+        uint256 totalRatio = ratioA + ratioB;
+        require(totalRatio > 0, "Pool empty or price unavailable");
+        uint256 firstHalf = userShares * ratioA / totalRatio;
         uint256 secondHalf = userShares - firstHalf;        
         uint256 assetsA = entryPointA.redeem(firstHalf, msg.sender, address(this));
         uint256 assetsB = entryPointB.redeem(secondHalf, msg.sender, address(this));
@@ -168,7 +170,9 @@ contract DoppiLiquidityRouter is Ownable, Pausable, ReentrancyGuard {
 
         IERC20(doppiLP).safeTransferFrom(msg.sender, address(this), _shares);
         (uint256 ratioA, uint256 ratioB) = doppiLP.assetRatio();
-        uint256 firstHalf = _shares * ratioA / (ratioA + ratioB);
+        uint256 totalRatio = ratioA + ratioB;
+        require(totalRatio > 0, "Pool empty or price unavailable");
+        uint256 firstHalf = _shares * ratioA / totalRatio;
         uint256 secondHalf = _shares - firstHalf;        
         assetsA = entryPointA.redeem(firstHalf, msg.sender, address(this));
         assetsB = entryPointB.redeem(secondHalf, msg.sender, address(this));

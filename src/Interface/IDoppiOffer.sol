@@ -62,6 +62,10 @@ interface IDoppiOffer {
         uint8 _strikeZone,
         uint256 _price
     ) external view returns (DualAssetOffer memory offer);
+    function verifyOffer(bool _isBuy, uint8 _numDays, uint8 _strikeZone, uint256 _price, uint256 maxRawAPR)
+        external
+        view
+        returns (DualAssetOffer memory offer);
     function getPriceGapPerOffer() external view returns (uint256);
     function TOTAL_OFFER() external view returns (uint256);
 }

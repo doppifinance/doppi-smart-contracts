@@ -154,6 +154,16 @@ contract DoppiOffer is IDoppiOffer, Ownable {
         return _getOffer(_isBuy, _numDays, _strikeZone, _price);
     }
 
+    function verifyOffer(bool _isBuy, uint8 _numDays, uint8 _strikeZone, uint256 _price, uint256 maxRawAPR)
+        external
+        view
+        returns (DualAssetOffer memory offer)
+    {
+        if(maxRawAPR == 0) return _getOffer(_isBuy, _numDays, _strikeZone, _price);
+        uint256 roundedPrice = (_price / priceGapWithDecimals) * priceGapWithDecimals;
+        return _getOfferWithMaxRawAPR(_isBuy, _numDays * SECONDS_PER_DAY, _strikeZone, _price, roundedPrice, maxRawAPR);
+    }
+
     function getOffer(bool _isBuy, uint8 _numDays, uint8 _strikeZone)
         external
         view
