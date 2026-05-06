@@ -61,7 +61,6 @@ contract BasicFlowTest is Test {
         
         configLP = TestParamLib.get_configLP();
         configLP.router = address(swapper);
-        configLP.quoter = address(swapper);
         configLP.v3Pool = address(swapper);
         configLP.chainLinkFeed = address(oracle);
 

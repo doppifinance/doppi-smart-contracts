@@ -87,7 +87,6 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
     function deposit_buy(DepositParams calldata params) 
         external nonReentrant whenNotPaused {
         
-        _whenOpen();
         if (emergencyMode) revert EmergencyModeActive();
         if(params.amount < minOrderA) revert InvalidAmount(); 
         if (!canAcceptDeposit(true, params.amount)) {
@@ -108,7 +107,6 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
     function deposit_sell(DepositParams calldata params) 
         external nonReentrant whenNotPaused {
         
-        _whenOpen();
         if (emergencyMode) revert EmergencyModeActive();
         if(params.amount < minOrderB) revert InvalidAmount(); 
         if (!canAcceptDeposit(false, params.amount)) {
@@ -1210,9 +1208,5 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
 
     function _onlyTraderBot() internal view {
         if (!doppiTraderFactory.isTraderBot(msg.sender)) revert OnlyTraderBot();
-    }
-
-    function _whenOpen() internal view {
-        if (!publicOpen) revert NotOpen();
     }
 }

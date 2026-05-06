@@ -21,8 +21,7 @@ contract DoppiLiquidityRouter is Ownable, Pausable, ReentrancyGuard {
     address public immutable assetA;
     address public immutable assetB;
     bool public emergencyMode;
-    bool public publicOpen = true;
-
+    
     event Deposited(address indexed user, uint256 amount, address asset, uint256 shares);
     event Redeemed(address indexed user, uint256 shares, uint256 assetsA, uint256 assetsB);
     event EmergencyWithdraw(address indexed user, uint256 shares, uint256 assetsA, uint256 assetsB);
@@ -35,7 +34,7 @@ contract DoppiLiquidityRouter is Ownable, Pausable, ReentrancyGuard {
         assetB = address(_assetB);
     }
 
-    function deposit(address _asset, uint256 _amount) external whenOpen nonReentrant whenNotPaused returns (uint256 shares) {
+    function deposit(address _asset, uint256 _amount) external nonReentrant whenNotPaused returns (uint256 shares) {
         IERC20(_asset).safeTransferFrom(msg.sender, address(this), _amount);
 
         if (_asset == assetA) {
@@ -134,11 +133,6 @@ contract DoppiLiquidityRouter is Ownable, Pausable, ReentrancyGuard {
 
     modifier whenEmergency() {
         require(emergencyMode, "Not in emergency mode");
-        _;
-    }
-
-    modifier whenOpen() {
-        require(publicOpen == true, "not open");
         _;
     }
 

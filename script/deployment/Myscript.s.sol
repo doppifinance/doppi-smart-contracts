@@ -19,16 +19,16 @@ import {AggregatorV3Interface} from "../../src/Interface/AggregatorV3Interface.s
 
 contract MyScript is Script {
 
-    address DOPPI_OFFER = address(0xA8787E6F7c796eF644F734a6F4EF23B06032E4Ee);
-    address DOPPI_LP = address(0x05956ED80c19ebf5B87933c88AbC855B7546aE68);
-    address DOPPI_OFFER_ETH = address(0xE76DF259554caD86fFA446bD80c501d18b6d07E4);
-    address DOPPI_LP_ETH = address(0x8d0B50DCeA58cdA6C836241914261A2860bDCA1A);
-    address DOPPI_CORE = address(0xDca3163e914bf4Cb4D45FC81a863D881F43e9c7E);
-    address DOPPI_CORE_ETH = address(0x375ebC1196d84D817A8E3b58d662b3A4A71665b1);
-    address DOPPI_OPPO = address(0x77938b6F8F280D8dF8aBdc0A8c63ce9f3D9A43E0);
-    address DOPPI_UPKEEP = address(0x17C5c66203C6865ABF71c114723c620D82D6ab6A);
-    address DOPPI_REF = address(0xB23482c7144e5EcA26070d3F0012FB031164256C);
-    address DOPPI_POINTS = address(0x4f912dC0a656122bAf396B1a3156f1cBBc3f5256);
+    address DOPPI_OFFER = address(0x375ebC1196d84D817A8E3b58d662b3A4A71665b1);
+    address DOPPI_LP = address(0x80730E85C91aC99C8e647A679AC2826354e03501);
+    address DOPPI_OFFER_ETH = address(0x978cC774263617410DAD2Ce67B891960f07d5ff5);
+    address DOPPI_LP_ETH = address(0xfbDa2c22E161686E63b0Ef37549901b768952f37);
+    address DOPPI_CORE = address(0xc3f384A25e5118949cD88cac760398F303AAcDC1);
+    address DOPPI_CORE_ETH = address(0xCeA9aa9BDe192241e2260B49dF2B0B50c560c5Fe);
+    address DOPPI_OPPO = address(0x4c4F8f2C7d827D33ad2aa4c8df75E03AC2B2EcC9);
+    address DOPPI_UPKEEP = address(0xC3600cE4614453bCDfFE00D6a653B59D3e8d1f8F);
+    address DOPPI_REF = address(0xFD8933b24af8fB4382091896d368E22D3aA87945);
+    address DOPPI_POINTS = address(0x42E2A27341a06211C0FEe7eDC2B179209Fc376d1);
     
     function run() external {
         
@@ -43,9 +43,9 @@ contract MyScript is Script {
         console.log("Price from DALiquidityLib:", price);
 
         // _getDoppiPoints();
-        address bot = address(0xDF1365c368c1d182a06c1f2C26e565c932b865A1);
+        // address bot = address(0x89b7810Fd8520C5B122CCea0585be1a45CAC5505);
         // _traderBotInfo(bot);
-        _getUpkeepData(bot);
+        // _getUpkeepData(bot);
         // _getBuffer(DOPPI_OFFER, DOPPI_LP);
         // _getBuffer(DOPPI_OFFER_ETH, DOPPI_LP_ETH);
         // _getTotalOrders(DOPPI_CORE);
@@ -251,7 +251,7 @@ contract MyScript is Script {
         uint256 maxDepositAmounts = doppiLP.getMaxDepositAmount(true);
         console.log(maxDepositAmounts, "Max deposit amounts");
 
-        (,,,,,,,,,, uint24 maxDepositPercentage,,,,) = doppiLP.config();
+        (,,,,,,,,, uint24 maxDepositPercentage,,,,) = doppiLP.config();
         console.log(maxDepositPercentage, "Max deposit percentage");
 
         (uint256 currentDeposits,

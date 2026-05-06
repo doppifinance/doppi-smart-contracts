@@ -72,7 +72,6 @@ contract DoppiCoreTest is Test {
         
         configLP = TestParamLib.get_configLP();
         configLP.chainLinkFeed = address(oracle);
-        configLP.quoter = address(swapper);
         configLP.router = address(swapper);
         
         doppiLP =
@@ -146,28 +145,6 @@ contract DoppiCoreTest is Test {
         doppiCore.setDoppiTraderFactory(newFactory);
         assertEq(address(doppiCore.doppiTraderFactory()), address(newFactory));
     }
-
-    function test_deposit_buy_notOpen() public {
-        
-        doppiCore.setPublicOpen(false);
-
-        DualAssetOffer memory buyOffer = impliedVol.getOffer(true, 1, 0);
-        DepositParams memory params = DepositParams({
-            amount: 50_000 ether,
-            strikeZone: 0,
-            strikePrice: buyOffer.strikePrice + 1, // Invalid strike price
-            numDays: 1,
-            apr: buyOffer.apr,
-            expiry: buyOffer.expiry
-        });
-
-        vm.startPrank(user1);
-        usdt.approve(address(doppiCore), params.amount);
-        vm.expectRevert("NotOpen()");
-        doppiCore.deposit_buy(params);
-        vm.stopPrank();
-    }
-
 
     function test_deposit_buy() public {
         _depositUSDT();

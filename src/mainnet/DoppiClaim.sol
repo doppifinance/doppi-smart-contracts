@@ -58,7 +58,7 @@ contract DoppiClaim is Ownable, Pausable, ReentrancyGuard {
         uint16 rate;
     }
 
-    IDoppiToken public immutable doppiToken;
+    IDoppiToken public doppiToken;
     IDoppiPoints public immutable doppiPoints;
     IDoppiReferral public immutable doppiReferral;
 
@@ -75,6 +75,7 @@ contract DoppiClaim is Ownable, Pausable, ReentrancyGuard {
         uint256 mintedAmount
     );
     event TokensPerPointScheduled(uint16 oldRate, uint16 newRate, uint24 effectiveMonthId);
+    event DoppiTokenUpdated(address indexed oldToken, address indexed newToken);
 
     constructor(
         address _doppiToken,
@@ -141,6 +142,13 @@ contract DoppiClaim is Ownable, Pausable, ReentrancyGuard {
     }
 
     // --- Admin functions ---
+    function setDoppiToken(address _doppiToken) external onlyOwner {
+        require(_doppiToken != address(0), "token=0");
+        address old = address(doppiToken);
+        doppiToken = IDoppiToken(_doppiToken);
+        emit DoppiTokenUpdated(old, _doppiToken);
+    }
+
     function setTokensPerPoint(uint16 _tokensPerPoint) external onlyOwner {
         require(_tokensPerPoint > 0, "invalid rate");
 

@@ -73,7 +73,6 @@ contract DoppiCoreExtTest is Test {
         
         configLP = TestParamLib.get_configLP();
         configLP.chainLinkFeed = address(oracle);
-        configLP.quoter = address(swapper);
         configLP.router = address(swapper);
         
         doppiLP =

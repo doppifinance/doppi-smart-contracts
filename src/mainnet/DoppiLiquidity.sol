@@ -6,7 +6,6 @@ import {IERC20, ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {ISwapRouter} from "../Interface/ISwapRouter.sol";
-import {IQuoterV2} from "@uniswap/v3-periphery/contracts/interfaces/IQuoterV2.sol";
 import {IDoppiLiquidity} from "../Interface/IDoppiLiquidity.sol";
 import {IDoppiCore} from "../Interface/IDoppiCore.sol";
 import {IDoppiTraderFactory} from "../Interface/IDoppiTraderFactory.sol";
@@ -190,7 +189,6 @@ contract DoppiLiquidity is ERC20, Ownable, Pausable, IDoppiLiquidity, Automation
         config.decimals = 10 ** config.priceDecimals;
         config.chainLinkFeed = AggregatorV3Interface(_config.chainLinkFeed);
         config.router = _config.router;
-        config.quoter = _config.quoter;
         config.poolFee = _config.poolFee;
         config.slippage = _config.slippage;
         config.liquidityFee = _config.liquidityFee;

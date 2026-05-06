@@ -61,10 +61,9 @@ contract DoppiLiquidityTest is Test {
         doppiLP =
             new DoppiLiquidity("Dual Asset LP", "DALP", IERC20(address(usdt)), IERC20(address(btc)));
 
-        // Set the mock oracle, router, pool, and quoter
+        // Set the mock oracle, router, and pool
         configLP = TestParamLib.get_configLP();
         configLP.chainLinkFeed = address(oracle);
-        configLP.quoter = address(swapper);
         configLP.router = address(swapper);
         doppiLP.setConfig(configLP);
         doppiLP.setDoppiCore(mockDualAsset);

@@ -12,7 +12,6 @@ abstract contract DoppiCoreAdmin is Ownable, Pausable {
     uint256 public minOrderA = 100 ether; 
     uint256 public minOrderB = 0.001 ether; 
     bool public emergencyMode;
-    bool public publicOpen = true;
     address public s_forwarderAddress;
     uint16 public UPKEEPS_PER_CHECK = 20; 
     mapping(address => bool) public opportunityBots;
@@ -66,10 +65,6 @@ abstract contract DoppiCoreAdmin is Ownable, Pausable {
         
         require(forwarderAddress != address(0), "zero forwarder");
         s_forwarderAddress = forwarderAddress;
-    }
-
-    function setPublicOpen(bool _open) external onlyOwner {
-        publicOpen = _open;
     }
 
     function setPause() external onlyOwner {

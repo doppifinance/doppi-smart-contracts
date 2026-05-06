@@ -40,7 +40,7 @@ contract DoppiUpkeepManager is Ownable {
     uint8 public constant TRIGGER_CONDITION = 0; // CONDITION trigger
     uint24 public constant MAX_SLIPPAGE = 500;  // 5%
     uint32 public maxDelay = 10 minutes; 
-    uint32 public DEFAULT_GASLIMIT = 2_500_000;
+    uint32 public DEFAULT_GASLIMIT = 5_000_000;
     uint96 public DEFAULT_AMOUNT = 50 ether;
     uint24 public slippage = 100; //1.0%
     uint24 public doppiBotFee = 2000; // 20% of chainlink fee

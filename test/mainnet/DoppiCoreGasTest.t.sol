@@ -817,7 +817,6 @@ contract DoppiCoreGasTest is Test {
         _configLP = ConfigParam({
 			chainLinkFeed : CHAINLINK_BTC_USD,
 			router : PCSWAP_V3_ROUTER,
-			quoter: PCSWAP_V3_QUOTER,
 			poolFee: 500,  
 			slippage: 2000,
 			liquidityFee: 1000,

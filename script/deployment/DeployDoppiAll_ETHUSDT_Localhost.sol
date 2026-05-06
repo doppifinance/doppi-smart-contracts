@@ -30,24 +30,23 @@ contract DeployDoppiAll is Script {
     uint256 botVolumeMultiplier = 3;
 
 
-    address constant BlackS = address(0xb1571Cc8f8FAB62F9922F86904787d7AEdf64E1F);
-    address constant DoppiRef = address(0xB23482c7144e5EcA26070d3F0012FB031164256C);
-    address constant DoppiCl = address(0x46A82006F340AF01C8B1d49753B479E00F1368Df);
-    address constant DoppiTk = address(0x4A50B7fB2Abe8d49EA09507C4f05EBEC79405CcE);
-    address constant DoppiPts = address(0x4f912dC0a656122bAf396B1a3156f1cBBc3f5256);
+    address constant BlackS = address(0xcFcafF8c8970E6d62219123CD06eB56f41a85aCA); 
+    address constant DoppiRef = address(0xFD8933b24af8fB4382091896d368E22D3aA87945);
+    address constant DoppiCl = address(0xCaB8777D52a6C8247D8d26A1FE5CB3E62557eAb9);
+    address constant DoppiTk = address(0x3A21874df9737a783251307CdBB33214E2A7EB7d);
+    address constant DoppiPts = address(0x42E2A27341a06211C0FEe7eDC2B179209Fc376d1);
     
     address constant LINK = address(0x404460C6A5EdE2D891e8297795264fDe62ADBB75);
     address constant USDT = address(0x55d398326f99059fF775485246999027B3197955);
     address constant BTC = address(0x2170Ed0880ac9A755fd29B2688956BD959F933F8); // ETH
     address constant BNBLINK = address(0xF8A0BF9cF54Bb92F17374d9e9A321E6a111a51bD);
-    // address constant CHAINLINK_BTC_USD = address(0x9ef1B8c0E4F7dc8bF5719Ea496883DC6401d5b2e);
-    address constant CHAINLINK_BTC_USD = address(0xe48a5Fd74d4A5524D76960ef3B52204C0e11fCD1); // SVR
-    // address constant CHAINLINK_LINK_USD = address(0xca236E327F629f9Fc2c30A4E95775EbF0B89fac8);
-    address constant CHAINLINK_LINK_USD = address(0x933458F222023B7E9f0AB2194e30d7ACcfE3603D); // SVR
+    address constant CHAINLINK_BTC_USD = address(0x9ef1B8c0E4F7dc8bF5719Ea496883DC6401d5b2e);
+    // address constant CHAINLINK_BTC_USD = address(0xe48a5Fd74d4A5524D76960ef3B52204C0e11fCD1); // SVR
+    address constant CHAINLINK_LINK_USD = address(0xca236E327F629f9Fc2c30A4E95775EbF0B89fac8);
+    // address constant CHAINLINK_LINK_USD = address(0x933458F222023B7E9f0AB2194e30d7ACcfE3603D); // SVR
 
     address constant LINK_PEGGED_SWAP = address(0x1FCc3B22955e76Ca48bF025f1A6993685975Bb9e);
     address constant PCSWAP_V3_ROUTER = address(0x13f4EA83D0bd40E75C8222255bc855a974568Dd4);
-    address constant PCSWAP_V3_QUOTER = address(0xB048Bbc1Ee6b733FFfCFb9e9CeF7375518e25997);
     address constant PCSWAP_V3Pool = address(0xBe141893E4c6AD9272e8C04BAB7E6a10604501a5);
     address constant CHAINLINK_RegistryConsumer = address(0xDc21E279934fF6721CaDfDD112DAfb3261f09A2C);
     address constant CHAINLINK_Registrar = address(0xf671F60bCC964B309D22424886FF202807381B32);
