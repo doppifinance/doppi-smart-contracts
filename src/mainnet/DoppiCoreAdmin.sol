@@ -6,15 +6,14 @@ import {IDoppiTraderFactory} from "../Interface/IDoppiTraderFactory.sol";
 
 abstract contract DoppiCoreAdmin is Ownable, Pausable {
     
+    uint256 public priceDecimal;
     uint24 public treasury_fee; 
     address public treasury;
     uint256 public minOrderA = 100 ether; 
     uint256 public minOrderB = 0.001 ether; 
     bool public emergencyMode;
-    bool public publicOpen = true;
     address public s_forwarderAddress;
     uint16 public UPKEEPS_PER_CHECK = 20; 
-    uint32 public tolerance = 100;
     mapping(address => bool) public opportunityBots;
     uint16 public aprToleranceBP = 0; 
     uint256 public maxSwap = 100000 ether;
@@ -22,15 +21,16 @@ abstract contract DoppiCoreAdmin is Ownable, Pausable {
     IDoppiTraderFactory public doppiTraderFactory;
     
     // Configuration functions
+    function setPriceDecimal(uint256 _priceDecimal) external onlyOwner {
+        priceDecimal = _priceDecimal;
+    }
     function setMaxSwap(uint256 _maxSwap) external onlyOwner {
         maxSwap = _maxSwap;
     }
 
-    function setTolerance(uint32 _tolerance) external onlyOwner {
-        tolerance = _tolerance;
-    }
-    
     function setTreasury(address _treasury, uint24 _treasury_fee) external onlyOwner {
+        require(_treasury != address(0), "zero treasury");
+        require(_treasury_fee <= 2500, "fee exceeds 25%"); 
         treasury_fee = _treasury_fee;
         treasury = _treasury;
     }
@@ -41,6 +41,7 @@ abstract contract DoppiCoreAdmin is Ownable, Pausable {
     }
 
     function setAPRTolerance(uint16 _toleranceBP) external onlyOwner {
+        require(_toleranceBP <= 1000, "exceeds 10%");
         aprToleranceBP = _toleranceBP;
     }
 
@@ -61,11 +62,9 @@ abstract contract DoppiCoreAdmin is Ownable, Pausable {
     }
 
     function setForwarderAddress(address forwarderAddress) external onlyOwner {
+        
+        require(forwarderAddress != address(0), "zero forwarder");
         s_forwarderAddress = forwarderAddress;
-    }
-
-    function setPublicOpen(bool _open) external onlyOwner {
-        publicOpen = _open;
     }
 
     function setPause() external onlyOwner {
@@ -74,9 +73,5 @@ abstract contract DoppiCoreAdmin is Ownable, Pausable {
 
     function setUnPause() external onlyOwner {
         _unpause();
-    }
-
-    function getMinOrder() external view returns (uint256, uint256) {
-        return (minOrderA, minOrderB);
     }
 }

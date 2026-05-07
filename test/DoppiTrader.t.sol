@@ -81,7 +81,6 @@ contract DoppiTraderTest is Test {
         
         configLP = TestParamLib.get_configLP();
         configLP.chainLinkFeed = address(oracle);
-        configLP.quoter = address(swapper);
         configLP.router = address(swapper);
         doppiLP.setConfig(configLP);
         doppiLP.approveRouter();
@@ -105,8 +104,10 @@ contract DoppiTraderTest is Test {
 
         // Create router and set entry points
         doppiRouter = new DoppiLiquidityRouter(IERC20(usdt), IERC20(btc), doppiLP);
+        doppiRouter.setDoppiCore(address(doppiCore));
         doppiLP.setEntryPoint(address(doppiRouter.entryPointA()), true);
         doppiLP.setEntryPoint(address(doppiRouter.entryPointB()), true);
+        doppiLP.setDoppiLiquidityRouter(address(doppiRouter));
 
         doppiFactory =
             new DoppiTraderFactory(IERC20(usdt), IERC20(btc), address(doppiCore), address(doppiLP), address(doppiRouter));
@@ -289,10 +290,51 @@ contract DoppiTraderTest is Test {
 
     }
 
+    function test_paused() public {
+        
+        _start();
+
+        vm.startPrank(trader);        
+        doppiTrader.setPause();
+        vm.stopPrank();
+
+        // ***** START doppiCore settle buy and sell order
+        vm.warp(block.timestamp + 1 days + 1);
+        (bool upkeepNeeded, bytes memory performData) = doppiCore.checkUpkeep("");
+        assertTrue(upkeepNeeded);
+        
+        vm.prank(mockForwarder);
+        doppiCore.performUpkeep(performData);
+        vm.stopPrank();
+
+        DualAssetPosition[] memory positionssell = doppiCore.get_positions_sell(address(doppiTrader));
+        assertEq(positionssell.length, 0);
+        DualAssetPosition[] memory positions = doppiCore.get_positions_buy(address(doppiTrader));
+        assertEq(positions.length, 0);
+
+        // update implied volatility to trigger checkupkeep in trader bot
+        _updateIV();
+
+        // Retest doppiTrader checkUpkeep when paused, should not perform upkeep
+        (upkeepNeeded, performData) = doppiTrader.checkUpkeep("");
+        assertFalse(upkeepNeeded, "Should not perform upkeep when paused");
+
+        // trade unpause it
+        vm.startPrank(trader);        
+        doppiTrader.setUnPause();
+        vm.stopPrank();
+
+        // checkupkeep should be needed now
+        (upkeepNeeded, performData) = doppiTrader.checkUpkeep("");
+        assertTrue(upkeepNeeded, "Should perform upkeep when unpaused");
+
+
+    }
+
     function test_stop_not_yet_settle() public {
         _start();
         vm.prank(trader);
-        vm.expectRevert("active orders");
+        vm.expectRevert("ActiveOrders()");
         doppiTrader.stop();
         vm.stopPrank();
     }
@@ -343,20 +385,6 @@ contract DoppiTraderTest is Test {
         (bool upkeepNeeded, bytes memory performData) = opportunityBot.checkUpkeep("");
         // console.log(upkeepNeeded, "upkeepNeeded");
         assertTrue(upkeepNeeded);
-        assertGt(performData.length, 0);
-        (
-            uint256[] memory targetPrices, 
-            uint256[] memory targetPricesUnwind, 
-            uint256 totalAmount,
-            uint256 totalAmountUnwind,
-            uint256[] memory targetPricesSell, 
-            uint256[] memory targetPricesSellUnwind, 
-            uint256 totalAmountSell,
-            uint256 totalAmountSellUnwind
-        ) = abi.decode(performData, (uint256[], uint256[], uint256, uint256, uint256[], uint256[], uint256, uint256));
-
-        assertGt(targetPricesSell.length, 0);
-        assertEq(targetPrices.length, 0);
 
         vm.prank(mockForwarder);
         opportunityBot.performUpkeep(performData);
@@ -388,20 +416,7 @@ contract DoppiTraderTest is Test {
         oracle.setPrice(int256(104_000 * 1e8));
         (bool upkeepNeeded, bytes memory performData) = opportunityBot.checkUpkeep("");
         assertTrue(upkeepNeeded);
-        assertGt(performData.length, 0);
-        (
-            uint256[] memory targetPrices, 
-            uint256[] memory targetPricesUnwind, 
-            uint256 totalAmount,
-            uint256 totalAmountUnwind,
-            uint256[] memory targetPricesSell, 
-            uint256[] memory targetPricesSellUnwind, 
-            uint256 totalAmountSell,
-            uint256 totalAmountSellUnwind
-        ) = abi.decode(performData, (uint256[], uint256[], uint256, uint256, uint256[], uint256[], uint256, uint256));
-
-        assertGt(targetPricesSell.length, 0);
-        assertEq(targetPrices.length, 0);
+        
         vm.prank(mockForwarder);
         opportunityBot.performUpkeep(performData);
         
@@ -423,7 +438,7 @@ contract DoppiTraderTest is Test {
     }
 
     function test_createUnwindPosition_onlyDoppiCore() public {
-        vm.expectRevert("only doppicore");
+        vm.expectRevert("OnlyDoppiCore()");
         doppiTrader.createUnwindPosition(100_000 ether, 99_000 * 1e8, true);
     }
 
@@ -527,7 +542,7 @@ contract DoppiTraderTest is Test {
 
     function test_checkUpkeep_buyUndo() public {
         // Create buy unwind position
-        uint256 amount = 10_000 ether;
+        uint256 amount = 0.1 ether;
         uint256 strikePrice = 99_000 * 1e8;
         vm.startPrank(address(doppiCore));
         doppiTrader.createUnwindPosition(amount, strikePrice, true);
@@ -535,8 +550,8 @@ contract DoppiTraderTest is Test {
 
         // Set price to trigger
         oracle.setPrice(int256(103_000 * 1e8));
-        // int256 pnl = doppiTrader.get_buy_unrealized_PNL();
-        // assertEq(pnl, 404040404040404030000);
+        int256 pnl = doppiTrader.get_unrealized_PNL();
+        assertEq(pnl, 400000000000000000000);
         (bool upkeepNeeded, bytes memory performData) = doppiTrader.checkUpkeep("");
         assertTrue(upkeepNeeded);
         assertGt(performData.length, 0);
@@ -618,35 +633,10 @@ contract DoppiTraderTest is Test {
 
     function test_ConfigResetWithMax6Orders() public {
         
-        
         vm.startPrank(trader);
+        vm.expectRevert("exceeds total offers");
         doppiTrader.setMaxOrder(6);
-        // Set multiple configs at once
-        uint8[] memory strikeZones = new uint8[](3);
-        uint24[] memory weights = new uint24[](3);
-        strikeZones[0] = 0;
-        weights[0] = 6000;        
-        strikeZones[1] = 2;
-        weights[1] = 3000;
-        strikeZones[2] = 4;
-        weights[2] = 1000;
-        
-        doppiTrader.setMultipleOrderConfigs(strikeZones, weights);
-        doppiTrader.setUseCustomConfig(true);
-
-        // Reset to default
-        doppiTrader.resetToDefaultConfig();
-        OrderConfig[] memory orderConfig = doppiTrader.getOrderConfigs();
-        assertEq(orderConfig.length, 6);
-        for (uint8 i = 0; i < 6; i++) {
-            if(i==5){
-                assertEq(orderConfig[i].weight, 1670);
-            }else{
-                assertEq(orderConfig[i].weight, 1666);
-            }
-        }
-        assertFalse(doppiTrader.useCustomConfig());
-        vm.stopPrank();
+        vm.stopPrank();        
     }
 
     function test_updateConfig_start_placeOrders() public {
@@ -809,7 +799,7 @@ contract DoppiTraderTest is Test {
             address(doppiTrader),
             false,
             151008832038982792, // amountIn
-            15538355790315212430000 // amountOut
+            15382972232412060305700 // amountOut
         );    
         vm.prank(mockForwarder);
         doppiTrader.performUpkeep(performData);
@@ -830,13 +820,8 @@ contract DoppiTraderTest is Test {
         _start();
 
         vm.startPrank(trader);
-        vm.expectRevert("only for emergency");
+        vm.expectRevert("NotEmergency()");
         doppiTrader.emergencyWithdraw();
-        vm.stopPrank();
-        
-        vm.startPrank(trader);
-        vm.expectRevert("only for emergency in LP");
-        doppiTrader.emergencyWithdrawLP();
         vm.stopPrank();
         
         // vm.startPrank(owner);
@@ -846,9 +831,20 @@ contract DoppiTraderTest is Test {
         doppiRouter.setEmergencyMode(true);
         // vm.stopPrank();
         
+
+        vm.startPrank(trader);
+        vm.expectRevert("ActiveOrders()");
+        doppiTrader.emergencyWithdraw();
+        vm.stopPrank();
+
+        // let admin manually trigger emergency settlement in doppiCore to settle all positions
+        vm.startPrank(doppiCore.owner());
+        doppiCore.emergencySettlement(1);
+        vm.stopPrank();
+
         vm.startPrank(trader);
         doppiTrader.emergencyWithdraw();
-        doppiTrader.emergencyWithdrawLP();
+        // doppiTrader.emergencyWithdrawLP();
         vm.stopPrank();
 
         uint256 end_usdtbal = usdt.balanceOf(trader);

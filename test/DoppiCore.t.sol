@@ -43,10 +43,9 @@ contract DoppiCoreTest is Test {
 
     uint256 constant INITIAL_PRICE = 100_000 * 1e8;
 
-    event Deposited(address indexed trader, uint64 positionId, address asset, uint256 amount, uint256 interest, uint256 strikePrice, uint32 apr, uint32 numDays);
-    event Settled(address indexed trader, uint64 positionId, bool striked, bool isProfit, uint256 profitLoss, uint256 payout, uint256 interest, address profitToken, address payoutToken, address interestToken);
-    event HedgeSettled(address indexed trader, uint64 positionId, bool isProfit, uint256 profitLoss, address profitToken);
-
+    event Deposited(address indexed trader, uint64 positionId, address asset, uint256 amount, uint256 interest, uint256 strikePrice, uint32 apr, uint8 numDays);
+    event Settled(address indexed trader, uint64 positionId, bool striked, uint256 strikePrice, uint256 marketPrice, bool isProfit, uint256 profitLoss, uint256 payout, uint256 interest, address payoutToken, address interestToken);
+    
     function setUp() public {
         vm.warp(1735689600);
         int256 a_buy = 0.0000000807142857142833 * 1e27;
@@ -73,7 +72,6 @@ contract DoppiCoreTest is Test {
         
         configLP = TestParamLib.get_configLP();
         configLP.chainLinkFeed = address(oracle);
-        configLP.quoter = address(swapper);
         configLP.router = address(swapper);
         
         doppiLP =
@@ -148,28 +146,6 @@ contract DoppiCoreTest is Test {
         assertEq(address(doppiCore.doppiTraderFactory()), address(newFactory));
     }
 
-    function test_deposit_buy_notOpen() public {
-        
-        doppiCore.setPublicOpen(false);
-
-        DualAssetOffer memory buyOffer = impliedVol.getOffer(true, 1, 0);
-        DepositParams memory params = DepositParams({
-            amount: 50_000 ether,
-            strikeZone: 0,
-            strikePrice: buyOffer.strikePrice + 1, // Invalid strike price
-            numDays: 1,
-            apr: buyOffer.apr,
-            expiry: buyOffer.expiry
-        });
-
-        vm.startPrank(user1);
-        usdt.approve(address(doppiCore), params.amount);
-        vm.expectRevert("not open");
-        doppiCore.deposit_buy(params);
-        vm.stopPrank();
-    }
-
-
     function test_deposit_buy() public {
         _depositUSDT();
         assertEq(doppiCore.getBuyPositionCount(user1), 1);
@@ -224,15 +200,15 @@ contract DoppiCoreTest is Test {
         _depositUSDT();
 
         // Should not be ready yet
-        (uint64[] memory readyPositions, SettleAccumulate memory settleAccu) = doppiCore.getReadyAllPositions();
-        assertEq(readyPositions.length, 0);
+        uint64 endPosId = doppiCore.getReadyAllPositions(1);
+        assertEq(endPosId, 0);
 
         // Fast forward time
         vm.warp(block.timestamp + 1 days + 1);
 
         // Should be ready now
-        (readyPositions, settleAccu) = doppiCore.getReadyAllPositions();
-        assertEq(readyPositions.length, 1);
+        endPosId = doppiCore.getReadyAllPositions(1);
+        assertEq(endPosId, doppiCore.nextProcessId(1));
     }
 
     function test_getReadySellPositions() public {
@@ -240,15 +216,16 @@ contract DoppiCoreTest is Test {
         _depositBTC();
 
         // Should not be ready yet
-        (uint64[] memory readyPositions, SettleAccumulate memory settleAccu) = doppiCore.getReadyAllPositions();
-        assertEq(readyPositions.length, 0);
+        uint64 endPosId = doppiCore.getReadyAllPositions(1);
+
+        assertEq(endPosId, 0);
 
         // Fast forward time
         vm.warp(block.timestamp + 1 days + 1);
 
         // Should be ready now
-        (readyPositions, settleAccu) = doppiCore.getReadyAllPositions();
-        assertEq(readyPositions.length, 1);
+        endPosId = doppiCore.getReadyAllPositions(1);
+        assertEq(endPosId, doppiCore.nextProcessId(1));
     }
 
     function test_settle_buys_priceAboveStrike() public {
@@ -259,11 +236,10 @@ contract DoppiCoreTest is Test {
         vm.warp(block.timestamp + 1 days + 1);
         oracle.setPrice(int256(INITIAL_PRICE)); // Price stays same, above strike
 
-        (uint64[] memory readyPositions, SettleAccumulate memory settleAccu) = doppiCore.getReadyAllPositions();
         uint256 initialBalance = usdt.balanceOf(user1);
 
         vm.startPrank(owner);
-        doppiCore.settleOrders(readyPositions, settleAccu);
+        doppiCore.settleOrders(1);
 
         // Should receive original amount + interest
         assertGt(usdt.balanceOf(user1), initialBalance);
@@ -278,13 +254,11 @@ contract DoppiCoreTest is Test {
         vm.warp(block.timestamp + 1 days + 1);
         oracle.setPrice(int256(buyOffer.strikePrice - 1000 * 1e8));
 
-        (uint64[] memory readyPositions, SettleAccumulate memory settleAccu) = doppiCore.getReadyAllPositions();
-        console.log(readyPositions.length, settleAccu.totalInterestA);
         uint256 initialBtcBalance = btc.balanceOf(user1);
         uint256 initialUsdtBalance = usdt.balanceOf(user1);
 
         vm.startPrank(owner);
-        doppiCore.settleOrders(readyPositions, settleAccu);
+        doppiCore.settleOrders(1);
 
         // Should receive BTC (converted at strike price) + interest in USDT
         assertGt(btc.balanceOf(user1), initialBtcBalance);
@@ -300,11 +274,10 @@ contract DoppiCoreTest is Test {
         vm.warp(block.timestamp + 1 days + 1);
         oracle.setPrice(int256(INITIAL_PRICE)); // Price stays same, below strike
 
-        (uint64[] memory readyPositions, SettleAccumulate memory settleAccu) = doppiCore.getReadyAllPositions();
         uint256 initialBalance = btc.balanceOf(user1);
 
         vm.startPrank(owner);
-        doppiCore.settleOrders(readyPositions, settleAccu);
+        doppiCore.settleOrders(1);
 
         // Should receive original amount + interest
         assertGt(btc.balanceOf(user1), initialBalance);
@@ -319,12 +292,11 @@ contract DoppiCoreTest is Test {
         vm.warp(block.timestamp + 1 days + 1);
         oracle.setPrice(int256(sellOffer.strikePrice + 1000 * 1e8));
 
-        (uint64[] memory readyPositions, SettleAccumulate memory settleAccu) = doppiCore.getReadyAllPositions();
         uint256 initialUsdtBalance = usdt.balanceOf(user1);
         uint256 initialBtcBalance = btc.balanceOf(user1);
 
         vm.startPrank(owner);
-        doppiCore.settleOrders(readyPositions, settleAccu);
+        doppiCore.settleOrders(1);
 
         // Should receive USDT (converted at strike price) + interest in BTC
         assertGt(usdt.balanceOf(user1), initialUsdtBalance);
@@ -542,11 +514,8 @@ contract DoppiCoreTest is Test {
         vm.warp(block.timestamp + 1 days + 1);
         oracle.setPrice(int256(INITIAL_PRICE)); // Price stays same, above strike
 
-        (uint64[] memory readyPositions, SettleAccumulate memory settleAccu) = doppiCore.getReadyAllPositions();
-        // uint256 initialBalance = usdt.balanceOf(user1);
-
         vm.startPrank(owner);
-        doppiCore.settleOrders(readyPositions, settleAccu);
+        doppiCore.settleOrders(1);
         assertEq(usdt.balanceOf(doppiCore.treasury()), 43012328767123287671); // 50000 * 313.99% / 365 * 10%
     }
 
@@ -558,8 +527,6 @@ contract DoppiCoreTest is Test {
         vm.warp(block.timestamp + 1 days + 1);
         oracle.setPrice(int256(buyOffer.strikePrice - 1000 * 1e8));
         
-        (uint64[] memory readyPositions, SettleAccumulate memory settleAccu) = doppiCore.getReadyAllPositions();
-        
         uint256 userUSDTbefore = usdt.balanceOf(user1);
         uint256 userBTCbefore = btc.balanceOf(user1);
         uint256 tresuryUSDTbefore = usdt.balanceOf(doppiCore.treasury());
@@ -569,7 +536,7 @@ contract DoppiCoreTest is Test {
         
         // settlement in doppiCore
         vm.startPrank(owner);
-        doppiCore.settleOrders(readyPositions, settleAccu);
+        doppiCore.settleOrders(1);
 
         
         uint256 userUSDTafter = usdt.balanceOf(user1);
@@ -618,8 +585,6 @@ contract DoppiCoreTest is Test {
         vm.warp(block.timestamp + 1 days + 1);
         oracle.setPrice(int256(sellOffer.strikePrice + 1000 * 1e8));
 
-        (uint64[] memory readyPositions, SettleAccumulate memory settleAccu) = doppiCore.getReadyAllPositions();
-        
         uint256 userUSDTbefore = usdt.balanceOf(user1);
         uint256 userBTCbefore = btc.balanceOf(user1);
         uint256 tresuryUSDTbefore = usdt.balanceOf(doppiCore.treasury());
@@ -629,7 +594,7 @@ contract DoppiCoreTest is Test {
         
         // settlement in doppiCore
         vm.startPrank(owner);
-        doppiCore.settleOrders(readyPositions, settleAccu);
+        doppiCore.settleOrders(1);
 
         
         uint256 userUSDTafter = usdt.balanceOf(user1);

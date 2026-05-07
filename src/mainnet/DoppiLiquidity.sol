@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: UNLICENSED
+// SPDX-License-Identifier: MIT
 pragma solidity ^0.8.26;
 
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
@@ -6,7 +6,6 @@ import {IERC20, ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {ISwapRouter} from "../Interface/ISwapRouter.sol";
-import {IQuoterV2} from "@uniswap/v3-periphery/contracts/interfaces/IQuoterV2.sol";
 import {IDoppiLiquidity} from "../Interface/IDoppiLiquidity.sol";
 import {IDoppiCore} from "../Interface/IDoppiCore.sol";
 import {IDoppiTraderFactory} from "../Interface/IDoppiTraderFactory.sol";
@@ -16,12 +15,17 @@ import {AutomationCompatibleInterface} from "../Interface/AutomationCompatibleIn
 import {Pausable} from "@openzeppelin/contracts/utils/Pausable.sol";
 import {AggregatorV3Interface} from "../Interface/AggregatorV3Interface.sol";
 import "./DoppiLiquidityTypes.sol";
-import "./DoppiCoreTypes.sol";
 // import "forge-std/console.sol";
 
 contract DoppiLiquidity is ERC20, Ownable, Pausable, IDoppiLiquidity, AutomationCompatibleInterface, ReentrancyGuard {
     using SafeERC20 for IERC20;
     using Math for uint256;
+
+    struct StrikeNode {
+        uint256 prev;
+        uint256 next;
+        bool active;
+    }
 
     Config public config;
     uint16 public constant BASIS_POINTS = 10000;
@@ -29,15 +33,23 @@ contract DoppiLiquidity is ERC20, Ownable, Pausable, IDoppiLiquidity, Automation
     IERC20 public immutable assetB;
     address public doppiCore;
     address public doppiTraderFactory;
+    address public doppiLiquidityRouter;
     mapping(address => bool) public validEntryPoints;
     address public s_forwarderAddress;
     mapping(uint256 => uint256) public amountToBuy;
     mapping(uint256 => uint256) public amountToSell;
-    uint256 public upperBound;
-    uint256 public lowerBound;
+    mapping(uint256 => StrikeNode) internal buyStrikeNodes;
+    mapping(uint256 => StrikeNode) internal sellStrikeNodes;
+    uint256 internal buyHead;
+    uint256 internal buyTail;
+    uint256 internal sellHead;
+    uint256 internal sellTail;
+    uint256 internal activeBuyStrikeCount;
+    uint256 internal activeSellStrikeCount;
+    
 
 
-    event Swapped(address indexed trader, address assetIn, address assetOut, uint256 amountIn, uint256 amountOut, uint256 price, bool isDEX);
+    event Swapped(address indexed trader, address assetIn, address assetOut, uint256 amountIn, uint256 amountOut, uint256 price);
     event UnwindPerformed(bool isNetBuy, uint256 totalAmount, uint256 totalAmountOut);
     
     modifier onlyDoppiCore() {
@@ -109,20 +121,23 @@ contract DoppiLiquidity is ERC20, Ownable, Pausable, IDoppiLiquidity, Automation
 
     function assetRatio() external view returns (uint256 ratioA, uint256 ratioB) {
         uint256 price = DALiquidityLib.getPriceWithFallback(config.chainLinkFeed, config.v3Pool, config.twapDuration, config.maxDelay);
+        if (price == 0) return (0, 0);
         uint256 assetBInAValue = assetB.balanceOf(address(this)) * price / config.decimals;
         uint256 assetAvalue = assetA.balanceOf(address(this));
         uint256 total = assetBInAValue + assetAvalue;
-        ratioA = total > 0 ? assetAvalue * 1e18 / total : 0;
-        ratioB = total > 0 ? 1e18 - ratioA : 0;
+        ratioA = total > 0 ? assetAvalue * 1e27 / total : 0;
+        ratioB = total > 0 ? 1e27 - ratioA : 0;
     }
 
     function totalAssetsInAssetA() public view override returns (uint256) {
         uint256 price = DALiquidityLib.getPriceWithFallback(config.chainLinkFeed, config.v3Pool, config.twapDuration, config.maxDelay);
+        if (price == 0) return 0;
         return assetA.balanceOf(address(this)) + assetB.balanceOf(address(this)) * price / config.decimals;
     }
 
     function totalAssetsInAssetB() public view override returns (uint256) {
         uint256 price = DALiquidityLib.getPriceWithFallback(config.chainLinkFeed, config.v3Pool, config.twapDuration, config.maxDelay);
+        if (price == 0) return 0;
         return assetB.balanceOf(address(this)) + assetA.balanceOf(address(this)) * config.decimals / price;
     }
 
@@ -150,7 +165,12 @@ contract DoppiLiquidity is ERC20, Ownable, Pausable, IDoppiLiquidity, Automation
     }
 
     function setForwarderAddress(address forwarderAddress) external onlyOwner {
+        require(forwarderAddress != address(0), "zero forwarder");
         s_forwarderAddress = forwarderAddress;
+    }
+
+    function setDoppiLiquidityRouter(address _router) external onlyOwner {
+        doppiLiquidityRouter = _router;
     }
 
     function setDoppiCore(address _doppiCore) external onlyOwner {
@@ -161,12 +181,14 @@ contract DoppiLiquidity is ERC20, Ownable, Pausable, IDoppiLiquidity, Automation
 
         require(_config.maxDepositPercentage <= 50000, "Max deposit too high"); // Max 5x of LP capacity
         require(_config.liquidityFee <= 5000, "liquidity fee too high"); // Max 0.5%
+        require(_config.priceDecimals > 0, "Invalid price decimals");
+        require(_config.priceGap > 0, "Invalid price gap");
+        require(_config.unwindGapMultiplier > 0, "Invalid unwind multiplier");
         
         config.priceDecimals = _config.priceDecimals;
         config.decimals = 10 ** config.priceDecimals;
         config.chainLinkFeed = AggregatorV3Interface(_config.chainLinkFeed);
         config.router = _config.router;
-        config.quoter = _config.quoter;
         config.poolFee = _config.poolFee;
         config.slippage = _config.slippage;
         config.liquidityFee = _config.liquidityFee;
@@ -176,6 +198,7 @@ contract DoppiLiquidity is ERC20, Ownable, Pausable, IDoppiLiquidity, Automation
         config.maxDelay = _config.maxDelay;
         config.maxSwap = _config.maxSwap;
         config.priceGap = _config.priceGap;
+        config.unwindGapMultiplier = _config.unwindGapMultiplier;
     }
 
     function setDoppiTraderFactory(address _traderFactory) external onlyOwner {
@@ -184,9 +207,12 @@ contract DoppiLiquidity is ERC20, Ownable, Pausable, IDoppiLiquidity, Automation
 
     function setEntryPoint(address entryPoint, bool isValid) external onlyOwner {
         validEntryPoints[entryPoint] = isValid;
-         if (isValid) {
+        if (isValid) {
             assetA.approve(entryPoint, type(uint256).max);
             assetB.approve(entryPoint, type(uint256).max);
+        } else {
+            assetA.approve(entryPoint, 0);  // revoke stale approval
+            assetB.approve(entryPoint, 0);
         }
     }
 
@@ -215,6 +241,22 @@ contract DoppiLiquidity is ERC20, Ownable, Pausable, IDoppiLiquidity, Automation
         _spendAllowance(owner, spender, amount);
     }
 
+    function getLowerUpperBound() public view returns (uint256 lower, uint256 upper) {
+        return _getLowerUpperBound();
+    }
+
+    function getBalances(address user) public view returns (uint256 assetABal, uint256 assetBBal) {
+        
+        (uint256 ratioA, uint256 ratioB) = this.assetRatio();  
+        uint256 totalAssetA = totalAssetsInAssetA() * ratioA / 1e27;
+        uint256 totalAssetB = totalAssetsInAssetB() * ratioB / 1e27;
+        uint256 userShare = balanceOf(user);
+        uint256 totalShares = totalSupply();
+        assetABal = totalShares > 0 ? (totalAssetA * userShare) / totalShares : 0;
+        assetBBal = totalShares > 0 ? (totalAssetB * userShare) / totalShares : 0;
+
+    }
+
     function checkUpkeep(bytes calldata)
         external
         view
@@ -224,14 +266,14 @@ contract DoppiLiquidity is ERC20, Ownable, Pausable, IDoppiLiquidity, Automation
         if(paused()) return (false, bytes(""));
 
         uint256 currentPrice = DALiquidityLib.getPriceWithFallback(config.chainLinkFeed, config.v3Pool, config.twapDuration, config.maxDelay);
+        if(currentPrice == 0) return (false, bytes(""));
+
         (uint256[] memory buyindexes, uint256 totalBuyAmount) = _getAccumulatedPrices(currentPrice, true);
         (uint256[] memory sellindexes, uint256 totalSellAmount) = _getAccumulatedPrices(currentPrice, false);
         
         if (totalBuyAmount > 0 || totalSellAmount > 0) {
             (bool isNetBuy, uint256 netAmount) = _netoutBuySell(totalSellAmount, totalBuyAmount, currentPrice);
-            if(netAmount > 0){
-                return (true, abi.encode(isNetBuy, buyindexes, sellindexes, netAmount, totalBuyAmount, totalSellAmount));
-            }
+            return (true, abi.encode(isNetBuy, buyindexes, sellindexes, netAmount, totalBuyAmount, totalSellAmount));
         }
 
         return (false, bytes(""));
@@ -243,63 +285,31 @@ contract DoppiLiquidity is ERC20, Ownable, Pausable, IDoppiLiquidity, Automation
         (bool isNetBuy, uint256[] memory buyindexes, uint256[] memory sellindexes, uint256 totalAmount, uint256 totalBuyAmount, uint256 totalSellAmount) = 
             abi.decode(performData, (bool, uint256[], uint256[], uint256, uint256, uint256));
         
-        uint256 totalAmountOut;
-        uint256 currentPrice = DALiquidityLib.getPriceWithFallback(config.chainLinkFeed, config.v3Pool, config.twapDuration, config.maxDelay);
-        if (isNetBuy) {
-            totalAmountOut = totalAmount * config.decimals / currentPrice;
-        } else {
-            totalAmountOut = totalAmount * currentPrice / config.decimals;
-        }        
-        uint256 out = _swapPancake(totalAmount, totalAmountOut, isNetBuy);
+        uint256 bal = isNetBuy ? assetA.balanceOf(address(this)) : assetB.balanceOf(address(this));
+        if(bal >= totalAmount && totalAmount > 0){
+            uint256 totalAmountOut;
+            uint256 currentPrice = DALiquidityLib.getPriceWithFallback(config.chainLinkFeed, config.v3Pool, config.twapDuration, config.maxDelay);
+            if(currentPrice == 0) return;
+            
+            if (isNetBuy) {
+                totalAmountOut = totalAmount * config.decimals / currentPrice;
+            } else {
+                totalAmountOut = totalAmount * currentPrice / config.decimals;
+            }        
+            uint256 out = _swapPancake(totalAmount, totalAmountOut, isNetBuy);
+            emit UnwindPerformed(isNetBuy, totalAmount, out);
+        }
         _clearOrders(buyindexes, true, totalBuyAmount);
         _clearOrders(sellindexes, false, totalSellAmount);
-        _updateBound();
-        emit UnwindPerformed(isNetBuy, totalAmount, out);
     }
+
+    function cleanUpUnwind(uint256 toClearAmountBuy, uint256 toClearAmountSell) external onlyLiquidityRouterOrOwner {
+        _getRemovingPrices(toClearAmountBuy, toClearAmountSell);
+    }
+        
 
     function getUnwindInfo(bool isBuy, uint256 strikePrice) external view returns (uint256) {
         return isBuy ? amountToBuy[strikePrice] : amountToSell[strikePrice];
-    }
-
-    function _updateBound() internal {
-        uint256 gap = config.priceGap * config.decimals;
-
-        // ------------------ UPDATE LOWER BOUND ------------------
-        uint256 i = lowerBound;
-        while (true) {
-            if (amountToBuy[i] != 0 || amountToSell[i] != 0) {
-                // Found first valid strike
-                lowerBound = i;
-                break;
-            }
-            // move upward
-            i += gap;
-
-            // no valid strike left
-            if (i > upperBound) {
-                lowerBound = 0;
-                upperBound = 0;
-                return;
-            }
-        }
-
-        // ------------------ UPDATE UPPER BOUND ------------------
-        i = upperBound;
-        while (true) {
-            if (amountToBuy[i] != 0 || amountToSell[i] != 0) {
-                upperBound = i;
-                break;
-            }
-            // guard underflow
-            if (i < gap) break;
-            i -= gap;
-
-            if (i < lowerBound) {
-                lowerBound = 0;
-                upperBound = 0;
-                return;
-            }
-        }
     }
 
     function _netoutBuySell(uint256 _totalSellAmount, uint256 _totalBuyAmount, uint256 currentPrice) 
@@ -311,29 +321,67 @@ contract DoppiLiquidity is ERC20, Ownable, Pausable, IDoppiLiquidity, Automation
         if(_totalSellAmount > totalAmountOutBuy){
             isNetBuy = false;
             netSellOrBuy = _totalSellAmount - totalAmountOutBuy;
+            // check if balance available asset B
         } else if(_totalBuyAmount > totalAmountOutSell){
             isNetBuy = true;
             netSellOrBuy = _totalBuyAmount - totalAmountOutSell;
+            // check if balance available asset A
         }
     }
 
     function _clearOrders(uint256[] memory prices, bool isBuy, uint256 totalUnwind) internal {
         uint256 length = prices.length;
         if (length == 0) return;
-        
-        mapping(uint256 => uint256) storage amountMap = isBuy ? amountToBuy : amountToSell; 
+
+        mapping(uint256 => uint256) storage amountMap = isBuy ? amountToBuy : amountToSell;
         uint256 reduced = totalUnwind;
-        
-        for (uint256 i = length; i > 0; ) {
-            uint256 index = i - 1;
-            uint256 unwind = amountMap[prices[index]];
-            if(reduced >= unwind){
-                delete amountMap[prices[index]];
-                reduced -= unwind;
-            }else{
-                amountMap[prices[index]] = unwind - reduced;
-            }
+
+        for (uint256 i = length; i > 0 && reduced > 0; ) {
+            reduced = _deductFromBucket(amountMap, prices[i - 1], reduced);
+            _syncStrikeState(prices[i - 1], isBuy);
             unchecked { --i; }
+        }
+    }
+
+    function _getRemovingPrices(
+        uint256 removeAmountBuy,
+        uint256 removeAmountSell
+    ) internal {
+        if (removeAmountBuy > 0) {
+            uint256 price = buyTail;
+            while (price != 0 && removeAmountBuy > 0) {
+                uint256 prevStrike = buyStrikeNodes[price].prev;
+                removeAmountBuy = _deductFromBucket(amountToBuy, price, removeAmountBuy);
+                _syncStrikeState(price, true);
+                price = prevStrike;
+            }
+        }
+
+        if (removeAmountSell > 0) {
+            uint256 price = sellHead;
+            while (price != 0 && removeAmountSell > 0) {
+                uint256 nextStrike = sellStrikeNodes[price].next;
+                removeAmountSell = _deductFromBucket(amountToSell, price, removeAmountSell);
+                _syncStrikeState(price, false);
+                price = nextStrike;
+            }
+        }
+    }
+
+    /// @dev Shared inner helper: deducts `removeAmount` from one price-slot in `amountMap`.
+    /// Deletes the slot when fully consumed. Returns the remaining amount to deduct.
+    function _deductFromBucket(
+        mapping(uint256 => uint256) storage amountMap,
+        uint256 price,
+        uint256 removeAmount
+    ) private returns (uint256 remaining) {
+        uint256 slot = amountMap[price];
+        if (removeAmount >= slot) {
+            delete amountMap[price];
+            remaining = removeAmount - slot;
+        } else {
+            amountMap[price] = slot - removeAmount;
+            remaining = 0;
         }
     }
 
@@ -345,37 +393,43 @@ contract DoppiLiquidity is ERC20, Ownable, Pausable, IDoppiLiquidity, Automation
         uint256 totalAmount
     ) {
         mapping(uint256 => uint256) storage amountMap = isBuy ? amountToBuy : amountToSell;
+        mapping(uint256 => StrikeNode) storage strikeNodes = isBuy ? buyStrikeNodes : sellStrikeNodes;
         
-        uint256 round = _getLoopRound(currentPrice, isBuy);
+        uint256 round = isBuy ? activeBuyStrikeCount : activeSellStrikeCount;
+        if(round == 0) {
+            targetPrices = new uint256[](0);
+            return (targetPrices, 0);
+        }
         uint256[] memory tempTargetPrice = new uint256[](round);
         uint256 count = 0;
         uint256 maxSwapInLocal = isBuy ? config.maxSwap : config.maxSwap * config.decimals / currentPrice;
-        for (uint256 i = round; i > 0; ) {
-
-            uint256 price = _getUnwindTargetPrice(currentPrice, uint8(i), !isBuy);
-            uint256 amount = amountMap[price];
+        
+        // bool ascending = isBuy != unwind;
+        uint256 strikeprice = isBuy ? buyTail : sellHead; 
+        
+        while (strikeprice != 0) {
+            uint256 nextStrike = isBuy ? strikeNodes[strikeprice].prev : strikeNodes[strikeprice].next;
+            
+            uint256 amount = amountMap[strikeprice];
             if(totalAmount >= maxSwapInLocal){
                 break;
             }
-            
             uint256 totalAmountPost = totalAmount + amount;
             uint256 unwindAmount = totalAmountPost > maxSwapInLocal ? amount - (totalAmountPost - maxSwapInLocal) : amount;
             
             bool condition = isBuy 
-                ? (amount > 0 && currentPrice < price)
-                : (amount > 0 && currentPrice > price);
+                ? (amount > 0 && currentPrice < strikeprice)
+                : (amount > 0 && currentPrice > strikeprice);
             
             if (condition && (totalAmount + unwindAmount) <= maxSwapInLocal) {
-                totalAmount += unwindAmount;                
-                tempTargetPrice[count] = price;
+                totalAmount += unwindAmount;  
+                tempTargetPrice[count] = strikeprice;
                 count++;
             }
-            unchecked { --i; }
+            strikeprice = nextStrike;
         }
-
         uint256 arrCount = count < round ? count : round;
         targetPrices = new uint256[](arrCount);
-        
         for (uint256 j = 0; j < arrCount; ) {
             targetPrices[j] = tempTargetPrice[arrCount - 1 - j];
             unchecked { ++j; }
@@ -408,7 +462,7 @@ contract DoppiLiquidity is ERC20, Ownable, Pausable, IDoppiLiquidity, Automation
             fee: config.poolFee,
             recipient: _recipient,
             amountIn: _amount,
-            amountOutMinimum: amountOutQuote * (10000 - config.slippage) / 10000,
+            amountOutMinimum: amountOutQuote.mulDiv(10000 - config.slippage, 10000),
             sqrtPriceLimitX96: 0
         });
         return ISwapRouter(config.router).exactInputSingle(params);
@@ -423,9 +477,7 @@ contract DoppiLiquidity is ERC20, Ownable, Pausable, IDoppiLiquidity, Automation
     ) internal returns (uint256) {
         
         require(_amountIn > _fee, "Insufficient amount after fee");
-        uint256 price = DALiquidityLib.getPriceWithFallback(config.chainLinkFeed, config.v3Pool, config.twapDuration, config.maxDelay);
-        require(_price == price, "Price mismatch");
-
+        
         IERC20 assetIn = _isBuy ? assetA : assetB;
         IERC20 assetOut = _isBuy ? assetB : assetA;
 
@@ -435,30 +487,25 @@ contract DoppiLiquidity is ERC20, Ownable, Pausable, IDoppiLiquidity, Automation
         uint256 amountOut = _isBuy
             ? (amountInAfterfee * config.decimals) / _price
             : (amountInAfterfee * _price) / config.decimals;
-
-        uint256 balance = assetOut.balanceOf(address(this));
-        bool isDEX = false;
-        uint256 tradedPrice = _price;
-        if(amountOut > balance){
-            isDEX = true;
-            
-            if(exact){
-                uint256 actualAmountIn = _swapExactOutputV3(amountOut, address(assetIn), address(assetOut), msg.sender, _amountIn); 
+        
+        uint256 tradedPrice;    
+        if(exact){
+            uint256 actualAmountIn = _swapExactOutputV3(amountOut, address(assetIn), address(assetOut), msg.sender, _amountIn); 
+            if(amountOut > 0){
                 tradedPrice = _isBuy
                     ? (actualAmountIn * config.decimals) / amountOut 
                     : (amountOut * config.decimals) / actualAmountIn;
-            } else {
-                amountOut = _swapExactInputV3(amountInAfterfee, address(assetIn), address(assetOut), msg.sender, amountOut);
+            }
+        } else {
+            amountOut = _swapExactInputV3(amountInAfterfee, address(assetIn), address(assetOut), msg.sender, amountOut);
+            if(amountOut > 0){
                 tradedPrice = _isBuy
                     ? (amountInAfterfee * config.decimals) / amountOut 
                     : (amountOut * config.decimals) / amountInAfterfee;
             }
-        } else {
-            assetOut.safeTransfer(msg.sender, amountOut);
-            _updateUnwindTarget(_amountIn, _price, _isBuy);
+            
         }
-
-        emit Swapped(msg.sender, address(assetIn), address(assetOut), _amountIn, amountOut, tradedPrice, isDEX);
+        emit Swapped(msg.sender, address(assetIn), address(assetOut), _amountIn, amountOut, tradedPrice);
         return amountOut;
     }
 
@@ -472,42 +519,162 @@ contract DoppiLiquidity is ERC20, Ownable, Pausable, IDoppiLiquidity, Automation
 
     function _getUnwindTargetPrice(uint256 _price, uint8 _zone, bool _isBuy) internal view returns (uint256) {
         uint256 priceGapWithDecimals = config.priceGap * config.decimals;
+        require(priceGapWithDecimals > 0, "Invalid price gap");
         _price = (_price / priceGapWithDecimals) * priceGapWithDecimals;
         return _isBuy ? _price - (priceGapWithDecimals * (_zone - 1)) : _price + (priceGapWithDecimals * _zone);
     }
 
     function _updateUnwindTarget(uint256 _amountIn, uint256 _price, bool _isBuy) internal {
-        uint256 targetPrice = _getUnwindTargetPrice(_price, 1, _isBuy);
-
-        if(targetPrice > upperBound){
-            upperBound = targetPrice;
-        }else if (targetPrice < lowerBound || lowerBound == 0){
-            lowerBound = targetPrice;
-        }
+        
+        uint256 targetPrice = _getUnwindTargetPrice(_price, config.unwindGapMultiplier, _isBuy);
         if (_isBuy) {
             amountToBuy[targetPrice] += _amountIn;
         } else {
             amountToSell[targetPrice] += _amountIn;
         }
-    }
-
-    function _getLoopRound(uint256 _price, bool _isBuy) internal view returns (uint256 round) {
-
-        if(lowerBound == 0 && upperBound == 0) return 1;
-        uint256 firstPrice = _getUnwindTargetPrice(_price, 1, !_isBuy);
-        uint256 priceGapWithDecimals = config.priceGap * config.decimals;
+        _syncStrikeState(targetPrice, _isBuy);
         
-        uint256 diff;
-        if(_isBuy){
-            diff = upperBound > firstPrice ? upperBound - firstPrice : 0;
-        }else{
-            diff = firstPrice > lowerBound ? firstPrice - lowerBound : 0;
-        }
-        round = diff / priceGapWithDecimals + 1;
     }
+
+    function _syncStrikeState(uint256 strikePrice, bool isBuy) internal {
+        
+        uint256 unwindAmount = isBuy ? amountToBuy[strikePrice] : amountToSell[strikePrice];
+        bool shouldBeActive = unwindAmount > 0;
+        if (isBuy) {
+            if (shouldBeActive) {
+                _activateStrikeNode(buyStrikeNodes, strikePrice, true);
+            } else {
+                _deactivateStrikeNode(buyStrikeNodes, strikePrice, true);
+            }
+        } else {
+            if (shouldBeActive) {
+                _activateStrikeNode(sellStrikeNodes, strikePrice, false);
+            } else {
+                _deactivateStrikeNode(sellStrikeNodes, strikePrice, false);
+            }
+        }
+    }
+
+    function _activateStrikeNode(
+        mapping(uint256 => StrikeNode) storage strikeNodes,
+        uint256 strikePrice,
+        bool isBuySide
+    ) internal {
+        StrikeNode storage node = strikeNodes[strikePrice];
+        if (node.active) return;
+
+        node.active = true;
+        if (isBuySide) {
+            unchecked { ++activeBuyStrikeCount; }
+        } else {
+            unchecked { ++activeSellStrikeCount; }
+        }
+
+        uint256 head = isBuySide ? buyHead : sellHead;
+        uint256 tail = isBuySide ? buyTail : sellTail;
+
+        if (head == 0) {
+            if (isBuySide) {
+                buyHead = strikePrice;
+                buyTail = strikePrice;
+            } else {
+                sellHead = strikePrice;
+                sellTail = strikePrice;
+            }
+            return;
+        }
+
+        if (strikePrice <= head) {
+            node.next = head;
+            strikeNodes[head].prev = strikePrice;
+            if (isBuySide) buyHead = strikePrice;
+            else sellHead = strikePrice;
+            return;
+        }
+
+        if (strikePrice >= tail) {
+            node.prev = tail;
+            strikeNodes[tail].next = strikePrice;
+            if (isBuySide) buyTail = strikePrice;
+            else sellTail = strikePrice;
+            return;
+        }
+
+        uint256 current = head;
+        while (current != 0 && current < strikePrice) {
+            current = strikeNodes[current].next;
+        }
+
+        uint256 prevNode = strikeNodes[current].prev;
+        node.prev = prevNode;
+        node.next = current;
+        strikeNodes[prevNode].next = strikePrice;
+        strikeNodes[current].prev = strikePrice;
+    }
+
+    function _deactivateStrikeNode(
+        mapping(uint256 => StrikeNode) storage strikeNodes,
+        uint256 strikePrice,
+        bool isBuySide
+    ) internal {
+        StrikeNode storage node = strikeNodes[strikePrice];
+        
+        if (!node.active) return;
+
+        uint256 prevNode = node.prev;
+        uint256 nextNode = node.next;
+
+        if (prevNode != 0) {
+            strikeNodes[prevNode].next = nextNode;
+        } else if (isBuySide) {
+            buyHead = nextNode;
+        } else {
+            sellHead = nextNode;
+        }
+
+        if (nextNode != 0) {
+            strikeNodes[nextNode].prev = prevNode;
+        } else if (isBuySide) {
+            buyTail = prevNode;
+        } else {
+            sellTail = prevNode;
+        }
+
+        delete strikeNodes[strikePrice];
+        if (isBuySide) {
+            if (activeBuyStrikeCount > 0) {
+                unchecked { --activeBuyStrikeCount; }
+            }
+        } else {
+            if (activeSellStrikeCount > 0) {
+                unchecked { --activeSellStrikeCount; }
+            }
+        }
+    }
+
+    function _getLowerUpperBound() internal view returns (uint256 lower, uint256 upper) {
+        
+        lower = buyHead == 0
+            ? sellHead
+            : sellHead == 0
+                ? buyHead
+                : (buyHead < sellHead ? buyHead : sellHead);
+
+        upper = buyTail > sellTail ? buyTail : sellTail;
+        return (lower, upper);
+    }
+
 
     modifier onlyForwarder() {
         require(msg.sender == s_forwarderAddress, "invalid forwarder");
+        _;
+    }
+
+    modifier onlyLiquidityRouterOrOwner() {
+        require(
+            msg.sender == doppiLiquidityRouter || msg.sender == owner(),
+            "only router or owner"
+        );
         _;
     }
 }

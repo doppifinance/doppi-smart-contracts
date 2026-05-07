@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: UNLICENSED
+// SPDX-License-Identifier: MIT
 pragma solidity ^0.8.26;
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
@@ -21,8 +21,7 @@ contract DoppiLiquidityRouter is Ownable, Pausable, ReentrancyGuard {
     address public immutable assetA;
     address public immutable assetB;
     bool public emergencyMode;
-    bool public publicOpen = true;
-
+    
     event Deposited(address indexed user, uint256 amount, address asset, uint256 shares);
     event Redeemed(address indexed user, uint256 shares, uint256 assetsA, uint256 assetsB);
     event EmergencyWithdraw(address indexed user, uint256 shares, uint256 assetsA, uint256 assetsB);
@@ -35,7 +34,7 @@ contract DoppiLiquidityRouter is Ownable, Pausable, ReentrancyGuard {
         assetB = address(_assetB);
     }
 
-    function deposit(address _asset, uint256 _amount) external whenOpen nonReentrant whenNotPaused returns (uint256 shares) {
+    function deposit(address _asset, uint256 _amount) external nonReentrant whenNotPaused returns (uint256 shares) {
         IERC20(_asset).safeTransferFrom(msg.sender, address(this), _amount);
 
         if (_asset == assetA) {
@@ -52,21 +51,30 @@ contract DoppiLiquidityRouter is Ownable, Pausable, ReentrancyGuard {
 
     function redeem(uint256 _shares) external nonReentrant whenNotPaused returns (uint256 assetsA, uint256 assetsB) {
         
-        uint256 maxWithdrawable = getWithdrawableAmount(msg.sender);
+        uint256 maxWithdrawable = _getWithdrawableAmount(msg.sender);
         require(_shares <= maxWithdrawable, "exceeds available capacity");
         (assetsA, assetsB) = _redeem(_shares);
         emit Redeemed(msg.sender, _shares, assetsA, assetsB);
     }
 
+    /// @notice Emergency withdraw function for users to redeem their shares without restrictions during emergency mode. Only callable when the contract is paused and in emergency mode.
+    /// @dev This function allows users to redeem their shares for the underlying assets without any checks on available capacity or liabilities. It must ensure DoppiCore has settled all positions before allowing withdrawals to prevent insolvency. The function should be protected against reentrancy and can only be called when the contract is paused and in emergency mode.
     function emergencyWithdraw() external whenEmergency whenPaused nonReentrant {
         uint256 userShares = doppiLP.balanceOf(msg.sender);
         require(userShares > 0, "No shares to withdraw");   
+        require(_isPending() == false, "Pending orders exist"); // Ensure no pending orders in DoppiCore   
 
-        uint256 maxWithdrawable = getWithdrawableAmount(msg.sender);
-        uint256 sharesToWithdraw = userShares < maxWithdrawable ? userShares : maxWithdrawable;
+        IERC20(doppiLP).safeTransferFrom(msg.sender, address(this), userShares);
+        (uint256 ratioA, uint256 ratioB) = doppiLP.assetRatio();
+        uint256 totalRatio = ratioA + ratioB;
+        require(totalRatio > 0, "Pool empty or price unavailable");
+        uint256 firstHalf = userShares * ratioA / totalRatio;
+        uint256 secondHalf = userShares - firstHalf;        
+        uint256 assetsA = entryPointA.redeem(firstHalf, msg.sender, address(this));
+        uint256 assetsB = entryPointB.redeem(secondHalf, msg.sender, address(this));
+        doppiLP.cleanUpUnwind(assetsA, assetsB);
 
-        (uint256 assetsA, uint256 assetsB) = _redeem(sharesToWithdraw);
-        emit EmergencyWithdraw(msg.sender, sharesToWithdraw, assetsA, assetsB);
+        emit EmergencyWithdraw(msg.sender, userShares, assetsA, assetsB);
     }
 
     function isEmergency() external view returns (bool) {
@@ -89,7 +97,11 @@ contract DoppiLiquidityRouter is Ownable, Pausable, ReentrancyGuard {
         _unpause();
     }
 
-    function getWithdrawableAmount(address user) public view returns (uint256 maxWithdrawable) {
+    function getWithdrawableAmount(address user) external view returns (uint256 maxWithdrawable) {
+        return _getWithdrawableAmount(user);
+    }
+
+    function _getWithdrawableAmount(address user) internal view returns (uint256 maxWithdrawable) {
         uint256 userShares = doppiLP.balanceOf(user);
         uint256 totalShares = doppiLP.totalSupply();
         
@@ -111,7 +123,6 @@ contract DoppiLiquidityRouter is Ownable, Pausable, ReentrancyGuard {
             return 0; 
         }
 
-        // Calculate available assets after reserving for liabilities
         uint256 availableAsset = totalPoolAssetsInA - requiredReserve;
         maxWithdrawable = (availableAsset * userShares) / totalPoolAssetsInA;
 
@@ -125,28 +136,41 @@ contract DoppiLiquidityRouter is Ownable, Pausable, ReentrancyGuard {
         _;
     }
 
-    modifier whenOpen() {
-        require(publicOpen == true, "not open");
-        _;
+    // internal
+
+    function _isPending() internal view returns (bool) {
+        uint256 totalBuy = _getCurrentDeposits(true);
+        uint256 totalSell = _getCurrentDeposits(false);
+        return totalBuy > 0 || totalSell > 0;
     }
 
-    // internal
     function _getTotalInterestLiabilities() internal view returns (uint256 liabilityA, uint256 liabilityB) {
         
+        require(doppiCore != address(0), "doppiCore not set");
         (bool success, bytes memory data) = doppiCore.staticcall(abi.encodeWithSignature("getInterestLiabilities()"));
-        if (success && data.length == 64) {
-            (liabilityA, liabilityB) = abi.decode(data, (uint256, uint256));
-        }
+        require(success && data.length == 64, "liabilities call failed");
+        (liabilityA, liabilityB) = abi.decode(data, (uint256, uint256));
+    }
+
+    function _getCurrentDeposits(bool isBuy) internal view returns (uint256 total) {
+        
+        bytes memory callData = abi.encodeWithSelector(bytes4(keccak256("getCurrentDeposits(bool)")), isBuy);
+        (bool success, bytes memory data) = address(doppiCore).staticcall(callData);
+        require(success && data.length == 32, "liabilities call failed");
+        total = abi.decode(data, (uint256));
     }
 
     function _redeem(uint256 _shares) internal returns (uint256 assetsA, uint256 assetsB) {
 
         IERC20(doppiLP).safeTransferFrom(msg.sender, address(this), _shares);
         (uint256 ratioA, uint256 ratioB) = doppiLP.assetRatio();
-        uint256 firstHalf = _shares * ratioA / (ratioA + ratioB);
+        uint256 totalRatio = ratioA + ratioB;
+        require(totalRatio > 0, "Pool empty or price unavailable");
+        uint256 firstHalf = _shares * ratioA / totalRatio;
         uint256 secondHalf = _shares - firstHalf;        
         assetsA = entryPointA.redeem(firstHalf, msg.sender, address(this));
         assetsB = entryPointB.redeem(secondHalf, msg.sender, address(this));
+        doppiLP.cleanUpUnwind(assetsA, assetsB);
     }
 }
 

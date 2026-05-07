@@ -6,7 +6,7 @@ import {IDoppiLiquidity} from "./IDoppiLiquidity.sol";
 
 interface IDoppiTrader {
     
-    function get_validTrader() external view returns (address);
+    function validTrader() external view returns (address);
     function pauseTrades(bool pause) external;
     function createUnwindPosition(uint256 _amount, uint256 _strikePrice, bool _isBuyUndo) external;
     function get_unrealized_PNL() external view returns (int256);

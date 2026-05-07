@@ -33,6 +33,7 @@ contract DoppiLiquidityRouterTest is Test {
     event Redeemed(address indexed user, uint256 shares, uint256 assetsA, uint256 assetsB);
     
     function setUp() public {
+        vm.warp(1735689600);
         vm.startPrank(owner);
         
         // Deploy mock tokens
@@ -58,7 +59,6 @@ contract DoppiLiquidityRouterTest is Test {
         // Setup liquidity pool
         configLP = TestParamLib.get_configLP();
         configLP.chainLinkFeed = address(oracle);
-        configLP.quoter = address(swapper);
         configLP.router = address(swapper);
         doppiLP.setConfig(configLP);
 

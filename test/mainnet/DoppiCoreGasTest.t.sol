@@ -26,7 +26,7 @@ import {TestParamLib} from "../../src/Library/TestParamLib.sol";
 import "../../src/mainnet/DoppiLiquidityTypes.sol";
 
 
-contract Scenario2Test is Test {
+contract DoppiCoreGasTest is Test {
     DoppiTraderFactory doppiFactory;
     // DoppiTrader doppiTrader;
     DoppiCore doppiCore;
@@ -99,6 +99,7 @@ contract Scenario2Test is Test {
     
         doppiRouter = new DoppiLiquidityRouter(IERC20(USDT), IERC20(BTC), doppiLP);
         doppiRouter.setDoppiCore(address(doppiCore));
+        doppiLP.setDoppiLiquidityRouter(address(doppiRouter));
         doppiFactory = new DoppiTraderFactory(IERC20(USDT), IERC20(BTC), address(doppiCore), address(doppiLP), address(doppiRouter));
         doppiUpkeepManager = _deployDoppiUpkeepManager(address(doppiFactory));
         
@@ -108,7 +109,8 @@ contract Scenario2Test is Test {
         _setDoppiLiquidityProperties(doppiLP, address(doppiCore), doppiRouter, address(doppiFactory));
         _setDoppiCoreProperties(doppiCore, doppiFactory, address(doppiOpportunity));
 
-        doppiPoints.setDoppiTraderFactory(address(doppiFactory));
+        doppiPoints.setCoreTraderFactory(address(doppiCore), address(doppiFactory));
+        
         doppiOpportunity.setForwarderAddress(forwarder);
         
         _setupIV(impliedVol);        
@@ -132,6 +134,9 @@ contract Scenario2Test is Test {
 
         DualAssetOffer memory buyOffer = impliedVol.getOffer(true, 1, 1);
         uint256 depositUSDT = 10_000 ether;
+        uint256 max;
+        uint256 min;
+
         for (uint256 i = 0; i < 1000; i++) {
             address l1 = address(uint160(0x110 + i));
             vm.startPrank(l1);
@@ -146,29 +151,54 @@ contract Scenario2Test is Test {
                 expiry: buyOffer.expiry
             }));
             vm.stopPrank();
+            if(max == 0) {
+                max = buyOffer.strikePrice;
+            }
+            if(min == 0) {
+                min = buyOffer.strikePrice;
+            }
+            if(max < buyOffer.strikePrice){
+                max = buyOffer.strikePrice;
+            }else if(min > buyOffer.strikePrice){
+                min = buyOffer.strikePrice;
+            }
             // console.log(l1);
             // Verify active
         }
+
+        console.log(max, min, "max, min");
+
         // console.log(doppiCore.get_positions_buy(0x00000000000000000000000000000000000004f6).length);
         assertTrue(doppiCore.get_positions_buy(0x00000000000000000000000000000000000004f6).length > 0);
         
         int256 newPrice = int256(9152000000000);
         _manipulateRealChainlink(newPrice, address(oracle));
 
-        assertEq(doppiCore.lowerBound(), 9050000000000);
-        assertEq(doppiCore.upperBound(), 9200000000000);
+        (uint256 lowerBound, uint256 upperBound) = doppiCore.getLowerUpperBound();
+        assertEq(lowerBound, 9050000000000);
+        assertEq(upperBound, 9050000000000);
         // 1 day fast forward and settle
+        // 100 orders settled each time
         vm.warp(block.timestamp + 1 days + 1);
         _doppiCoreCheckUpkeep_performUpkeep();
         _doppiCoreCheckUpkeep_performUpkeep();
         _doppiCoreCheckUpkeep_performUpkeep();
         _doppiCoreCheckUpkeep_performUpkeep();
         _doppiCoreCheckUpkeep_performUpkeep();
+        _doppiCoreCheckUpkeep_performUpkeep();
+        _doppiCoreCheckUpkeep_performUpkeep();
+        _doppiCoreCheckUpkeep_performUpkeep();
+        _doppiCoreCheckUpkeep_performUpkeep();
+        _doppiCoreCheckUpkeep_performUpkeep();
 
+        uint256 pos1day = doppiCore.getPositionLength(1);
+        console.log("pos1day", pos1day);
+        assertEq(pos1day, 0);
         // doppiCore.display();
-        // console.log(doppiCore.lowerBound(), doppiCore.upperBound());
-        assertEq(doppiCore.lowerBound(), 9050000000000);
-        assertEq(doppiCore.upperBound(), 9050000000000);
+        (lowerBound, upperBound) = doppiCore.getLowerUpperBound();
+        console.log(lowerBound, upperBound, "lowerBound, upperBound");
+        assertEq(lowerBound, 0);
+        assertEq(upperBound, 0);
     }
 
     function test_Scenario_DoppiCore_CheckUpKeep_GasMaxBuySell() public {
@@ -189,6 +219,311 @@ contract Scenario2Test is Test {
         uint256 depositBTC = 0.01 ether;
         uint256 totalDeposit = 500;
         uint256 priceChanges = 50; // Change price 50 times during test
+        uint256 depPerPrice = totalDeposit / priceChanges;
+
+        uint256 max;
+        uint256 min;
+        uint256 currentPrice = (100_000 * 10**8) * (10100 / 10000);
+        for (uint256 priceChange = 0; priceChange < priceChanges; priceChange++) {
+            
+            int256 startPrice = int256(currentPrice);
+            _manipulateRealChainlink(startPrice, address(oracle));            
+            
+            // Perform swaps at this price
+            for (uint256 swapNum = 0; swapNum < depPerPrice; swapNum++) {
+                address l1 = address(uint160(0x110 + priceChange));
+                uint256 swapAmount = _generateRandomAmount(swapNum);
+                
+                bool isBuy = swapNum % 2 == 0;
+                if(!isBuy){
+                    DualAssetOffer memory sellOffer = impliedVol.getOffer(false, 1, 1);
+                    uint256 amountinBTC = swapAmount * 1e8 / uint256(startPrice);
+                    vm.startPrank(l1);
+                    deal(BTC, l1, amountinBTC);  
+                    btc.approve(address(doppiCore), amountinBTC);
+                    doppiCore.deposit_sell(DepositParams({
+                        amount: amountinBTC,
+                        strikeZone: 1,
+                        strikePrice: sellOffer.strikePrice,
+                        numDays: 1,
+                        apr: sellOffer.apr,
+                        expiry: sellOffer.expiry
+                    }));
+                    vm.stopPrank(); 
+                    if(max == 0) {
+                        max = sellOffer.strikePrice;
+                    }
+                    if(min == 0) {
+                        min = sellOffer.strikePrice;
+                    }
+                    if(max < sellOffer.strikePrice){
+                        max = sellOffer.strikePrice;
+                    }else if(min > sellOffer.strikePrice){
+                        min = sellOffer.strikePrice;
+                    }
+                }else{
+
+                    DualAssetOffer memory buyOffer = impliedVol.getOffer(true, 1, 1);
+                    vm.startPrank(l1);
+                    deal(USDT, l1, swapAmount);  
+                    usdt.approve(address(doppiCore), swapAmount);
+                    doppiCore.deposit_buy(DepositParams({
+                        amount: swapAmount,
+                        strikeZone: 1,
+                        strikePrice: buyOffer.strikePrice,
+                        numDays: 1,
+                        apr: buyOffer.apr,
+                        expiry: buyOffer.expiry
+                    }));
+                    vm.stopPrank();
+                    if(max == 0) {
+                        max = buyOffer.strikePrice;
+                    }
+                    if(min == 0) {
+                        min = buyOffer.strikePrice;
+                    }
+                    if(max < buyOffer.strikePrice){
+                        max = buyOffer.strikePrice;
+                    }else if(min > buyOffer.strikePrice){
+                        min = buyOffer.strikePrice;
+                    }
+                }
+            }
+
+            // Generate random price between 100000 and 120000 
+            if(priceChange > 10 && priceChange <= 15){
+                currentPrice = currentPrice * 9950 / 10000;
+            }else if(priceChange > 15 && priceChange <= 20){
+                currentPrice = currentPrice * 10050 / 10000;
+            }else if(priceChange > 20 && priceChange <= 25){
+                currentPrice = currentPrice * 9910 / 10000;
+            }else{
+                currentPrice = currentPrice * 10010 / 10000;
+            }
+        }
+        
+        console.log(max, min, "max, min");
+        int256 newPrice = int256(90556 * 1e8);
+        _manipulateRealChainlink(newPrice, address(oracle));
+        // 1 day fast forward and settle
+        (uint256 lowerBound, uint256 upperBound) = doppiCore.getLowerUpperBound();
+        assertEq(lowerBound, 9700000000000);
+        assertEq(upperBound, 10300000000000);
+
+        vm.warp(block.timestamp + 1 days + 1);
+        _doppiCoreCheckUpkeep_performUpkeep();
+        _doppiCoreCheckUpkeep_performUpkeep();
+        _doppiCoreCheckUpkeep_performUpkeep();
+        _doppiCoreCheckUpkeep_performUpkeep();
+        _doppiCoreCheckUpkeep_performUpkeep();
+        _doppiCoreCheckUpkeep_performUpkeep();
+        (lowerBound, upperBound) = doppiCore.getLowerUpperBound();
+        console.log(lowerBound, upperBound);
+        assertEq(lowerBound, 0);
+        assertEq(upperBound, 0);
+        
+    }
+
+    function test_Scenario_DoppiCore_CheckUpKeep_GasMaxBuySell_1Day3Days() public {
+        
+        uint256 depositLPAmount = 100_000_000 ether;
+        uint256 depositBTCAmount = 30.0000 ether;
+
+        deal(USDT, trader, depositLPAmount);            
+        deal(BTC, trader, depositBTCAmount);            
+            
+        vm.startPrank(trader);            
+        usdt.approve(address(doppiRouter), depositLPAmount);        
+        btc.approve(address(doppiRouter), depositBTCAmount);        
+        doppiRouter.deposit(address(usdt), depositLPAmount);
+        doppiRouter.deposit(address(btc), depositBTCAmount);
+        vm.stopPrank();
+
+        uint256 depositBTC = 0.01 ether;
+        uint256 totalDeposit = 200;
+        uint256 priceChanges = 50; // Change price 50 times during test
+        uint256 depPerPrice = totalDeposit / priceChanges;
+
+        uint256 currentPrice = (100_000 * 10**8) * (10100 / 10000);
+        uint256 total1day;
+        uint256 total3day;
+        uint256 max;
+        uint256 min;
+        
+        for (uint256 priceChange = 0; priceChange < priceChanges; priceChange++) {
+            
+            int256 startPrice = int256(currentPrice);
+            _manipulateRealChainlink(startPrice, address(oracle));            
+            
+            // Perform swaps at this price
+            for (uint256 swapNum = 0; swapNum < depPerPrice; swapNum++) {
+                address l1 = address(uint160(0x110 + priceChange));
+                uint256 swapAmount = _generateRandomAmount(swapNum);
+                
+                bool isBuy = swapNum % 2 == 0;
+                uint8 day = swapNum % 2 != 0 ? 1 : 3;
+                // console.log(priceChange, day, "day");
+                day == 1 ? total1day++ : total3day++;
+                
+                if(!isBuy){
+                    DualAssetOffer memory sellOffer = impliedVol.getOffer(false, day, 1);
+                    uint256 amountinBTC = swapAmount * 1e8 / uint256(startPrice);
+                    vm.startPrank(l1);
+                    deal(BTC, l1, amountinBTC);  
+                    btc.approve(address(doppiCore), amountinBTC);
+                    // console.log(sellOffer.strikePrice, isBuy, day);
+                    if(max == 0) {
+                        max = sellOffer.strikePrice;
+                    }
+                    if(min == 0) {
+                        min = sellOffer.strikePrice;
+                    }
+                    if(max < sellOffer.strikePrice){
+                        max = sellOffer.strikePrice;
+                    }else if(min > sellOffer.strikePrice){
+                        min = sellOffer.strikePrice;
+                    }
+
+                    doppiCore.deposit_sell(DepositParams({
+                        amount: amountinBTC,
+                        strikeZone: 1,
+                        strikePrice: sellOffer.strikePrice,
+                        numDays: day,
+                        apr: sellOffer.apr,
+                        expiry: sellOffer.expiry
+                    }));
+                    vm.stopPrank(); 
+                }else{
+
+                    DualAssetOffer memory buyOffer = impliedVol.getOffer(true, day, 1);
+                    vm.startPrank(l1);
+                    deal(USDT, l1, swapAmount);  
+                    usdt.approve(address(doppiCore), swapAmount);
+                    // console.log(buyOffer.strikePrice, isBuy, day);
+                    if(max == 0) {
+                        max = buyOffer.strikePrice;
+                    }
+                    if(min == 0) {
+                        min = buyOffer.strikePrice;
+                    }
+                    if(max < buyOffer.strikePrice){
+                        max = buyOffer.strikePrice;
+                    }else if(min > buyOffer.strikePrice){
+                        min = buyOffer.strikePrice;
+                    }
+                    doppiCore.deposit_buy(DepositParams({
+                        amount: swapAmount,
+                        strikeZone: 1,
+                        strikePrice: buyOffer.strikePrice,
+                        numDays: day,
+                        apr: buyOffer.apr,
+                        expiry: buyOffer.expiry
+                    }));
+                    vm.stopPrank();
+                }
+            }
+
+            // Generate random price between 100000 and 120000 
+            if(priceChange > 10 && priceChange <= 15){
+                currentPrice = currentPrice * 9950 / 10000;
+            }else if(priceChange > 15 && priceChange <= 20){
+                currentPrice = currentPrice * 10050 / 10000;
+            }else if(priceChange > 20 && priceChange <= 25){
+                currentPrice = currentPrice * 9910 / 10000;
+            }else{
+                currentPrice = currentPrice * 10010 / 10000;
+            }
+        }
+        console.log(min, max, "min and max strike price");
+        console.log(total1day, total3day, "total1day and total3day");   
+        uint256 pos1day = doppiCore.getPositionLength(1);
+        uint256 pos3day = doppiCore.getPositionLength(3);
+        // console.log(pos1day, "pos1day");
+        // console.log(pos3day, "pos3day");
+        assertEq(pos1day, 100); 
+        assertEq(pos3day, 100); 
+        
+        int256 newPrice = int256(90556 * 1e8);
+        _manipulateRealChainlink(newPrice, address(oracle));
+        // 1 day fast forward and settle
+        (uint256 lowerBound, uint256 upperBound) = doppiCore.getLowerUpperBound();
+        _displayBound(lowerBound, upperBound);
+        assertEq(lowerBound, 9700000000000);
+        assertEq(upperBound, 10300000000000);
+
+        vm.warp(block.timestamp + 1 days + 1);
+        uint64 endPosId = doppiCore.getReadyAllPositions(1);
+        uint64 endPosId2 = doppiCore.getReadyAllPositions(3);
+        assertEq(endPosId, 100);
+        assertEq(endPosId2, 0); // no yet ready to settle for 3 days position
+
+        _doppiCoreCheckUpkeep_performUpkeep();
+        _doppiCoreCheckUpkeep_performUpkeep();
+        _doppiCoreCheckUpkeep_performUpkeep();
+
+        vm.warp(block.timestamp + 1 days + 1);
+        endPosId = doppiCore.getReadyAllPositions(1);
+        endPosId2 = doppiCore.getReadyAllPositions(3);
+        
+        // console.log(readyPositionId.length, "readyPositionId.length");
+        assertEq(endPosId, 0); // 1 days position already settled
+        assertEq(endPosId2, 0); // no yet ready to settle for 3 days position
+
+        _doppiCoreCheckUpkeep_performUpkeep();
+
+        (lowerBound, upperBound) = doppiCore.getLowerUpperBound();
+        _displayBound(lowerBound, upperBound);
+        
+        
+        vm.warp(block.timestamp + 2 days + 1);
+        endPosId2 = doppiCore.getReadyAllPositions(3);
+        assertEq(endPosId2, 100);
+        
+        _doppiCoreCheckUpkeep_performUpkeep();
+        _doppiCoreCheckUpkeep_performUpkeep();
+        _doppiCoreCheckUpkeep_performUpkeep();
+
+        endPosId = doppiCore.getReadyAllPositions(1);
+        endPosId2 = doppiCore.getReadyAllPositions(3);
+        assertEq(endPosId, 0);    // all positions settled
+        assertEq(endPosId2, 0); // all positions settled
+        pos1day = doppiCore.getPositionLength(1);
+        pos3day = doppiCore.getPositionLength(3);
+        
+        assertEq(pos1day, 0); 
+        assertEq(pos3day, 0); 
+        
+        (lowerBound, upperBound) = doppiCore.getLowerUpperBound();
+        
+        _displayBound(lowerBound, upperBound);
+        
+        assertEq(lowerBound, 0);
+        assertEq(upperBound, 0);
+        
+    }
+
+    function test_Scenario_DoppiCore_SettleManual() public {
+        
+        vm.startPrank(doppiCore.owner());
+        doppiCore.setUpkeeps_per_check(5);
+        vm.stopPrank();
+
+        uint256 depositLPAmount = 100_000_000 ether;
+        uint256 depositBTCAmount = 30.0000 ether;
+
+        deal(USDT, trader, depositLPAmount);            
+        deal(BTC, trader, depositBTCAmount);            
+            
+        vm.startPrank(trader);            
+        usdt.approve(address(doppiRouter), depositLPAmount);        
+        btc.approve(address(doppiRouter), depositBTCAmount);        
+        doppiRouter.deposit(address(usdt), depositLPAmount);
+        doppiRouter.deposit(address(btc), depositBTCAmount);
+        vm.stopPrank();
+
+        uint256 depositBTC = 0.01 ether;
+        uint256 totalDeposit = 10;
+        uint256 priceChanges = 5; // Change price 5 times during test
         uint256 depPerPrice = totalDeposit / priceChanges;
 
         uint256 currentPrice = (100_000 * 10**8) * (10100 / 10000);
@@ -237,7 +572,7 @@ contract Scenario2Test is Test {
             }
 
             // Generate random price between 100000 and 120000 
-            if(priceChange > 10 && priceChange <= 15){
+            if(priceChange > 2 && priceChange <= 5){
                 currentPrice = currentPrice * 9950 / 10000;
             }else if(priceChange > 15 && priceChange <= 20){
                 currentPrice = currentPrice * 10050 / 10000;
@@ -250,141 +585,40 @@ contract Scenario2Test is Test {
         
         int256 newPrice = int256(90556 * 1e8);
         _manipulateRealChainlink(newPrice, address(oracle));
-        // 1 day fast forward and settle
-        // doppiCore.display();
-        // console.log(doppiCore.lowerBound(), doppiCore.upperBound());
-        assertEq(doppiCore.lowerBound(), 9150000000000);
-        assertEq(doppiCore.upperBound(), 10300000000000);
+
+        
+        (uint256 lowerBound, uint256 upperBound) = doppiCore.getLowerUpperBound();
+        _displayBound(lowerBound, upperBound);
+
+        assertEq(lowerBound, 10000000000000);
+        assertEq(upperBound, 10200000000000);
+
+        // total 10 orders
+        uint64 totalOrders = doppiCore.getPositionLength(1);
+        assertEq(totalOrders, 10);
+        uint64 endPosId = doppiCore.getReadyAllPositions(1);
+        assertEq(endPosId, 0);
 
         vm.warp(block.timestamp + 1 days + 1);
-        _doppiCoreCheckUpkeep_performUpkeep();
-        _doppiCoreCheckUpkeep_performUpkeep();
-        _doppiCoreCheckUpkeep_performUpkeep();
-        _doppiCoreCheckUpkeep_performUpkeep();
-        _doppiCoreCheckUpkeep_performUpkeep();
-        _doppiCoreCheckUpkeep_performUpkeep();
-        // console.log(doppiCore.lowerBound(), doppiCore.upperBound());
-        assertEq(doppiCore.lowerBound(), 9050000000000);
-        assertEq(doppiCore.upperBound(), 9100000000000);
-        
-    }
+        endPosId = doppiCore.getReadyAllPositions(1);
+        assertEq(endPosId, 5); // first 5 (max 5 order each upkeep) orders ready to settle
 
-    function test_Scenario_DoppiCore_CheckUpKeep_GasMaxBuySell_1Day3Days() public {
-        
-        uint256 depositLPAmount = 100_000_000 ether;
-        uint256 depositBTCAmount = 30.0000 ether;
+        _doppiCoreCheckUpkeep_performUpkeep();
 
-        deal(USDT, trader, depositLPAmount);            
-        deal(BTC, trader, depositBTCAmount);            
-            
-        vm.startPrank(trader);            
-        usdt.approve(address(doppiRouter), depositLPAmount);        
-        btc.approve(address(doppiRouter), depositBTCAmount);        
-        doppiRouter.deposit(address(usdt), depositLPAmount);
-        doppiRouter.deposit(address(btc), depositBTCAmount);
+        // remaining 5 settle single middle posId, 7
+        vm.startPrank(doppiCore.owner());
+        doppiCore.settleOrders(1);
         vm.stopPrank();
 
-        uint256 depositBTC = 0.01 ether;
-        uint256 totalDeposit = 200;
-        uint256 priceChanges = 50; // Change price 50 times during test
-        uint256 depPerPrice = totalDeposit / priceChanges;
-
-        uint256 currentPrice = (100_000 * 10**8) * (10100 / 10000);
-        for (uint256 priceChange = 0; priceChange < priceChanges; priceChange++) {
-            
-            int256 startPrice = int256(currentPrice);
-            _manipulateRealChainlink(startPrice, address(oracle));            
-            
-            // Perform swaps at this price
-            for (uint256 swapNum = 0; swapNum < depPerPrice; swapNum++) {
-                address l1 = address(uint160(0x110 + priceChange));
-                uint256 swapAmount = _generateRandomAmount(swapNum);
-                
-                bool isBuy = swapNum % 2 == 0;
-                uint32 day = swapNum % 2 != 0 ? 1 : 3;
-                
-                if(!isBuy){
-                    DualAssetOffer memory sellOffer = impliedVol.getOffer(false, day, 1);
-                    uint256 amountinBTC = swapAmount * 1e8 / uint256(startPrice);
-                    vm.startPrank(l1);
-                    deal(BTC, l1, amountinBTC);  
-                    btc.approve(address(doppiCore), amountinBTC);
-                    // console.log(sellOffer.strikePrice, isBuy, day);
-                    doppiCore.deposit_sell(DepositParams({
-                        amount: amountinBTC,
-                        strikeZone: 1,
-                        strikePrice: sellOffer.strikePrice,
-                        numDays: day,
-                        apr: sellOffer.apr,
-                        expiry: sellOffer.expiry
-                    }));
-                    vm.stopPrank(); 
-                }else{
-
-                    DualAssetOffer memory buyOffer = impliedVol.getOffer(true, day, 1);
-                    vm.startPrank(l1);
-                    deal(USDT, l1, swapAmount);  
-                    usdt.approve(address(doppiCore), swapAmount);
-                    // console.log(buyOffer.strikePrice, isBuy, day);
-                    doppiCore.deposit_buy(DepositParams({
-                        amount: swapAmount,
-                        strikeZone: 1,
-                        strikePrice: buyOffer.strikePrice,
-                        numDays: day,
-                        apr: buyOffer.apr,
-                        expiry: buyOffer.expiry
-                    }));
-                    vm.stopPrank();
-                }
-            }
-
-            // Generate random price between 100000 and 120000 
-            if(priceChange > 10 && priceChange <= 15){
-                currentPrice = currentPrice * 9950 / 10000;
-            }else if(priceChange > 15 && priceChange <= 20){
-                currentPrice = currentPrice * 10050 / 10000;
-            }else if(priceChange > 20 && priceChange <= 25){
-                currentPrice = currentPrice * 9910 / 10000;
-            }else{
-                currentPrice = currentPrice * 10010 / 10000;
-            }
-        }
-        
-        int256 newPrice = int256(90556 * 1e8);
-        _manipulateRealChainlink(newPrice, address(oracle));
-        // 1 day fast forward and settle
-        // doppiCore.display();
-        // console.log(doppiCore.lowerBound(), doppiCore.upperBound());
-        assertEq(doppiCore.lowerBound(), 9150000000000);
-        assertEq(doppiCore.upperBound(), 10300000000000);
-
-        vm.warp(block.timestamp + 1 days + 1);
-        (uint64[] memory readyPositionId, SettleAccumulate memory settleAccu) = doppiCore.getReadyAllPositions();
-        console.log(readyPositionId.length, "readyPositionId.length");
-        // assertEq(readyPositionId.length, 50);
-
-        _doppiCoreCheckUpkeep_performUpkeep();
-        _doppiCoreCheckUpkeep_performUpkeep();
         _doppiCoreCheckUpkeep_performUpkeep();
 
-        vm.warp(block.timestamp + 1 days + 1);
-        (readyPositionId, settleAccu) = doppiCore.getReadyAllPositions();
-        console.log(readyPositionId.length, "readyPositionId.length");
-        // assertEq(readyPositionId.length, 0);
+        totalOrders = doppiCore.getPositionLength(1);
+        assertEq(totalOrders, 0);
+        assertEq(doppiCore.nextPositionId(1), doppiCore.nextProcessId(1));
 
-        _doppiCoreCheckUpkeep_performUpkeep();
-        
-        vm.warp(block.timestamp + 2 days + 1);
-        (readyPositionId, settleAccu) = doppiCore.getReadyAllPositions();
-        // assertEq(readyPositionId.length, 50);
-        console.log(readyPositionId.length, "readyPositionId.length");
-
-        _doppiCoreCheckUpkeep_performUpkeep();
-        _doppiCoreCheckUpkeep_performUpkeep();
-
-        console.log(doppiCore.lowerBound(), doppiCore.upperBound());
-        assertEq(doppiCore.lowerBound(), 9050000000000);
-        assertEq(doppiCore.upperBound(), 9100000000000);
+        (lowerBound, upperBound) = doppiCore.getLowerUpperBound();
+        assertEq(lowerBound, 0);
+        assertEq(upperBound, 0);
         
     }
 
@@ -405,21 +639,6 @@ contract Scenario2Test is Test {
         doppiCore.deposit_sell(params);
         vm.stopPrank();
         return sellOffer;
-    }
-
-    function _setupAutomation(DoppiTrader traderBot) internal returns (uint256 upkeepId) {
-        // Setup Automation
-        upkeepId = doppiUpkeepManager.setupAutomation(address(traderBot));
-
-        // Setup forwarder address
-        address forwarder_ = doppiUpkeepManager.getForwarder(upkeepId);
-        traderBot.setForwarderAddress(forwarder_);
-
-        // Fund and start
-        usdt.approve(address(traderBot), 10000 ether);
-        btc.approve(address(traderBot), 0.2 ether);
-        traderBot.start(10000 ether, 0.1 ether);
-        
     }
 
     function _setDoppiCoreProperties(
@@ -498,7 +717,8 @@ contract Scenario2Test is Test {
 
     function _deployDoppiReferral(address _doppiPoints) internal returns (DoppiReferral) {
         DoppiReferral _doppiReferral = new DoppiReferral(_doppiPoints, 150, 100, 50);
-        _doppiReferral.setMinVolumeForL2(1_000 ether, 2_000 ether);
+        _doppiReferral.setMinVolumeForL2L3(1_000 ether, 2_000 ether);
+        DoppiPoints(_doppiPoints).setDoppiReferral(address(_doppiReferral));
         return _doppiReferral;
     }
 
@@ -554,6 +774,8 @@ contract Scenario2Test is Test {
             gasUsed = gasBefore - gasleft();
             console.log(gasUsed, "gasUsed in doppiCore.performUpkeep");
             vm.stopPrank();
+        }else{
+            console.log("No upkeep needed at this time");
         }
     }
 
@@ -595,7 +817,6 @@ contract Scenario2Test is Test {
         _configLP = ConfigParam({
 			chainLinkFeed : CHAINLINK_BTC_USD,
 			router : PCSWAP_V3_ROUTER,
-			quoter: PCSWAP_V3_QUOTER,
 			poolFee: 500,  
 			slippage: 2000,
 			liquidityFee: 1000,
@@ -606,7 +827,8 @@ contract Scenario2Test is Test {
 			maxDepositPercentage: 20000,
 			maxDelay: 2 minutes,
 			maxSwap: 500000 ether,
-            priceGap: 500
+            priceGap: 500,
+            unwindGapMultiplier: 1
 		});
     }
 
@@ -628,4 +850,28 @@ contract Scenario2Test is Test {
         _price = (_price / priceGapWithDecimals) * priceGapWithDecimals;
         return _isBuy ? _price - (priceGapWithDecimals * (_strikeZone - 1)) : _price + (priceGapWithDecimals * _strikeZone);
     }
+
+    function _displayBound(uint256 lowerBound, uint256 upperBound) internal view {
+        
+        if(lowerBound == 0 && upperBound == 0) {
+            console.log("No active positions");
+            return;
+        }
+
+        for (uint256 price = upperBound; price >= lowerBound; ) {
+            // console.log(price, "price");
+            bool isBuy = true;
+            (uint256 amount, uint256 swappedAmount, uint256 outAmount) = doppiCore.opportunityBuy(price);
+            
+            if(amount == 0){
+                isBuy = false;
+                (amount, swappedAmount, outAmount) = doppiCore.opportunitySell(price);
+            }
+            console.log(isBuy, price, amount, swappedAmount);
+            price -= (500 * 1e8); 
+        }
+
+    }
+
+    
 }

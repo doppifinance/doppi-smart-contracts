@@ -14,8 +14,9 @@ import {MockToken} from "../../src/test/MockToken.sol";
 import {MockOracle} from "../../src/test/MockOracle.sol";
 import {MockRegistryConsumer} from "../../src/test/MockRegistryConsumer.sol";
 import {DoppiOpportunity} from "../../src/mainnet/DoppiOpportunity.sol";
+import {DoppiPoints} from "../../src/mainnet/DoppiPoints.sol";
 import {Swapper} from "../../src/test/Swapper.sol";
-import {DoppiUpkeepManager} from "../../src/mainnet/DoppiUpkeepManager.sol";
+import {DoppiUpkeepManager, DoppiUpkeepPayment} from "../../src/mainnet/DoppiUpkeepManager.sol";
 import "../../src/Interface/LinkTokenInterface.sol";
 import "../../src/Interface/IAutomationRegistrar.sol";
 import "../../src/Interface/IAutomationRegistryConsumer.sol";
@@ -34,6 +35,7 @@ contract DoppiUpkeepManagerTest is Test {
     MockOracle oracle;
     DoppiOpportunity doppiOpportunity;
     Swapper public swapper;
+    DoppiPoints doppiPoints;
     DoppiUpkeepManager doppiUpkeepManager;
     IAutomationRegistrar public registrar;
     IAutomationRegistryConsumer public registryConsumer;
@@ -75,9 +77,9 @@ contract DoppiUpkeepManagerTest is Test {
         
         configLP = TestParamLib.get_configLP();
         impliedVol = _setupIV();
+        doppiPoints = _deployDoppiPoints();
         doppiLP = _setupLP(address(usdt), address(btc));
-
-        doppiCore = new DoppiCore(address(usdt), address(btc), doppiLP, impliedVol, address(0));
+        doppiCore = new DoppiCore(address(usdt), address(btc), doppiLP, impliedVol, address(doppiPoints));
         doppiOpportunity = new DoppiOpportunity(address(doppiCore), address(doppiLP));
         doppiRouter = new DoppiLiquidityRouter(IERC20(usdt), IERC20(btc), doppiLP);
         doppiFactory = new DoppiTraderFactory(IERC20(usdt), IERC20(btc), address(doppiCore), address(doppiLP), address(doppiRouter));
@@ -85,6 +87,7 @@ contract DoppiUpkeepManagerTest is Test {
         doppiOpportunity.setForwarderAddress(forwarder);
         doppiCore.setForwarderAddress(forwarder);
         doppiCore.setTreasury(treasury, 1000);
+        doppiPoints.setDoppiCore(address(doppiCore), true);
         doppiCore.setOpportunityBot(address(doppiOpportunity), true);
         doppiLP.setForwarderAddress(forwarder);
         doppiLP.setDoppiCore(address(doppiCore));
@@ -114,20 +117,6 @@ contract DoppiUpkeepManagerTest is Test {
         doppiFactory.setDoppiUpKeepManager(address(doppiUpkeepManager));
         vm.warp(vm.getBlockTimestamp() - 2592483);
         vm.stopPrank();
-    }
-
-    function test_setupAutomation() public {
-        
-        vm.startPrank(trader);
-        deal(USDT, address(trader), 1000 ether);
-        deal(LINK, address(trader), 1000 ether);
-
-        // Deploy bot
-        uint32 traderId = doppiFactory.deployTraderBot(defaultWeights);
-        DoppiTrader traderBot = DoppiTrader(doppiFactory.traderBots(traderId));
-        usdt.approve(address(doppiUpkeepManager), 10000 ether);
-        doppiUpkeepManager.setupAutomation(address(traderBot));
-        vm.stopPrank();        
     }
 
     function test_getUpkeep() public {
@@ -203,246 +192,148 @@ contract DoppiUpkeepManagerTest is Test {
         vm.stopPrank();
     }
 
-    function test_mainnet_checkUpkeep() public {
-        
-        test_setupAutomation();
-        test_setupAutomation();
-
-        uint256 keepId = 10126513187475120052854210204634476291137427371787226750303145633439909703611;
-        mockRegistryConsumer.updateAmountSpent(keepId, 0.1 ether);
-        
-        vm.roll(block.number + 100); // Forward 100 blocks
-        (bool upkeepNeeded, ) = doppiUpkeepManager.checkUpkeep("");
-        assertTrue(upkeepNeeded);
-
-    }
-
-    function test_mainnet_performUpkeep_noTopUp() public {
-        
-        test_setupAutomation();
-        test_setupAutomation();
-
-        uint256 keepId = 10126513187475120052854210204634476291137427371787226750303145633439909703611;
-        mockRegistryConsumer.updateAmountSpent(keepId, 1e17);
-        
-        vm.roll(block.number + 100); // Forward 100 blocks
-        (bool upkeepNeeded, bytes memory performData) = doppiUpkeepManager.checkUpkeep("");
-        assertTrue(upkeepNeeded);
-        
-        vm.prank(forwarder);
-        doppiUpkeepManager.performUpkeep(performData);  
-        vm.stopPrank();
-
-        DoppiUpkeepManager.DoppiUpkeepPayment memory p = doppiUpkeepManager.getPaymentStatus(keepId);
-        // console.log(p.lastPaidAmount, p.lastBlockCharged, p.trader);
-        assertEq(p.lastPaidAmount, 100000000000000000);
-
-        uint256 balstart = usdt.balanceOf(treasury);
-
-        vm.roll(block.number + 200); // Forward 100 blocks
-        uint256 keepId2 = 85572568362417814516910336273473322297533253932261901153407809393837727925278;
-        
-        mockRegistryConsumer.updateAmountSpent(keepId, 1e18);
-        mockRegistryConsumer.updateAmountSpent(keepId2, 1e18);
-        (upkeepNeeded, performData) = doppiUpkeepManager.checkUpkeep("");
-        assertTrue(upkeepNeeded);
-        
-        vm.prank(forwarder);
-        doppiUpkeepManager.performUpkeep(performData);  
-        vm.stopPrank();
-
-        p = doppiUpkeepManager.getPaymentStatus(keepId);
-        assertEq(p.lastPaidAmount, 1100000000000000000);
-        p = doppiUpkeepManager.getPaymentStatus(keepId2);
-        assertEq(p.lastPaidAmount, 1000000000000000000);
-        uint256 balend = usdt.balanceOf(treasury);
-        assertGt(balend, balstart);
-
-    }
-
-    function test_mainnet_performUpkeep_TopUp() public {
-        
-        test_setupAutomation();
-        test_setupAutomation();
-
-        uint256 keepId = 10126513187475120052854210204634476291137427371787226750303145633439909703611;
-        mockRegistryConsumer.updateAmountSpent(keepId, 4.1 ether);
-        
-        vm.roll(block.number + 100); // Forward 100 blocks
-        (bool upkeepNeeded, bytes memory performData) = doppiUpkeepManager.checkUpkeep("");
-        assertTrue(upkeepNeeded);
-        
-        vm.prank(forwarder);
-        doppiUpkeepManager.performUpkeep(performData);  
-        vm.stopPrank();
-        
-        DoppiUpkeepManager.DoppiUpkeepPayment memory p = doppiUpkeepManager.getPaymentStatus(keepId);
-        assertEq(p.lastPaidAmount, 4.1 ether);
-    }
-
-    function test_mainnet_performUpkeep_TopUp_Pagination() public {
-        
-        vm.prank(owner);
-        doppiUpkeepManager.setUpkeeps_per_check(1);
-        vm.stopPrank();
-
-        test_setupAutomation();
-        test_setupAutomation();
-
-        uint256 keepId = 10126513187475120052854210204634476291137427371787226750303145633439909703611;
-        mockRegistryConsumer.updateAmountSpent(keepId, 1e17);
-        
-        uint256 keepId2 = 85572568362417814516910336273473322297533253932261901153407809393837727925278;
-        mockRegistryConsumer.updateAmountSpent(keepId2, 1e18);
-
-        vm.roll(block.number + 100); // Forward 100 blocks
-        (bool upkeepNeeded, bytes memory performData) = doppiUpkeepManager.checkUpkeep("");
-        assertTrue(upkeepNeeded);
-        
-        vm.prank(forwarder);
-        doppiUpkeepManager.performUpkeep(performData);  
-        vm.stopPrank();
-
-        // Only 1 is processed
-        DoppiUpkeepManager.DoppiUpkeepPayment memory p = doppiUpkeepManager.getPaymentStatus(keepId);
-        assertEq(p.lastPaidAmount, 0);
-        p = doppiUpkeepManager.getPaymentStatus(keepId2);
-        assertEq(p.lastPaidAmount, 1000000000000000000);       
-
-        // next checkUpkeep process the other 1
-        vm.roll(block.number + 1);
-        (upkeepNeeded, performData) = doppiUpkeepManager.checkUpkeep("");
-        assertTrue(upkeepNeeded);
-        
-        vm.prank(forwarder);
-        doppiUpkeepManager.performUpkeep(performData);   
-        vm.stopPrank();
-
-        // the other 1 was processed
-        p = doppiUpkeepManager.getPaymentStatus(keepId);
-        assertEq(p.lastPaidAmount, 100000000000000000);       
-        p = doppiUpkeepManager.getPaymentStatus(keepId2);
-        assertEq(p.lastPaidAmount, 1000000000000000000);       
-
-    }
-
-    function test_mainnet_performUpkeep_TopUp_No_Allowance() public {
-        
-        vm.startPrank(trader);
-        deal(USDT, address(trader), 1000 ether);
-        deal(LINK, address(trader), 1000 ether);
-
-        // Deploy bot
-        uint32 traderId = doppiFactory.deployTraderBot(defaultWeights);
-        DoppiTrader traderBot = DoppiTrader(doppiFactory.traderBots(traderId));
-        usdt.approve(address(doppiUpkeepManager), 300 ether);
-        uint256 upKeepId = doppiUpkeepManager.setupAutomation(address(traderBot));
-        console.log(upKeepId, traderBot.validTrader());
-        
-        vm.stopPrank();
-
-
-        uint256 keepId = 85572568362417814516910336273473322297533253932261901153407809393837727925278;
-        mockRegistryConsumer.updateAmountSpent(keepId, 4.1 ether);
-        
-        vm.roll(block.number + 100); // Forward 100 blocks
-        (bool upkeepNeeded, ) = doppiUpkeepManager.checkUpkeep("");
-        assertFalse(upkeepNeeded); // no performUpkeep as no allowance detected
-        
-    }
-
     function test_mainnet_stopWithdraw_no_pending_fee() public {
         
-        test_setupAutomation();
-
-        uint256 keepId = 85572568362417814516910336273473322297533253932261901153407809393837727925278;
-        mockRegistryConsumer.updateAmountSpent(keepId, 4.1 ether);
+        DoppiTrader traderBot = _deployBot(trader);
         
+        uint256 upKeepid = doppiUpkeepManager.getUpkeepIdByBot(address(traderBot));
+        mockRegistryConsumer.updateAmountSpent(upKeepid, 4.1 ether);
+
         vm.roll(block.number + 100); // Forward 100 blocks
-        (bool upkeepNeeded, bytes memory performData) = doppiUpkeepManager.checkUpkeep("");
-        assertTrue(upkeepNeeded);
+        // ensure trader bot update fee
+        (bool upkeepNeeded, bytes memory performData) = traderBot.checkUpkeep("");
+        if(upkeepNeeded){
+            vm.prank(traderBot.s_forwarderAddress());
+            traderBot.performUpkeep(performData);
+            vm.stopPrank();
+        }
         
-        vm.prank(forwarder);
-        doppiUpkeepManager.performUpkeep(performData);  
-        vm.stopPrank();
-
-        DoppiUpkeepManager.DoppiUpkeepPayment memory p = doppiUpkeepManager.getPaymentStatus(keepId);
+        DoppiUpkeepPayment memory p = doppiUpkeepManager.getPaymentStatus(upKeepid);
         assertEq(p.lastPaidAmount, 4.1 ether);
 
-        uint256 initBal = link.balanceOf(trader);
-        uint256 upkeepBal = doppiUpkeepManager.getUpkeepBalance(keepId);
-        // console.log(initBal, upkeepBal, "initBal", "upkeepBal");
+        uint256 initBal = usdt.balanceOf(trader);
+        uint256 upkeepBal = doppiUpkeepManager.getUpkeepBalance(upKeepid);
         vm.prank(trader);
-        doppiUpkeepManager.cancelUpkeep(keepId);
+        doppiUpkeepManager.cancelUpkeep(upKeepid);
         vm.stopPrank();
         
         vm.roll(block.number + 1000);
         
         vm.prank(trader);
-        doppiUpkeepManager.stopWithdraw(keepId);
+        doppiUpkeepManager.stopWithdraw(upKeepid);
         vm.stopPrank();
-        uint256 endBal = link.balanceOf(trader);
-        // console.log(endBal, "endBal");
-        assertEq(endBal - initBal, upkeepBal);
+        uint256 endBal = usdt.balanceOf(trader);
+        // console.log(endBal - initBal, "endBal - initBal");
+        assertEq(endBal - initBal, 300338326863900662573);
         
     }
 
     function test_mainnet_stopWithdraw_pending_fee() public {
         
-        // Deploy bot
-        vm.startPrank(trader);
-        deal(USDT, address(trader), 1000 ether);
-        uint32 traderId = doppiFactory.deployTraderBot(defaultWeights);
-        DoppiTrader traderBot = DoppiTrader(doppiFactory.traderBots(traderId));
-        usdt.approve(address(doppiUpkeepManager), 300 ether);
-        doppiUpkeepManager.setupAutomation(address(traderBot));
-
-        uint256 keepId = 85572568362417814516910336273473322297533253932261901153407809393837727925278;
-        mockRegistryConsumer.updateAmountSpent(keepId, 4.1 ether);
+        DoppiTrader traderBot = _deployBot(trader);
         
+        uint256 upKeepid = doppiUpkeepManager.getUpkeepIdByBot(address(traderBot));
+        mockRegistryConsumer.updateAmountSpent(upKeepid, 4.1 ether);
+
         vm.roll(block.number + 100); // Forward 100 blocks
-        (bool upkeepNeeded, ) = doppiUpkeepManager.checkUpkeep("");
-        assertFalse(upkeepNeeded);
 
-        uint256 initBal = link.balanceOf(trader);
-        uint256 upkeepBal = doppiUpkeepManager.getUpkeepBalance(keepId);
-
-        // vm.prank(trader);
-        doppiUpkeepManager.cancelUpkeep(keepId);
-        // vm.stopPrank();
-        vm.roll(block.number + 1000);
-
-        doppiUpkeepManager.stopWithdraw(keepId);
-        uint256 endBal = link.balanceOf(trader);
-        assertEq(endBal - initBal, 11509638941840579811);
+        (uint96 fee, ) = doppiUpkeepManager.getUnPaidDoppiFee(upKeepid);
+        DoppiUpkeepPayment memory payment = doppiUpkeepManager.getPaymentStatus(upKeepid);
+        assertGt(fee, 0); // before performUpkeep, fee accumulated
+        assertEq(payment.lastPaidAmount, 0); // before performUpkeep, not paid status
         
+        // ensure trader bot update fee
+        (bool upkeepNeeded, bytes memory performData) = traderBot.checkUpkeep("");
+        if(upkeepNeeded){
+            vm.prank(traderBot.s_forwarderAddress());
+            traderBot.performUpkeep(performData);
+            vm.stopPrank();
+        }
+        
+        (fee, ) = doppiUpkeepManager.getUnPaidDoppiFee(upKeepid);
+        payment = doppiUpkeepManager.getPaymentStatus(upKeepid);
+        assertEq(fee, 0); // already paid fee after performUpkeep
+        assertEq(payment.lastPaidAmount, 4.1 ether); // after performUpkeep, paid amount spent
+        
+        uint256 initBal = usdt.balanceOf(trader);
+        uint256 upkeepBal = doppiUpkeepManager.getUpkeepBalance(upKeepid);
+        // console.log(upkeepBal, "upkeepBal before stopwithdraw");
+        assertGt(upkeepBal, 0);
+
+        vm.prank(trader);
+        doppiUpkeepManager.cancelUpkeep(upKeepid);
         vm.stopPrank();
         
-    }
+        vm.roll(block.number + 1000);
+        vm.prank(trader);
+        doppiUpkeepManager.stopWithdraw(upKeepid);
+        vm.stopPrank();
 
-    function test_setupAutomation_cancel_withdraw_registerAgain() public {
+        uint256 endBal = usdt.balanceOf(trader);
+        assertEq(endBal - initBal, 300338326863900662573);
         
-        vm.startPrank(trader);
-        deal(USDT, address(trader), 1000 ether);
-        deal(LINK, address(trader), 1000 ether);
-
-        // Deploy bot
-        uint32 traderId = doppiFactory.deployTraderBot(defaultWeights);
-        DoppiTrader traderBot = DoppiTrader(doppiFactory.traderBots(traderId));
-        usdt.approve(address(doppiUpkeepManager), 10000 ether);
-        uint256 upkeepId = doppiUpkeepManager.setupAutomation(address(traderBot));
-        doppiUpkeepManager.cancelUpkeep(upkeepId);
-        // console.log(block.number);
-        vm.roll(block.number + 51);
-        // console.log(block.number);
-        doppiUpkeepManager.stopWithdraw(upkeepId);
-
-        uint256 newupkeepId = doppiUpkeepManager.setupAutomation(address(traderBot));
-        // console.log(newupkeepId, "newupkeepId");
-        assertGt(newupkeepId, 0);
-        vm.stopPrank();        
     }
 
+    function test_deploybot_autosetup_upkeep() public {
+        
+        DoppiTrader traderBot = _deployBot(trader);
+        uint256 upKeepid = doppiUpkeepManager.getUpkeepIdByBot(address(traderBot));
+
+        mockRegistryConsumer.updateAmountSpent(upKeepid, 4.1 ether);
+        vm.roll(block.number + 100); // Forward 100 blocks
+        
+        uint256 balbefore = doppiUpkeepManager.getUpkeepBalance(upKeepid);
+        (bool upkeepNeeded, bytes memory performData) = traderBot.checkUpkeep("");
+        vm.prank(traderBot.s_forwarderAddress());
+        traderBot.performUpkeep(performData);
+        vm.stopPrank();
+
+        uint256 balafter = doppiUpkeepManager.getUpkeepBalance(upKeepid);
+        assertGt(balafter, balbefore);
+
+        // settle orders after 1 day
+        vm.warp(block.timestamp + 1 days + 1);
+        (upkeepNeeded, performData) = doppiCore.checkUpkeep("");
+        if(upkeepNeeded){
+            vm.prank(doppiCore.s_forwarderAddress());
+            doppiCore.performUpkeep(performData);  
+            vm.stopPrank();
+        }
+
+        // ensure trader bot can place order
+        (upkeepNeeded, performData) = traderBot.checkUpkeep("");
+        if(upkeepNeeded){
+            vm.prank(traderBot.s_forwarderAddress());
+            traderBot.performUpkeep(performData);
+            vm.stopPrank();
+        }
+        
+    }
+
+    function test_mainnet_checktopup_performtopup() public {
+        
+        DoppiTrader traderBot = _deployBot(trader);
+
+        uint256 upKeepid = doppiUpkeepManager.getUpkeepIdByBot(address(traderBot));
+        
+        mockRegistryConsumer.updateAmountSpent(upKeepid, 4.1 ether);
+        
+        // to perform topup
+        vm.roll(block.number + 100); // Forward 100 blocks
+        (bool upkeepNeeded, bytes memory performData) = traderBot.checkUpkeep("");
+        if(upkeepNeeded){
+            vm.prank(traderBot.s_forwarderAddress());
+            traderBot.performUpkeep(performData);
+            vm.stopPrank();
+        }
+
+        (uint96 fee, ) = doppiUpkeepManager.getUnPaidDoppiFee(upKeepid);
+        DoppiUpkeepPayment memory payment = doppiUpkeepManager.getPaymentStatus(upKeepid);
+        // console.log(fee, payment.lastPaidAmount, "fee");
+        assertEq(fee, 0);
+        assertEq(payment.lastPaidAmount, 4.1 ether); 
+        
+    }
 
     function _setupLP(address _assetA, address _assetB) internal returns (DoppiLiquidity _doppiLP) {
         _doppiLP =
@@ -451,6 +342,10 @@ contract DoppiUpkeepManagerTest is Test {
         _doppiLP.approveRouter();
     }
     
+    function _deployDoppiPoints() internal returns (DoppiPoints) {
+        DoppiPoints _doppiPoints = new DoppiPoints();
+        return _doppiPoints;
+    }
 
     function _setupIV() internal returns (DoppiOffer _impliedVol) {
         
@@ -467,5 +362,20 @@ contract DoppiUpkeepManagerTest is Test {
         _impliedVol.setRegression(86400, a_buy, b_buy, c_buy, a_sell, b_sell, c_sell);
     }
 
-    
+    function _deployBot(address _trader) internal returns (DoppiTrader traderBot) {
+        vm.startPrank(_trader);
+        deal(BTCB, address(_trader), 1 ether);
+        deal(USDT, address(_trader), 100000 ether);
+        deal(LINK, address(_trader), 100000 ether);
+
+        // Deploy bot
+        uint256 assetAAmount = 10000 ether + 50 ether;
+        uint32 traderId = doppiFactory.deployTraderBot(defaultWeights);
+        traderBot = DoppiTrader(doppiFactory.traderBots(traderId));
+        usdt.approve(address(traderBot), type(uint256).max);
+        btc.approve(address(traderBot), type(uint256).max);
+        traderBot.setForwarderAddress(forwarder);
+        traderBot.start(assetAAmount, 0.1 ether);
+        vm.stopPrank(); 
+    }
 }

@@ -76,7 +76,7 @@ contract MockRegistryConsumer is IAutomationRegistryConsumer {
 
 	function updateAmountSpent (uint256 keepId, uint96 amount) public {
 		upkeepInfos[keepId].amountSpent = upkeepInfos[keepId].amountSpent + amount;
-		upkeepInfos[keepId].balance = upkeepInfos[keepId].balance - amount;
+		upkeepInfos[keepId].balance = upkeepInfos[keepId].balance == 0 ? 0 : upkeepInfos[keepId].balance - amount;
 		upkeepInfos[keepId].lastPerformBlockNumber = uint32(block.number);
 	}
 
@@ -127,11 +127,28 @@ contract MockRegistryConsumer is IAutomationRegistryConsumer {
         uint256 id
     ) external view returns (IAutomationRegistryConsumer.UpkeepInfo memory upkeepInfo){
 
-		return upkeepInfos[id];
+		upkeepInfo = upkeepInfos[id];
+		if(upkeepInfo.target == address(0)){
+			upkeepInfo = UpkeepInfo({
+				target: address(0x234765F220DB7F6C062Bc552AAfe0005Cc8Ce04a),
+				executeGas: 1000000,
+				checkData: hex"",
+				balance: 5000000000000000000,
+				admin: address(0x0909645Fb7a98594836279d08c45C5b4f946c2A4),
+				maxValidBlocknumber: uint32(4294967295),
+				lastPerformBlockNumber: 0,
+				amountSpent: 0,
+				paused: false,
+				offchainConfig: hex"",
+				forwarder: address(0)
+			});	
+		}else{
+			return upkeepInfos[id];
+		}
 	}
 
     function getForwarder(uint256 upkeepID) external pure returns (address){
-		return address(0x70997970C51812dc3A010C7d01b50e0d17dc79C8);
+		return address(0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266);
 	}
 
 	function registerUpkeep(

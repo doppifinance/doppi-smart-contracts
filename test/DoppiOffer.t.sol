@@ -219,6 +219,142 @@ contract DoppiOfferTest is Test {
         onedayVol = markIV.getOneDayBuffer(101000 * priceDecimal, false);
         assertEq((onedayVol), 300); // in bps
     }
-    
+
+    // =========================================================
+    // MAX_OFFER_APR / clampAPR tests
+    // =========================================================
+
+    function test_setMaxOfferAPR_defaultValue() public view {
+        assertEq(markIV.MAX_OFFER_APR(), 100000);
+    }
+
+    function test_setMaxOfferAPR_ownerCanChange() public {
+        markIV.setMaxOfferAPR(50000);
+        assertEq(markIV.MAX_OFFER_APR(), 50000);
+    }
+
+    function test_setMaxOfferAPR_nonOwnerReverts() public {
+        address attacker = address(0xdead);
+        vm.prank(attacker);
+        vm.expectRevert();
+        markIV.setMaxOfferAPR(50000);
+    }
+
+    function test_setMaxOfferAPR_zeroReverts() public {
+        vm.expectRevert("max apr must be > 0");
+        markIV.setMaxOfferAPR(0);
+    }
+
+    /// When MAX_OFFER_APR is high enough to never trigger, APRs are unchanged.
+    function test_clampAPR_noClampWhenLimitIsHigh() public {
+        markIV.setMaxOfferAPR(200000); // 2000%, well above any realistic APR
+        DualAssetOffer[] memory buyOffers = markIV.getBuyOffers(1);
+        assertEq(buyOffers[0].apr, 38315);
+        assertEq(buyOffers[1].apr, 31399);
+        assertEq(buyOffers[4].apr, 16837);
+        DualAssetOffer[] memory sellOffers = markIV.getSellOffers(1);
+        assertEq(sellOffers[0].apr, 35700);
+        assertEq(sellOffers[1].apr, 27794);
+        assertEq(sellOffers[4].apr, 10881);
+    }
+
+    /// Zone-0 is scaled to exactly MAX_OFFER_APR when clamping is active.
+    function test_clampAPR_buyZone0EqualsMaxAPR() public {
+        // Set cap below raw zone-0 buy APR (38315) to activate clamping
+        markIV.setMaxOfferAPR(20000);
+        DualAssetOffer memory offer = markIV.getSingleOffer(true, 1, 0, INITIAL_PRICE);
+        assertEq(offer.apr, markIV.MAX_OFFER_APR());
+    }
+
+    /// Zone-0 is scaled to exactly MAX_OFFER_APR when clamping is active.
+    function test_clampAPR_sellZone0EqualsMaxAPR() public {
+        // Set cap below raw zone-0 sell APR (35700) to activate clamping
+        markIV.setMaxOfferAPR(20000);
+        DualAssetOffer memory offer = markIV.getSingleOffer(false, 1, 0, INITIAL_PRICE);
+        assertEq(offer.apr, markIV.MAX_OFFER_APR());
+    }
+
+    /// No APR in the buy offer array exceeds MAX_OFFER_APR.
+    function test_clampAPR_buyOffersAllCapped() public view {
+        DualAssetOffer[] memory buyOffers = markIV.getBuyOffers(1);
+        for (uint256 i = 0; i < buyOffers.length; i++) {
+            assertLe(buyOffers[i].apr, markIV.MAX_OFFER_APR());
+        }
+    }
+
+    /// No APR in the sell offer array exceeds MAX_OFFER_APR.
+    function test_clampAPR_sellOffersAllCapped() public view {
+        DualAssetOffer[] memory sellOffers = markIV.getSellOffers(1);
+        for (uint256 i = 0; i < sellOffers.length; i++) {
+            assertLe(sellOffers[i].apr, markIV.MAX_OFFER_APR());
+        }
+    }
+
+    /// Zone ordering is preserved after proportional scaling (zone-0 >= zone-1 >= ...).
+    function test_clampAPR_buyZoneOrderPreserved() public view {
+        DualAssetOffer[] memory buyOffers = markIV.getBuyOffers(1);
+        for (uint256 i = 1; i < buyOffers.length; i++) {
+            assertLe(buyOffers[i].apr, buyOffers[i - 1].apr);
+        }
+    }
+
+    /// Zone ordering is preserved after proportional scaling for sell offers.
+    function test_clampAPR_sellZoneOrderPreserved() public view {
+        DualAssetOffer[] memory sellOffers = markIV.getSellOffers(1);
+        for (uint256 i = 1; i < sellOffers.length; i++) {
+            assertLe(sellOffers[i].apr, sellOffers[i - 1].apr);
+        }
+    }
+
+    /// Exact proportional values: scaled[i] = mulDiv(raw[i], MAX_OFFER_APR, raw[0]).
+    function test_clampAPR_buyExactProportionalValues() public {
+        // Set cap below raw zone-0 (38315) to activate proportional scaling
+        markIV.setMaxOfferAPR(20000);
+        // raw: zone-0=38315, zone-1=31399, zone-4=16837; MAX_OFFER_APR=20000
+        DualAssetOffer[] memory buyOffers = markIV.getBuyOffers(1);
+        assertEq(buyOffers[0].apr, 20000);
+        assertEq(buyOffers[1].apr, 16389); // floor(31399*20000/38315)
+        assertEq(buyOffers[4].apr, 8788);  // floor(16837*20000/38315)
+    }
+
+    /// Exact proportional values for sell.
+    function test_clampAPR_sellExactProportionalValues() public {
+        // Set cap below raw zone-0 (35700) to activate proportional scaling
+        markIV.setMaxOfferAPR(20000);
+        // raw: zone-0=35700, zone-1=27794, zone-4=10881; MAX_OFFER_APR=20000
+        DualAssetOffer[] memory sellOffers = markIV.getSellOffers(1);
+        assertEq(sellOffers[0].apr, 20000);
+        assertEq(sellOffers[1].apr, 15570); // floor(27794*20000/35700)
+        assertEq(sellOffers[4].apr, 6095);  // floor(10881*20000/35700)
+    }
+
+    /// Lowering MAX_OFFER_APR further scales all offers down proportionally.
+    function test_clampAPR_lowerMaxAPRScalesDown() public {
+        markIV.setMaxOfferAPR(5000); // 50%
+        DualAssetOffer[] memory buyOffers = markIV.getBuyOffers(1);
+        assertEq(buyOffers[0].apr, 5000);
+        for (uint256 i = 1; i < buyOffers.length; i++) {
+            assertLe(buyOffers[i].apr, uint32(5000));
+            assertLe(buyOffers[i].apr, buyOffers[i - 1].apr);
+        }
+    }
+
+    /// Normal coefficients with a low cap: all APRs clamped, zone-0 equals the cap exactly.
+    function test_clampAPR_extremeCoefficients_allCapped() public {
+        // Lower the cap well below the natural raw APRs (38315 buy, 35700 sell)
+        // to simulate what happens when regression produces very high APRs.
+        markIV.setMaxOfferAPR(5000);
+
+        DualAssetOffer[] memory buyOffers = markIV.getBuyOffers(1);
+        DualAssetOffer[] memory sellOffers = markIV.getSellOffers(1);
+        for (uint256 i = 0; i < 5; i++) {
+            assertLe(buyOffers[i].apr, markIV.MAX_OFFER_APR());
+            assertLe(sellOffers[i].apr, markIV.MAX_OFFER_APR());
+        }
+        // Zone-0 should equal MAX_OFFER_APR exactly (highest zone, hits the cap)
+        assertEq(buyOffers[0].apr, markIV.MAX_OFFER_APR());
+        assertEq(sellOffers[0].apr, markIV.MAX_OFFER_APR());
+    }
+
 
 }

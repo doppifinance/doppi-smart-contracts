@@ -7,56 +7,88 @@ import {IDoppiTraderFactory} from "../Interface/IDoppiTraderFactory.sol";
 import {IDoppiTrader} from "../Interface/IDoppiTrader.sol";
 // import "forge-std/console.sol";
 
+interface IDoppiReferral {
+    function getUplineChain(address trader) external view returns (address l1, address l2, address l3);
+}
+
 contract DoppiPoints is Ownable, Pausable {
     
     address public doppiClaim;
-    IDoppiTraderFactory public doppiTraderFactory;
+    mapping(address => IDoppiTraderFactory) public coreToTraderFactory;
+    IDoppiReferral public doppiReferral;
     mapping(address => bool) public doppiCore;
     uint256 public totalVolume;
+    uint256 public botVolumeMultiplierNum = 1;
+    uint256 public botVolumeMultiplierDen = 1;
 
     struct ClaimedPoint {
         uint24 claimedMonthId;
         uint256 totalPointClaimed; 
     }
 
+    struct ReferralAggregates {
+        uint256 level1Volume;
+        uint256 level2Volume;
+        uint256 level3Volume;
+    }
+
     mapping(uint24 => bool) public monthExists;
     uint24[] public monthIds;
     mapping(uint24 => mapping(address => uint256)) public monthlyVolume;
     mapping(address => ClaimedPoint) public claimedPoint; 
+    mapping(uint24 => mapping(address => ReferralAggregates)) public monthlyReferralVolume;
     
     uint32 public constant startTimestamp = 1735689600; // Jan 1, 2025
 
     event TradeRecorded(address indexed trader, uint256 volume);
     event PointsReset(address indexed trader, uint256 points);
+    event ReferralChainUpdated(address indexed trader, address l1, address l2, address l3);
+    event CoreTraderFactorySet(address indexed core, address indexed factory);
+    event BotVolumeMultiplierUpdated(uint256 numerator, uint256 denominator);
 
     constructor()
         Ownable(msg.sender)
-    {
-    }
+    {    }
 
-    // Record a trade in USDT volume (1 USDT = 1 point)
     function recordTrade(address trader, uint256 volumeInUSDT) external onlyDoppiCore {
         
-        if(paused()) return;
-
-        require(volumeInUSDT > 0, "Volume must be > 0");
-
-        // Determine the actual trader (handle trader bots internally)
-        address actualTrader = _getActualTrader(trader);
+        if (paused()) return;
         
+        require(volumeInUSDT > 0, "volume must be > 0");
+
+        // Determine actual trader and whether position owner is a registered bot
+        (address actualTrader, bool isTraderBot) = _resolveTrader(msg.sender, trader);
+        uint256 effectiveVolume = volumeInUSDT;
+        if (isTraderBot) {
+            effectiveVolume = (volumeInUSDT * botVolumeMultiplierNum) / botVolumeMultiplierDen;
+        }
         uint24 monthId = _currentMonthId();
-        monthlyVolume[monthId][actualTrader] += volumeInUSDT;
-        totalVolume += volumeInUSDT;
 
-        _ensureMonthId(monthId); // ensures uniqueness
+        monthlyVolume[monthId][actualTrader] += effectiveVolume;
+        totalVolume += effectiveVolume;
+        _ensureMonthId(monthId);
 
-        emit TradeRecorded(actualTrader, volumeInUSDT);
+        // cache referral volume per level from the current active referral chain
+        if (address(doppiReferral) != address(0)) {
+            (address l1, address l2, address l3) = doppiReferral.getUplineChain(actualTrader);
+            if (l1 != address(0)) {
+                monthlyReferralVolume[monthId][l1].level1Volume += effectiveVolume;
+            }
+            if (l2 != address(0)) {
+                monthlyReferralVolume[monthId][l2].level2Volume += effectiveVolume;
+            }
+            if (l3 != address(0)) {
+                monthlyReferralVolume[monthId][l3].level3Volume += effectiveVolume;
+            }
+            emit ReferralChainUpdated(actualTrader, l1, l2, l3);
+        }
+        emit TradeRecorded(actualTrader, effectiveVolume);
     }
 
     function resetPoint(address trader) external onlyDoppiClaim {
 
         ClaimedPoint storage ref = claimedPoint[trader];
-        (,uint256 readyPoint, ) = this.getAllPointData(trader); 
+        (,uint256 readyPoint, ) = _getAllPointData(trader); 
 
         uint24 currentMonthId = _currentMonthId();
         // Only reset if we're in a new month
@@ -67,26 +99,25 @@ contract DoppiPoints is Ownable, Pausable {
         emit PointsReset(trader, readyPoint);
     }
 
+    function getReferralVolumeByMonth(address referrer, uint24 monthId)
+        external view returns (uint256 l1, uint256 l2, uint256 l3)
+    {
+        ReferralAggregates memory agg = monthlyReferralVolume[monthId][referrer];
+        l1 = agg.level1Volume;
+        l2 = agg.level2Volume;
+        l3 = agg.level3Volume;
+    }
+
     function getAllPointData(address trader)
         external
         view
-        returns (uint256 totalClaimedPoint, uint256 readyPoint, uint256 currentMonthPoint)
+        returns (
+            uint256 totalClaimedPoint,
+            uint256 readyPoint,
+            uint256 currentMonthPoint
+        )
     {
-        ClaimedPoint memory claimed = claimedPoint[trader];
-        totalClaimedPoint = claimed.totalPointClaimed;
-        uint24 currentMonthId = _currentMonthId();
-        currentMonthPoint = monthlyVolume[currentMonthId][trader];
-        
-        // Calculate start month ID safely
-        uint24 startMonthId = claimed.claimedMonthId + 1;
-        uint256 endMonthId = currentMonthId;
-        // Only proceed if there are months to process (avoid underflow in loop condition)
-        if (startMonthId < endMonthId) {
-            // Process from startMonthId to endMonthId - 1 (exclude current month)
-            for (uint24 monthId = startMonthId; monthId < endMonthId; monthId++) {
-                readyPoint += monthlyVolume[monthId][trader];
-            }
-        }
+        return _getAllPointData(trader);
     }
 
     function getCurrentMonthId() external view returns (uint24) {
@@ -112,9 +143,23 @@ contract DoppiPoints is Ownable, Pausable {
         doppiClaim = _doppiClaim;
     }
 
-     function setDoppiTraderFactory(address _traderFactory) external onlyOwner {
-        require(_traderFactory != address(0), "Zero address");
-        doppiTraderFactory = IDoppiTraderFactory(_traderFactory);
+    function setDoppiReferral(address _doppiReferral) external onlyOwner {
+        require(_doppiReferral != address(0), "Zero address");
+        doppiReferral = IDoppiReferral(_doppiReferral);
+    }
+
+    function setCoreTraderFactory(address _core, address _factory) external onlyOwner {
+        require(_core != address(0), "Zero address");
+        require(_factory != address(0), "Zero address");
+        coreToTraderFactory[_core] = IDoppiTraderFactory(_factory);
+        emit CoreTraderFactorySet(_core, _factory);
+    }
+
+    function setBotVolumeMultiplier(uint256 numerator, uint256 denominator) external onlyOwner {
+        require(denominator > 0, "Zero denominator");
+        botVolumeMultiplierNum = numerator;
+        botVolumeMultiplierDen = denominator;
+        emit BotVolumeMultiplierUpdated(numerator, denominator);
     }
 
     function setPause() external onlyOwner {
@@ -126,14 +171,38 @@ contract DoppiPoints is Ownable, Pausable {
     }
 
     // internal function 
-    function _getActualTrader(address positionOwner) internal view returns (address owner) {
-        
+
+    function _getAllPointData(address trader)
+        internal
+        view
+        returns (
+            uint256 totalClaimedPoint,
+            uint256 readyPoint,
+            uint256 currentMonthPoint
+        )
+    {
+        ClaimedPoint memory claimed = claimedPoint[trader];
+        uint24 currentMonthId = _currentMonthId();
+        currentMonthPoint = monthlyVolume[currentMonthId][trader];
+
+        uint24 startMonth = claimed.claimedMonthId + 1;
+        if (startMonth < currentMonthId) {
+            for (uint24 month = startMonth; month < currentMonthId; month++) {
+                readyPoint += monthlyVolume[month][trader];
+            }
+        }
+        totalClaimedPoint = claimed.totalPointClaimed;
+    }
+
+    function _resolveTrader(address core, address positionOwner) internal view returns (address owner, bool isTraderBot) {
+        IDoppiTraderFactory factory = coreToTraderFactory[core];
         if (
-            address(doppiTraderFactory) != address(0) &&
-            doppiTraderFactory.isTraderBot(positionOwner)
+            address(factory) != address(0) &&
+            factory.isTraderBot(positionOwner)
         ) {
-            owner = IDoppiTrader(positionOwner).get_validTrader();
-        }else{
+            owner = IDoppiTrader(positionOwner).validTrader();
+            isTraderBot = true;
+        } else {
             owner = positionOwner;
         }
     }

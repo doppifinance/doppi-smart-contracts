@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.19;
+import {TopUpInfo} from "../Interface/IDoppiUpkeepManager.sol";
 
 
 contract MockDoppiUpKeepManager {
@@ -18,6 +19,20 @@ contract MockDoppiUpKeepManager {
     function getForwarder(uint256 _upkeepId) external view returns (address) {
         return forwarder;
     }
-    
-    
+
+    function getDefault_Amount() external view returns (uint256) {
+        return 0;
+    }
+
+    function insertNewBot(address trader, address bot) external {
+        return;
+    }
+
+    function shouldTopUpkeep(uint256 upkeepId) external view returns (TopUpInfo memory topUpInfo, bool needTopUp) {
+        return (topUpInfo, false);
+    }
+
+    function shouldInsertNew(address traderBot) external view returns (bool needInsert) {
+        return true;
+    }    
 }

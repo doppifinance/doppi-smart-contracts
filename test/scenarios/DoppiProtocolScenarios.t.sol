@@ -65,7 +65,6 @@ contract DoppiProtocolScenariosTest is Test {
 
         configLP = TestParamLib.get_configLP();
         configLP.router = address(swapper);
-        configLP.quoter = address(swapper);
         configLP.v3Pool = address(swapper);
         configLP.chainLinkFeed = address(oracle);
 
@@ -77,6 +76,7 @@ contract DoppiProtocolScenariosTest is Test {
         doppiRouter = new DoppiLiquidityRouter(IERC20(usdt), IERC20(btc), doppiLP);
         doppiFactory = new DoppiTraderFactory(IERC20(usdt), IERC20(btc), address(doppiCore), address(doppiLP), address(doppiRouter));
 
+        doppiRouter.setDoppiCore(address(doppiCore));
         doppiPoints.setDoppiCore(address(doppiCore), true);
         opportunityBot.setForwarderAddress(mockForwarder);
         doppiCore.setForwarderAddress(mockForwarder);
@@ -84,6 +84,7 @@ contract DoppiProtocolScenariosTest is Test {
         doppiCore.setOpportunityBot(address(opportunityBot), true);
         doppiLP.setForwarderAddress(mockForwarder);
         doppiLP.setDoppiCore(address(doppiCore));
+        doppiLP.setDoppiLiquidityRouter(address(doppiRouter));
         doppiLP.setEntryPoint(address(doppiRouter.entryPointA()), true);
         doppiLP.setEntryPoint(address(doppiRouter.entryPointB()), true);
         doppiLP.setDoppiTraderFactory(address(doppiFactory));
@@ -458,9 +459,7 @@ contract DoppiProtocolScenariosTest is Test {
         
         oracle.setPrice(int256(_price));
         (bool upkeepNeeded, bytes memory performData) = opportunityBot.checkUpkeep("");
-        // console.log(upkeepNeeded);
         assertTrue(upkeepNeeded);
-        assertGt(performData.length, 0);
         vm.prank(mockForwarder);
         opportunityBot.performUpkeep(performData);
     }

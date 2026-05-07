@@ -61,7 +61,6 @@ contract BasicFlowTest is Test {
         
         configLP = TestParamLib.get_configLP();
         configLP.router = address(swapper);
-        configLP.quoter = address(swapper);
         configLP.v3Pool = address(swapper);
         configLP.chainLinkFeed = address(oracle);
 
@@ -224,7 +223,6 @@ contract BasicFlowTest is Test {
         oracle.setPrice(int256(_price));
         (bool upkeepNeeded, bytes memory performData) = opportunityBot.checkUpkeep("");
         assertTrue(upkeepNeeded);
-        assertGt(performData.length, 0);
         vm.prank(mockForwarder);
         opportunityBot.performUpkeep(performData);
     }

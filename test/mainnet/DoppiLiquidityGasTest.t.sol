@@ -26,7 +26,7 @@ import {TestParamLib} from "../../src/Library/TestParamLib.sol";
 import "../../src/mainnet/DoppiLiquidityTypes.sol";
 
 
-contract Scenario2Test is Test {
+contract DoppiLiquidityGasTest is Test {
     DoppiTraderFactory doppiFactory;
     // DoppiTrader doppiTrader;
     DoppiCore doppiCore;
@@ -99,6 +99,7 @@ contract Scenario2Test is Test {
     
         doppiRouter = new DoppiLiquidityRouter(IERC20(USDT), IERC20(BTC), doppiLP);
         doppiRouter.setDoppiCore(address(doppiCore));
+        doppiLP.setDoppiLiquidityRouter(address(doppiRouter));
         doppiFactory = new DoppiTraderFactory(IERC20(USDT), IERC20(BTC), address(doppiCore), address(doppiLP), address(doppiRouter));
         doppiUpkeepManager = _deployDoppiUpkeepManager(address(doppiFactory));
         
@@ -108,11 +109,86 @@ contract Scenario2Test is Test {
         _setDoppiLiquidityProperties(doppiLP, address(doppiCore), doppiRouter, address(doppiFactory));
         _setDoppiCoreProperties(doppiCore, doppiFactory, address(doppiOpportunity));
 
-        doppiPoints.setDoppiTraderFactory(address(doppiFactory));
+        doppiPoints.setCoreTraderFactory(address(doppiCore), address(doppiFactory));
         doppiOpportunity.setForwarderAddress(forwarder);
         
         _setupIV(impliedVol);        
         vm.stopPrank();
+    }
+
+    function test_Scenario_CheckUpKeep_DoppiLiquidity_Unwind_Mainnet_Scenario() public {
+        
+        uint256 depositLPAmount = 500 ether;
+        uint256 depositBTCAmount = 0.005 ether;
+
+        deal(USDT, trader, depositLPAmount);            
+        deal(BTC, trader, depositBTCAmount);            
+            
+        vm.startPrank(trader);            
+        usdt.approve(address(doppiRouter), depositLPAmount);        
+        btc.approve(address(doppiRouter), depositBTCAmount);        
+        doppiRouter.deposit(address(usdt), depositLPAmount);
+        doppiRouter.deposit(address(btc), depositBTCAmount);
+        vm.stopPrank();
+
+        uint256 swapAmount = 100 ether;
+        uint256 strikePrice = 89500 * 1e8;
+        int256 newPrice = int256(90000 * 1e8);
+          
+        _manipulateRealChainlink(newPrice, address(oracle), true);
+
+        DualAssetOffer memory buyOffer = impliedVol.getOffer(true, 1, 1);
+        console.log(buyOffer.strikePrice, buyOffer.apr);
+        
+        deal(USDT, trader, swapAmount);   
+        vm.startPrank(trader);     
+        usdt.approve(address(doppiCore), swapAmount); 
+        doppiCore.deposit_buy(DepositParams({
+            amount: swapAmount,
+            strikeZone: 1,
+            strikePrice: buyOffer.strikePrice,
+            numDays: 1,
+            apr: buyOffer.apr,
+            expiry: buyOffer.expiry
+        }));
+        vm.stopPrank();
+        
+
+        newPrice = int256(89483 * 1e8);
+        _manipulateRealChainlink(newPrice, address(oracle), true);
+        
+        // 1 day fast forward and settle
+        vm.warp(block.timestamp + 1 days + 1);
+
+        (bool upkeepNeeded, bytes memory performData) = doppiCore.checkUpkeep("");
+        vm.prank(forwarder);
+        doppiCore.performUpkeep(performData);  
+        vm.stopPrank();
+
+        uint256 lowerBound = 88000 * 1e8;
+        uint256 upperBound = 90000 * 1e8;
+                
+        for (uint256 price = upperBound; price >= lowerBound; ) {
+            uint256 amount = doppiLP.amountToBuy(price);
+            console.log(price, amount);
+            price -= (500 * 1e8); 
+        }
+        uint256 amount = doppiLP.amountToBuy(8850000000000);
+        assertGt(amount, 0, "There should be unwind amount at this price");
+        
+        newPrice = int256(88483 * 1e8);
+        _manipulateRealChainlink(newPrice, address(oracle), true);
+        _doppiLPCheckUpkeep_performUpkeep();
+        
+        for (uint256 price = upperBound; price >= lowerBound; ) {
+            uint256 amount = doppiLP.amountToBuy(price);
+            console.log(price, amount);
+            price -= (500 * 1e8); 
+        }
+
+        amount = doppiLP.amountToBuy(8850000000000);
+        assertEq(amount, 0, "There should be no unwind amount at this price");
+
     }
 
     function test_Scenario_CheckUpKeep_DoppiLiquidity_GasMax_Buy() public {
@@ -138,13 +214,15 @@ contract Scenario2Test is Test {
         for (uint256 priceChange = 0; priceChange < priceChanges; priceChange++) {
             
             int256 startPrice = int256(currentPrice);
-            _manipulateRealChainlink(startPrice, address(oracle));                        
+            _manipulateRealChainlink(startPrice, address(oracle), false);                        
             // Perform swaps at this price
             for (uint256 swapNum = 0; swapNum < swapsPerPrice; swapNum++) {
                 uint256 swapAmount = _generateRandomAmount(swapNum);
+                uint256 amountinBTC = swapAmount * 1e8 / uint256(startPrice);
                 vm.startPrank(address(doppiCore));
-                deal(USDT, address(doppiCore), swapAmount);  
-                doppiLP.swap(swapAmount, uint256(startPrice), true);
+                deal(USDT, address(doppiCore), swapAmount);
+                doppiLP.settle(swapAmount, amountinBTC, uint256(startPrice), true);
+                // doppiLP.swap(swapAmount, uint256(startPrice), true);
                 vm.stopPrank();
             }
 
@@ -160,7 +238,7 @@ contract Scenario2Test is Test {
             }
         }
         int256 newPrice = int256(98556 * 1e8);
-        _manipulateRealChainlink(newPrice, address(oracle));
+        _manipulateRealChainlink(newPrice, address(oracle), false);
         
         uint256 unwindAmount = doppiLP.getUnwindInfo(true, 10200000000000);
         assertEq(unwindAmount, 165000000000000000000000);
@@ -202,6 +280,8 @@ contract Scenario2Test is Test {
         doppiRouter.deposit(address(btc), depositBTCAmount);
         vm.stopPrank();
 
+        uint256 max;
+        uint256 min;
         uint256 totalSwaps = 500;
         uint256 priceChanges = 50; // Change price 50 times during test
         uint256 swapsPerPrice = totalSwaps / priceChanges;
@@ -210,22 +290,47 @@ contract Scenario2Test is Test {
         for (uint256 priceChange = 0; priceChange < priceChanges; priceChange++) {
             
             int256 startPrice = int256(currentPrice);
-            _manipulateRealChainlink(startPrice, address(oracle));            
+            _manipulateRealChainlink(startPrice, address(oracle), false);            
             // Perform swaps at this price
             for (uint256 swapNum = 0; swapNum < swapsPerPrice; swapNum++) {
                 bool isBuy = swapNum % 2 == 0;
                 uint256 swapAmount = _generateRandomAmount(swapNum);
+                uint256 amountinBTC = swapAmount * 1e8 / uint256(startPrice);
                 if(!isBuy){
-                    uint256 amountinBTC = swapAmount * 1e8 / uint256(startPrice);
                     vm.startPrank(address(doppiCore));
                     deal(BTC, address(doppiCore), amountinBTC);  
-                    doppiLP.swap(amountinBTC, uint256(startPrice), false);
+                    doppiLP.settle(amountinBTC, swapAmount, uint256(startPrice), false);
+                    // doppiLP.swap(amountinBTC, uint256(startPrice), false);
                     vm.stopPrank();
+                    if(max == 0) {
+                        max = uint256(startPrice);
+                    }
+                    if(min == 0) {
+                        min = uint256(startPrice);
+                    }
+                    if(max < uint256(startPrice)){
+                        max = uint256(startPrice);
+                    }else if(min > uint256(startPrice)){
+                        min = uint256(startPrice);
+                    }
+                    // console.log(max, min, "max, min after sell");
                 }else{
                     vm.startPrank(address(doppiCore));
                     deal(USDT, address(doppiCore), swapAmount);  
-                    doppiLP.swap(swapAmount, uint256(startPrice), true);
+                    doppiLP.settle(swapAmount, amountinBTC, uint256(startPrice), true);
+                    // doppiLP.swap(swapAmount, uint256(startPrice), true);
                     vm.stopPrank(); 
+                    if(max == 0) {
+                        max = uint256(startPrice);
+                    }
+                    if(min == 0) {
+                        min = uint256(startPrice);
+                    }
+                    if(max < uint256(startPrice)){
+                        max = uint256(startPrice);
+                    }else if(min > uint256(startPrice)){
+                        min = uint256(startPrice);
+                    }
                 }
             }
 
@@ -241,8 +346,16 @@ contract Scenario2Test is Test {
             }
         }
 
+        console.log(max, min, "max, min");
+
+        (uint256 lowerBound, uint256 upperBound) = doppiLP.getLowerUpperBound();
+        console.log(lowerBound, upperBound, "lowerBound, upperBound");
+        _displayBound(lowerBound, upperBound);
+
+        // first round, price drops significantly, triggering unwinds on the buy side
+        // from larger price to lower price, more and more buy positions will be unwound
         int256 newPrice = int256(96556 * 1e8);
-        _manipulateRealChainlink(newPrice, address(oracle));
+        _manipulateRealChainlink(newPrice, address(oracle), false);
         
         uint256 unwindAmount = doppiLP.getUnwindInfo(true, 10200000000000);
         assertEq(unwindAmount, 75000000000000000000000);
@@ -273,11 +386,15 @@ contract Scenario2Test is Test {
         unwindAmount = doppiLP.getUnwindInfo(true, 9800000000000);
         assertEq(unwindAmount, 0);
        
-        assertEq(doppiLP.lowerBound(), 9800000000000);
-        assertEq(doppiLP.upperBound(), 10250000000000);
+        (lowerBound, upperBound) = doppiLP.getLowerUpperBound();
+        _displayBound(lowerBound, upperBound);
+        assertEq(lowerBound, 9800000000000);
+        assertEq(upperBound, 10250000000000);
         
+        // second round, price up significantly, triggering unwinds on the sell side
+        // from lower price to larger price, more and more sell positions will be unwound
         newPrice = int256(103056 * 1e8);
-        _manipulateRealChainlink(newPrice, address(oracle));
+        _manipulateRealChainlink(newPrice, address(oracle), false);
         
         unwindAmount = doppiLP.getUnwindInfo(false, 9800000000000);
         assertEq(unwindAmount, 1533957499285656245);
@@ -286,14 +403,15 @@ contract Scenario2Test is Test {
         unwindAmount = doppiLP.getUnwindInfo(false, 10250000000000);
         assertEq(unwindAmount, 881676194019110458);
 
-        assertEq(doppiLP.lowerBound(), 9800000000000);
-        assertEq(doppiLP.upperBound(), 10250000000000);
-        
         _doppiLPCheckUpkeep_performUpkeep();
         _doppiLPCheckUpkeep_performUpkeep();
 
-        assertEq(doppiLP.lowerBound(), 10150000000000);
-        assertEq(doppiLP.upperBound(), 10250000000000);
+        // unwinding sell from lower price to higher 
+        (lowerBound, upperBound) = doppiLP.getLowerUpperBound();
+        console.log(lowerBound, upperBound, "lowerBound, upperBound");
+        _displayBound(lowerBound, upperBound);
+        assertEq(lowerBound, 10150000000000);
+        assertEq(upperBound, 10250000000000);
 
         _doppiLPCheckUpkeep_performUpkeep();
         _doppiLPCheckUpkeep_performUpkeep();
@@ -305,8 +423,11 @@ contract Scenario2Test is Test {
         unwindAmount = doppiLP.getUnwindInfo(false, 10250000000000);
         assertEq(unwindAmount, 0);
         
-        assertEq(doppiLP.lowerBound(), 0);
-        assertEq(doppiLP.upperBound(), 0);        
+        (lowerBound, upperBound) = doppiLP.getLowerUpperBound();
+        console.log(lowerBound, upperBound, "lowerBound, upperBound");
+        _displayBound(lowerBound, upperBound);
+        assertEq(lowerBound, 0); // after all unwinds, there should be no more unwind amount, and the bounds should reset
+        assertEq(upperBound, 0);        
     }
 
     function test_Scenario_CheckUpKeep_DoppiLiquidity_GasMax_Sell() public {
@@ -332,14 +453,14 @@ contract Scenario2Test is Test {
         for (uint256 priceChange = 0; priceChange < priceChanges; priceChange++) {
             
             int256 startPrice = int256(currentPrice);
-            _manipulateRealChainlink(startPrice, address(oracle));                        
+            _manipulateRealChainlink(startPrice, address(oracle), false);                        
             // Perform swaps at this price
             for (uint256 swapNum = 0; swapNum < swapsPerPrice; swapNum++) {
                 uint256 swapAmount = _generateRandomAmount(swapNum);
                 uint256 amountinBTC = swapAmount * 1e8 / uint256(startPrice);
                 vm.startPrank(address(doppiCore));
                 deal(BTC, address(doppiCore), amountinBTC);  
-                doppiLP.swap(amountinBTC, uint256(startPrice), false);
+                doppiLP.settle(amountinBTC, swapAmount, uint256(startPrice), false);
                 vm.stopPrank();
             }
             // Generate random price between 100000 and 120000 
@@ -355,7 +476,7 @@ contract Scenario2Test is Test {
         }
 
         int256 newPrice = int256(101556 * 1e8);
-        _manipulateRealChainlink(newPrice, address(oracle));
+        _manipulateRealChainlink(newPrice, address(oracle), false);
         
         uint256 unwindAmount = doppiLP.getUnwindInfo(false, 9800000000000);
         assertEq(unwindAmount, 2812255415357036449);
@@ -381,6 +502,128 @@ contract Scenario2Test is Test {
         
     }
 
+    function test_Scenario_DoppiLiquidity_RemoveUnwind() public {
+        
+        uint256 depositLPAmount = 2_000_000 ether;
+        uint256 depositBTCAmount = 16.0000 ether;
+
+        deal(USDT, trader, depositLPAmount);            
+        deal(BTC, trader, depositBTCAmount);            
+            
+        vm.startPrank(trader);            
+        usdt.approve(address(doppiRouter), depositLPAmount);        
+        btc.approve(address(doppiRouter), depositBTCAmount);        
+        doppiRouter.deposit(address(usdt), depositLPAmount);
+        doppiRouter.deposit(address(btc), depositBTCAmount);
+        vm.stopPrank();
+
+        uint256 totalSwaps = 500;
+        uint256 priceChanges = 50; // Change price 50 times during test
+        uint256 swapsPerPrice = totalSwaps / priceChanges;
+        uint256 totalUSDT = 0;
+        uint256 totalBTC = 0;
+        
+        uint256 currentPrice = (100_000 * 10**8) * (10100 / 10000);
+        for (uint256 priceChange = 0; priceChange < priceChanges; priceChange++) {
+            
+            int256 startPrice = int256(currentPrice);
+            _manipulateRealChainlink(startPrice, address(oracle), false);            
+            // Perform swaps at this price
+            for (uint256 swapNum = 0; swapNum < swapsPerPrice; swapNum++) {
+                bool isBuy = swapNum % 2 == 0;
+                uint256 swapAmount = _generateRandomAmount(swapNum);
+                uint256 amountinBTC = swapAmount * 1e8 / uint256(startPrice);
+                if(!isBuy){
+                    vm.startPrank(address(doppiCore));
+                    deal(BTC, address(doppiCore), amountinBTC);  
+                    totalBTC += amountinBTC;
+                    doppiLP.settle(amountinBTC, swapAmount, uint256(startPrice), false);
+                    vm.stopPrank();
+                }else{
+                    vm.startPrank(address(doppiCore));
+                    deal(USDT, address(doppiCore), swapAmount);  
+                    totalUSDT += swapAmount;
+                    doppiLP.settle(swapAmount, amountinBTC, uint256(startPrice), true);
+                    vm.stopPrank(); 
+                }
+            }
+
+            // Generate random price between 100000 and 120000 
+            if(priceChange > 10 && priceChange <= 15){
+                currentPrice = currentPrice * 9950 / 10000;
+            }else if(priceChange > 15 && priceChange <= 20){
+                currentPrice = currentPrice * 10050 / 10000;
+            }else if(priceChange > 20 && priceChange <= 25){
+                currentPrice = currentPrice * 9910 / 10000;
+            }else{
+                currentPrice = currentPrice * 10010 / 10000;
+            }
+        }
+
+        console.log(totalUSDT, totalBTC, "totalUSDT, totalBTC");
+        int256 newPrice = int256(96556 * 1e8);
+        _manipulateRealChainlink(newPrice, address(oracle), false);
+        
+        _getDoppiLPUnwindData();
+
+        uint256 unwindAmount = doppiLP.getUnwindInfo(true, 10200000000000);
+        assertEq(unwindAmount, 75000000000000000000000);
+        unwindAmount = doppiLP.getUnwindInfo(true, 10150000000000);
+        assertEq(unwindAmount, 175000000000000000000000);
+
+        unwindAmount = doppiLP.getUnwindInfo(false, 10200000000000);
+        assertEq(unwindAmount, 2065341308902808235);
+        unwindAmount = doppiLP.getUnwindInfo(false, 10150000000000);
+        assertEq(unwindAmount, 2372177200776137987);
+
+        vm.startPrank(trader);            
+        uint256 bal = doppiLP.balanceOf(trader);
+        doppiLP.approve(address(doppiRouter), bal);        
+        doppiRouter.redeem(bal/2);
+        vm.stopPrank();
+
+        _getDoppiLPUnwindData();
+
+        (uint256 lowerBound, uint256 upperBound) = doppiLP.getLowerUpperBound();
+        console.log(lowerBound, upperBound);
+
+        vm.startPrank(trader);            
+        bal = doppiLP.balanceOf(trader);
+        doppiLP.approve(address(doppiRouter), bal);        
+        doppiRouter.redeem(bal);
+        vm.stopPrank();
+
+        _getDoppiLPUnwindData();
+
+        unwindAmount = doppiLP.getUnwindInfo(true, 10200000000000);
+        assertEq(unwindAmount, 0);
+        unwindAmount = doppiLP.getUnwindInfo(true, 10150000000000);
+        assertEq(unwindAmount, 0);
+
+        unwindAmount = doppiLP.getUnwindInfo(false, 10200000000000);
+        assertEq(unwindAmount, 0);
+        unwindAmount = doppiLP.getUnwindInfo(false, 10150000000000);
+        assertEq(unwindAmount, 0);
+
+        (lowerBound, upperBound) = doppiLP.getLowerUpperBound();
+        console.log(lowerBound, upperBound);
+        assertEq(lowerBound, 0);
+        assertEq(upperBound, 0);        
+    }
+
+    function _getDoppiLPUnwindData() internal view {
+
+        console.log("start DoppiLPUnwindData");
+        uint256 lowerBound = 97000 * 1e8;
+        uint256 upperBound = 103000 * 1e8;
+        for (uint256 price = upperBound; price > lowerBound; ) {
+            uint256 amountBuy = doppiLP.amountToBuy(price);
+            uint256 amountSell = doppiLP.amountToSell(price);
+            console.log(price, amountBuy, amountSell);
+            price -= (500 * 1e8); 
+        }
+        
+    }
     
     function _depositBTC(uint256 amount) internal returns (DualAssetOffer memory) {
 
@@ -399,21 +642,6 @@ contract Scenario2Test is Test {
         doppiCore.deposit_sell(params);
         vm.stopPrank();
         return sellOffer;
-    }
-
-    function _setupAutomation(DoppiTrader traderBot) internal returns (uint256 upkeepId) {
-        // Setup Automation
-        upkeepId = doppiUpkeepManager.setupAutomation(address(traderBot));
-
-        // Setup forwarder address
-        address forwarder_ = doppiUpkeepManager.getForwarder(upkeepId);
-        traderBot.setForwarderAddress(forwarder_);
-
-        // Fund and start
-        usdt.approve(address(traderBot), 10000 ether);
-        btc.approve(address(traderBot), 0.2 ether);
-        traderBot.start(10000 ether, 0.1 ether);
-        
     }
 
     function _setDoppiCoreProperties(
@@ -490,7 +718,8 @@ contract Scenario2Test is Test {
 
     function _deployDoppiReferral(address _doppiPoints) internal returns (DoppiReferral) {
         DoppiReferral _doppiReferral = new DoppiReferral(_doppiPoints, 150, 100, 50);
-        _doppiReferral.setMinVolumeForL2(1_000 ether, 2_000 ether);
+        _doppiReferral.setMinVolumeForL2L3(1_000 ether, 2_000 ether);
+        DoppiPoints(_doppiPoints).setDoppiReferral(address(_doppiReferral));
         return _doppiReferral;
     }
 
@@ -541,12 +770,24 @@ contract Scenario2Test is Test {
         assertLt(gasUsed, 200_000, "Gas usage too high");
 
         if(upkeepNeeded){
+            uint256 balbeforeUSDT = usdt.balanceOf(address(doppiLP));
+            uint256 balbeforeBTC = btc.balanceOf(address(doppiLP));
+            // console.log(balbeforeUSDT, balbeforeBTC, "balbeforeUSDT, balbeforeBTC before");
             vm.prank(forwarder);
             gasBefore = gasleft();
             doppiLP.performUpkeep(performData);
+            vm.stopPrank();
             gasUsed = gasBefore - gasleft();
             console.log(gasUsed, "gasUsed in doppiLP.performUpkeep");
             assertLt(gasUsed, 1_000_000, "Gas usage too high");
+
+            uint256 balAfterUSDT = usdt.balanceOf(address(doppiLP));
+            uint256 balAfterBTC = btc.balanceOf(address(doppiLP));
+            // assertGt(balbeforeUSDT, balAfterUSDT, "USDT balance should decrease after sell unwind");
+            // assertGt(balbeforeBTC, balAfterBTC, "BTC balance should decrease after buy unwind");
+            // console.log(balAfterUSDT, balAfterBTC, "balAfterUSDT, balAfterBTC after");
+            
+            
         }
     }
 
@@ -565,13 +806,16 @@ contract Scenario2Test is Test {
         _impliedVol.setPancakeV3Pool(PCSWAP_V3Pool);
     }
 
-    function _manipulateRealChainlink(int256 newPrice, address _oracle) internal {
+    function _manipulateRealChainlink(int256 newPrice, address _oracle, bool updateUnwindGapMultiplier) internal {
         
         // Then override the feed address
         vm.prank(owner);
         MockOracle(_oracle).setPrice(newPrice);
         vm.stopPrank();
         configLP = _getConfigLP();
+        if(updateUnwindGapMultiplier){
+            configLP.unwindGapMultiplier = 2;
+        }
         configLP.chainLinkFeed = _oracle;
         vm.prank(doppiLP.owner());
         doppiLP.setConfig(configLP); 
@@ -587,7 +831,6 @@ contract Scenario2Test is Test {
         _configLP = ConfigParam({
 			chainLinkFeed : CHAINLINK_BTC_USD,
 			router : PCSWAP_V3_ROUTER,
-			quoter: PCSWAP_V3_QUOTER,
 			poolFee: 500,  
 			slippage: 2000,
 			liquidityFee: 1000,
@@ -598,7 +841,8 @@ contract Scenario2Test is Test {
 			maxDepositPercentage: 20000,
 			maxDelay: 2 minutes,
 			maxSwap: 500000 ether,
-            priceGap: 500
+            priceGap: 500,
+            unwindGapMultiplier: 1
 		});
     }
 
@@ -619,5 +863,23 @@ contract Scenario2Test is Test {
         uint256 priceGapWithDecimals = 500 * 1e8;
         _price = (_price / priceGapWithDecimals) * priceGapWithDecimals;
         return _isBuy ? _price - (priceGapWithDecimals * (_strikeZone - 1)) : _price + (priceGapWithDecimals * _strikeZone);
+    }
+
+    function _displayBound(uint256 lowerBound, uint256 upperBound) internal view {
+        
+        if(lowerBound == 0 && upperBound == 0) {
+            console.log("No active positions");
+            return;
+        }
+
+        for (uint256 price = upperBound; price >= lowerBound; ) {
+            // console.log(price, "price");
+            bool isBuy = true;
+            uint256 amountBuy = doppiLP.amountToBuy(price);
+            uint256 amountSell = doppiLP.amountToSell(price);
+            console.log(price, amountBuy, amountSell);
+            price -= (500 * 1e8); 
+        }
+
     }
 }

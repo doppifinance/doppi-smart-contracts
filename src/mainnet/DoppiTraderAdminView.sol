@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.26;
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
+import {Pausable} from "@openzeppelin/contracts/utils/Pausable.sol";
 import {IDoppiCore} from "../Interface/IDoppiCore.sol";
 import {IDoppiLiquidity} from "../Interface/IDoppiLiquidity.sol";
 import {IDoppiOffer} from "../Interface/IDoppiOffer.sol";
@@ -8,10 +9,10 @@ import {IDoppiUpkeepManager} from "../Interface/IDoppiUpkeepManager.sol";
 import {IDoppiLiquidityRouter} from "../Interface/IDoppiLiquidityRouter.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "./DoppiCoreTypes.sol";
-// import "forge-std/console.sol";
+import "forge-std/console.sol";
 
 
-abstract contract DoppiTraderAdminView is Ownable {
+abstract contract DoppiTraderAdminView is Ownable, Pausable {
     
     IERC20 public assetA;
     IERC20 public assetB;
@@ -23,22 +24,30 @@ abstract contract DoppiTraderAdminView is Ownable {
 
     mapping(uint256 => uint256) public unWindBuy;
     mapping(uint256 => uint256) public unWindSell;
+    mapping(uint256 => StrikeNode) internal buyStrikeNodes;
+    mapping(uint256 => StrikeNode) internal sellStrikeNodes;
 
     address public validTrader;
     address public s_forwarderAddress;
-    uint16 public traderDefaultDay;
+    uint8 public traderDefaultDay;
     uint24 public maxOrder;
     uint32 public ratioLP;
-    uint256 public upperBound;
-    uint256 public lowerBound;
+    uint256 internal buyHead;
+    uint256 internal buyTail;
+    uint256 internal sellHead;
+    uint256 internal sellTail;
+    uint256 internal activeBuyStrikeCount;
+    uint256 internal activeSellStrikeCount;
     uint256 public maxSwap;
+    uint8 public unwindGapMultiplier;
+    uint256 priceDecimals;
+
+    error NotValidTrader();
+    error NotValidTraderOrUpkeep();
 
     
     function getTotalBalancesInLP() external view returns (uint256 totalAssetA, uint256 totalAssetB) {
-        uint256 totalAssetLP = doppiLP.totalAssetsInAssetA();
-        (uint256 ratioA, ) = doppiLP.assetRatio();        
-        totalAssetA = totalAssetLP * ratioA / 1e18;
-        totalAssetB = totalAssetLP - totalAssetA;
+        return doppiLP.getBalances(address(this));
     }
 
     function getTotalBalances() external view returns (uint256 totalAssetA, uint256 totalAssetB, uint256 price) {
@@ -64,30 +73,50 @@ abstract contract DoppiTraderAdminView is Ownable {
 
     function get_unrealized_PNL() external view returns (int256 pnl) {
         uint256 price = doppiLP.getPrice();
-        uint256 round = _getLoopRound(price, true);   
-        int256 pnlprofit = _calcPnL(price, round, true);  
-        round = _getLoopRound(price, false);   
-        int256 pnlloss = _calcPnL(price, round, false);  
+        int256 pnlprofit = _calcPnL(price, true);
+        int256 pnlloss = _calcPnL(price, false);
         pnl = pnlprofit + pnlloss;  
     }
 
-    function get_validTrader() external view returns (address) {
-        return validTrader;
+    function setPause() external {
+        _onlyTrader();
+        _pause();
     }
 
-    function setDefaultDay(uint16 _day) external onlyOwner {
-        traderDefaultDay = _day;
+    function setUnPause() external {
+        _onlyTrader();
+        _unpause();
     }
 
-    function setMaxOrder(uint24 _maxOrder) external onlyTrader {
+    function setDefaultDay(uint8 _day) external onlyOwner {
+
+        bool valid;
+        uint8[] memory supportDays = doppiCore.supportDays();
+        for (uint8 x = 0; x < supportDays.length; ) {
+            if (supportDays[x] == _day) { valid = true; break; }
+            unchecked { ++x; }
+        }
+        if(valid){
+            traderDefaultDay = _day;
+        }
+    }
+
+    function setMaxOrder(uint24 _maxOrder) external {
+        _onlyTrader();
+        require(_maxOrder > 0 && _maxOrder <= impliedVol.TOTAL_OFFER(), "exceeds total offers");
         maxOrder = _maxOrder;
     }
 
-    function setMaxSwap(uint256 _maxSwap) external onlyTrader {
+    function setMaxSwap(uint256 _maxSwap) external onlyOwner {
         maxSwap = _maxSwap;
     }
 
-    function setForwarderAddress(address forwarderAddress) external onlyTrader {
+    function setUnwindGapMultiplier(uint8 _multiplier) external onlyOwner {
+        unwindGapMultiplier = _multiplier;
+    }
+
+    function setForwarderAddress(address forwarderAddress) external {
+        _onlyUpkeepOrTrader();
         s_forwarderAddress = forwarderAddress;
     }
 
@@ -99,103 +128,170 @@ abstract contract DoppiTraderAdminView is Ownable {
         return isBuy ? unWindBuy[strikePrice] : unWindSell[strikePrice];
     }
 
-    function _updateBound() internal {
-
-        uint256 priceDecimals = 10 ** doppiLP.getPriceDecimals();
-        uint256 gap = impliedVol.getPriceGapPerOffer() * priceDecimals;
-
-        // ------------------ UPDATE LOWER BOUND ------------------
-        uint256 i = lowerBound;
-        while (true) {
-            if (unWindBuy[i] != 0 || unWindSell[i] != 0) {
-                // Found first valid strike
-                lowerBound = i;
-                break;
-            }
-            // move upward
-            i += gap;
-
-            // no valid strike left
-            if (i > upperBound) {
-                _resetBound();
-                return;
-            }
-        }
-
-        // ------------------ UPDATE UPPER BOUND ------------------
-        i = upperBound;
-        while (true) {
-            if (unWindBuy[i] != 0 || unWindSell[i] != 0) {
-                upperBound = i;
-                break;
-            }
-            // guard underflow
-            if (i < gap) break;
-            i -= gap;
-
-            if (i < lowerBound) {
-                _resetBound();
-                return;
-            }
-        }
-    }
-
-    function _getLoopRound(uint256 _price, bool _isBuy) internal view returns (uint256 round) {
-
-        uint256 firstPrice = _getUnwindTargetPrice(_price, 1, _isBuy);
-        uint256 priceDecimals = 10 ** doppiLP.getPriceDecimals();
-        uint256 priceGapWithDecimals = impliedVol.getPriceGapPerOffer() * priceDecimals;
+    function getLowerUpperBound() public view returns (uint256 lower, uint256 upper) {
         
-        uint256 diff;
-        if(_isBuy){
-            diff = firstPrice > lowerBound ? firstPrice - lowerBound : 0;
-        }else{
-            diff = upperBound > firstPrice ? upperBound - firstPrice : 0;
-        }
-        round = diff / priceGapWithDecimals + 1;
+        lower = buyHead == 0
+            ? sellHead
+            : sellHead == 0
+                ? buyHead
+                : (buyHead < sellHead ? buyHead : sellHead);
+
+        upper = buyTail > sellTail ? buyTail : sellTail;
+        return (lower, upper);
     }
 
-    function _calcPnL(uint256 price, uint256 round, bool isBuy) 
+
+    function _calcPnL(uint256 price, bool isBuy)
         internal view returns (int256 pnl) {
         
-        uint256 decimals = 10 ** doppiLP.getPriceDecimals();
+        // uint256 decimals = 10 ** doppiLP.getPriceDecimals();
+        mapping(uint256 => StrikeNode) storage strikeNodes = isBuy ? buyStrikeNodes : sellStrikeNodes;
+        uint256 strikePrice = isBuy ? buyHead : sellHead;
         
-        for (uint256 i = round; i > 0; ) {
-            uint256 origStrikeprice = _getUnwindTargetPrice(price, uint8(i), isBuy);
-            uint256 amountOutBuy = unWindBuy[origStrikeprice];
-            uint256 amountOutSell = unWindSell[origStrikeprice];
-            if(amountOutBuy > 0){
-                uint256 currentValueInB = amountOutBuy * price / decimals;
-                uint256 origValueInB = amountOutBuy * origStrikeprice / decimals;
+        while (strikePrice != 0) {
+            uint256 nextStrike = strikeNodes[strikePrice].next;
+            if (isBuy) {
+                uint256 amountOutBuy = unWindBuy[strikePrice];
+                uint256 currentValueInB = amountOutBuy * price / priceDecimals;
+                uint256 origValueInB = amountOutBuy * strikePrice / priceDecimals;
                 pnl += int256(currentValueInB) - int256(origValueInB);
-            }else{
-                if(amountOutSell > 0){
-                    uint256 currentValueInB = amountOutSell * decimals / price;
-                    uint256 origValueInB = amountOutSell * decimals / origStrikeprice;
+            } else {
+                uint256 amountOutSell = unWindSell[strikePrice];
+                    uint256 currentValueInB = amountOutSell * priceDecimals / price;
+                uint256 origValueInB = amountOutSell * priceDecimals / strikePrice;
                     pnl += int256(currentValueInB) - int256(origValueInB);
-                }
             }
-            unchecked { --i; }
+            strikePrice = nextStrike;
         }
     }
 
     function _getUnwindTargetPrice(uint256 _price, uint8 _zone, bool _isBuy) internal view returns (uint256) {
         
-        uint256 priceDecimals = 10 ** doppiLP.getPriceDecimals();
         uint256 priceGapWithDecimals = impliedVol.getPriceGapPerOffer() * priceDecimals;
         _price = (_price / priceGapWithDecimals) * priceGapWithDecimals;
         return _isBuy ? _price - (priceGapWithDecimals * (_zone - 1)) : _price + (priceGapWithDecimals * _zone);
     }
 
-    function _resetBound() internal {
-        uint256 price = doppiLP.getPrice();
-        lowerBound = _getUnwindTargetPrice(price, 1, true);
-        upperBound = _getUnwindTargetPrice(price, 1, false);
+    function _syncStrikeState(uint256 strikePrice, bool isBuy) internal {
+        uint256 unwindAmount = isBuy ? unWindBuy[strikePrice] : unWindSell[strikePrice];
+        bool shouldBeActive = unwindAmount > 0;
+        if (isBuy) {
+            if (shouldBeActive) {
+                _activateStrikeNode(buyStrikeNodes, strikePrice, true);
+            } else {
+                _deactivateStrikeNode(buyStrikeNodes, strikePrice, true);
+            }
+        } else {
+            if (shouldBeActive) {
+                _activateStrikeNode(sellStrikeNodes, strikePrice, false);
+            } else {
+                _deactivateStrikeNode(sellStrikeNodes, strikePrice, false);
+            }
+        }
     }
 
-    modifier onlyTrader() {
-        require(msg.sender == validTrader, "invalid trader");
-        _;
+    function _activateStrikeNode(
+        mapping(uint256 => StrikeNode) storage strikeNodes,
+        uint256 strikePrice,
+        bool isBuySide
+    ) internal {
+        StrikeNode storage node = strikeNodes[strikePrice];
+        if (node.active) return;
+
+        node.active = true;
+        if (isBuySide) {
+            unchecked { ++activeBuyStrikeCount; }
+        } else {
+            unchecked { ++activeSellStrikeCount; }
+        }
+
+        uint256 head = isBuySide ? buyHead : sellHead;
+        uint256 tail = isBuySide ? buyTail : sellTail;
+
+        if (head == 0) {
+            if (isBuySide) {
+                buyHead = strikePrice;
+                buyTail = strikePrice;
+            } else {
+                sellHead = strikePrice;
+                sellTail = strikePrice;
+            }
+            return;
+        }
+
+        if (strikePrice <= head) {
+            node.next = head;
+            strikeNodes[head].prev = strikePrice;
+            if (isBuySide) buyHead = strikePrice;
+            else sellHead = strikePrice;
+            return;
+        }
+
+        if (strikePrice >= tail) {
+            node.prev = tail;
+            strikeNodes[tail].next = strikePrice;
+            if (isBuySide) buyTail = strikePrice;
+            else sellTail = strikePrice;
+            return;
+        }
+
+        uint256 current = head;
+        while (current != 0 && current < strikePrice) {
+            current = strikeNodes[current].next;
+        }
+
+        uint256 prevNode = strikeNodes[current].prev;
+        node.prev = prevNode;
+        node.next = current;
+        strikeNodes[prevNode].next = strikePrice;
+        strikeNodes[current].prev = strikePrice;
     }
+
+    function _deactivateStrikeNode(
+        mapping(uint256 => StrikeNode) storage strikeNodes,
+        uint256 strikePrice,
+        bool isBuySide
+    ) internal {
+        StrikeNode storage node = strikeNodes[strikePrice];
+        if (!node.active) return;
+
+        uint256 prevNode = node.prev;
+        uint256 nextNode = node.next;
+
+        if (prevNode != 0) {
+            strikeNodes[prevNode].next = nextNode;
+        } else if (isBuySide) {
+            buyHead = nextNode;
+        } else {
+            sellHead = nextNode;
+        }
+
+        if (nextNode != 0) {
+            strikeNodes[nextNode].prev = prevNode;
+        } else if (isBuySide) {
+            buyTail = prevNode;
+        } else {
+            sellTail = prevNode;
+        }
+
+        delete strikeNodes[strikePrice];
+        if (isBuySide) {
+            if (activeBuyStrikeCount > 0) {
+                unchecked { --activeBuyStrikeCount; }
+            }
+        } else {
+            if (activeSellStrikeCount > 0) {
+                unchecked { --activeSellStrikeCount; }
+            }
+        }
+    }
+
+    function _onlyTrader() internal view {
+        if(msg.sender != validTrader) revert NotValidTrader();
+    }
+
+    function _onlyUpkeepOrTrader() internal view {
+        if(msg.sender != address(doppiUpkeepManager) && msg.sender != validTrader) revert NotValidTraderOrUpkeep();
+    }    
 
 }

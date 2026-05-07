@@ -14,8 +14,6 @@ import {TickMath} from "../Library/TickMath.sol";
 library DALiquidityLib {
     using SafeCast for int256;
 
-    error OUTOFBOUNDS();
-
     function getPriceWithFallback(
         AggregatorV3Interface chainLinkFeed,
         address _v3Pool,
@@ -57,7 +55,7 @@ library DALiquidityLib {
             v3Pool,
             twapDuration
         );
-        if (twapPrice == 0) revert("no twap price");
+        if (twapPrice == 0) return 0;
 
         if (priceDecimals > 8) {
             twapPrice /= 10 ** (priceDecimals - 8);

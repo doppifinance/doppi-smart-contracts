@@ -19,6 +19,7 @@ contract DoppiOpportunity is Ownable, Pausable, AutomationCompatibleInterface {
     }
 
     function setForwarderAddress(address forwarderAddress) external onlyOwner {
+        require(forwarderAddress != address(0), "zero forwarder");
         s_forwarderAddress = forwarderAddress;
     }
 
@@ -26,6 +27,22 @@ contract DoppiOpportunity is Ownable, Pausable, AutomationCompatibleInterface {
         
         if(paused()) return (false, bytes(""));
 
+        uint256 price = doppiLP.getPrice();
+        (uint256[] memory targetPrices, uint256[] memory targetPricesUnwind, ,) = doppiCore.checkOpportunity(price, true);
+        
+        (uint256[] memory targetPricesSell, uint256[] memory targetPricesSellUnwind, ,) = doppiCore.checkOpportunity(price, false);
+
+        upkeepNeeded = (targetPrices.length > 0 || targetPricesUnwind.length > 0 || targetPricesSell.length > 0 || targetPricesSellUnwind.length > 0);
+        
+        if (upkeepNeeded) {
+            return (true, bytes(""));
+        } 
+        return (upkeepNeeded, bytes(""));
+    }
+
+    function performUpkeep(bytes calldata performData) external override onlyForwarder {
+        
+        if(paused()) return;
         uint256 price = doppiLP.getPrice();
         (   
             uint256[] memory targetPrices, 
@@ -41,35 +58,6 @@ contract DoppiOpportunity is Ownable, Pausable, AutomationCompatibleInterface {
             uint256 totalAmountSellUnwind
         ) = doppiCore.checkOpportunity(price, false);
 
-        upkeepNeeded = (targetPrices.length > 0 || targetPricesUnwind.length > 0 || targetPricesSell.length > 0 || targetPricesSellUnwind.length > 0);
-        
-        if (upkeepNeeded) {
-            performData = abi.encode(
-                targetPrices, targetPricesUnwind, totalAmountBuy, totalAmountBuyUnwind,
-                targetPricesSell, targetPricesSellUnwind, totalAmountSell, totalAmountSellUnwind
-                );
-        } else {
-            performData = bytes("");
-        }
-        
-        return (upkeepNeeded, performData);
-    }
-
-    function performUpkeep(bytes calldata performData) external override onlyForwarder {
-        
-        if(paused()) return;
-        
-        (
-            uint256[] memory targetPrices, 
-            uint256[] memory targetPricesUnwind, 
-            uint256 totalAmountBuy,
-            uint256 totalAmountBuyUnwind,
-            uint256[] memory targetPricesSell, 
-            uint256[] memory targetPricesSellUnwind, 
-            uint256 totalAmountSell,
-            uint256 totalAmountSellUnwind
-        ) = abi.decode(performData, (uint256[], uint256[], uint256, uint256, uint256[], uint256[], uint256, uint256));
-        
         if(targetPrices.length > 0 || targetPricesUnwind.length > 0){
             doppiCore.performOpportunity(targetPrices, targetPricesUnwind, totalAmountBuy, totalAmountBuyUnwind, true);
         }

@@ -1,0 +1,13 @@
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.26;
+
+
+contract MockDoppiCore {
+    
+    constructor() {
+	}
+    
+    function getInterestLiabilities() external view returns (uint256, uint256) {
+        return (0, 0);
+    }
+}

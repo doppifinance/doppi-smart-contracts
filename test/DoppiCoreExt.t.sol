@@ -44,10 +44,9 @@ contract DoppiCoreExtTest is Test {
 
     uint256 constant INITIAL_PRICE = 100_000 * 1e8;
 
-    event Deposited(address indexed trader, uint64 positionId, address asset, uint256 amount, uint256 interest, uint256 strikePrice, uint32 apr, uint32 numDays);
-    event Settled(address indexed trader, uint64 positionId, bool striked, bool isProfit, uint256 profitLoss, uint256 payout, uint256 interest, address profitToken, address payoutToken, address interestToken);
-    event HedgeSettled(address indexed trader, uint64 positionId, bool isProfit, uint256 profitLoss, address profitToken);
-
+    event Deposited(address indexed trader, uint64 positionId, address asset, uint256 amount, uint256 interest, uint256 strikePrice, uint32 apr, uint8 numDays);
+    event Settled(address indexed trader, uint64 positionId, bool striked, uint256 strikePrice, uint256 marketPrice, bool isProfit, uint256 profitLoss, uint256 payout, uint256 interest, address payoutToken, address interestToken);
+    
     function setUp() public {
         vm.warp(1735689600);
         int256 a_buy = 0.0000000807142857142833 * 1e27;
@@ -74,7 +73,6 @@ contract DoppiCoreExtTest is Test {
         
         configLP = TestParamLib.get_configLP();
         configLP.chainLinkFeed = address(oracle);
-        configLP.quoter = address(swapper);
         configLP.router = address(swapper);
         
         doppiLP =
@@ -200,7 +198,7 @@ contract DoppiCoreExtTest is Test {
         vm.stopPrank();
     }
 
-    function test_SettleBuyStrikedNoTraded_EmitsSettledEvent() public {
+    function test_SettleBuyStrikedNoTraded_Profit_EmitsSettledEvent() public {
         
         DualAssetOffer memory buyOffer = _depositUSDT();
         
@@ -219,22 +217,23 @@ contract DoppiCoreExtTest is Test {
         vm.prank(owner);
         // Expect Settled event for in-the-money position
         vm.expectEmit(true, true, true, true);
+
         emit Settled(
             user1,
             1, // positionId
             true, // striked
-            false, // isProfit (varies based on implementation)
-            0, // profitLoss
+            99500 * 1e8, // strike price
+            INITIAL_PRICE - 2000 * 1e8, // market price
+            true, // isProfit 
+            7691518818582710, // profitLoss
             expectedPayout, // expected payout
             usdtInterestReceived, // interest
-            address(btc), // profitToken
             address(btc), // payoutToken
             address(usdt)  // interestToken
         );
         
         // Execute settlement
-        (uint64[] memory readyPositions, SettleAccumulate memory settleAccu) = doppiCore.getReadyAllPositions();
-        doppiCore.settleOrders(readyPositions, settleAccu);
+        doppiCore.settleOrders(1);
     }
 
     function test_SettleSellStrikedNoTraded_EmitsSettledEvent() public {
@@ -260,18 +259,18 @@ contract DoppiCoreExtTest is Test {
             user1,
             1, // positionId
             true, // striked
-            false, // isProfit (varies based on implementation)
-            0, // profitLoss
+            100500 * 1e8, // strike price
+            INITIAL_PRICE + 2000 * 1e8, // market price
+            true, // isProfit (varies based on implementation)
+            750000000000000000000, // profitLoss
             expectedPayout, // expected payout
             btcInterestReceived, // interest
-            address(usdt), // profitToken
             address(usdt), // payoutToken
             address(btc)  // interestToken
         );
         
         // Execute settlement
-        (uint64[] memory readyPositions, SettleAccumulate memory settleAccu) = doppiCore.getReadyAllPositions();
-        doppiCore.settleOrders(readyPositions, settleAccu);
+        doppiCore.settleOrders(1);
     }
 
     function test_SettleBuyNoStriked_EmitsSettledEvent() public {
@@ -297,18 +296,18 @@ contract DoppiCoreExtTest is Test {
             user1,
             1, // positionId
             false, // striked
+            99500 * 1e8, // strike price
+            INITIAL_PRICE + 1 * 1e8, // market price
             false, // isProfit (varies based on implementation)
             0, // profitLoss
             0, // expected payout
             usdtInterestReceived, // interest
-            address(usdt), // profitToken
             address(usdt), // payoutToken
             address(usdt)  // interestToken
         );
         
         // Execute settlement
-        (uint64[] memory readyPositions, SettleAccumulate memory settleAccu) = doppiCore.getReadyAllPositions();
-        doppiCore.settleOrders(readyPositions, settleAccu);
+        doppiCore.settleOrders(1);
     }
 
     function test_SettleSellNoStriked_EmitsSettledEvent() public {
@@ -334,21 +333,21 @@ contract DoppiCoreExtTest is Test {
             user1,
             1, // positionId
             false, // striked
+            100500 * 1e8, // strike price
+            INITIAL_PRICE, // market price
             false, // isProfit (varies based on implementation)
             0, // profitLoss
             0, // expected payout
             btcInterestReceived, // interest
-            address(btc), // profitToken
             address(btc), // payoutToken
             address(btc)  // interestToken
         );
         
         // Execute settlement
-        (uint64[] memory readyPositions, SettleAccumulate memory settleAccu) = doppiCore.getReadyAllPositions();
-        doppiCore.settleOrders(readyPositions, settleAccu);
+        doppiCore.settleOrders(1);
     }
 
-    function test_SettleSellStrikedTraded_EmitsSettledEvent() public {
+    function test_SettleSellStrikedTraded_EmitsSettledEvent_NotEnoughOutAmountCase() public {
         
         DualAssetOffer memory sellOffer = _depositBTC();
         uint256 APR_BASIS_POINTS = 35700;
@@ -368,6 +367,9 @@ contract DoppiCoreExtTest is Test {
         doppiCore.performOpportunity(targetprices, targetPricesUnwind, totalAmount, totalAmountUnwind, false);
         vm.stopPrank();
 
+        OpportunityOrders memory opp = doppiCore.getOpportunityOrders(false, sellOffer.strikePrice);
+        console.log(opp.amount, opp.outAmount, opp.swappedAmount);
+        
         uint256 btcInterestReceived = APR_BASIS_POINTS * PRINCIPAL / BASIS_POINTS_DENOMINATOR / DAYS_IN_YEAR;
         uint256 expectedPayout = PRINCIPAL * sellOffer.strikePrice / 1e8;
 
@@ -382,18 +384,18 @@ contract DoppiCoreExtTest is Test {
             user1,
             1, // positionId
             true, // striked
-            true, // isProfit (varies based on implementation)
-            499200000000000000000, // profitLoss
+            100500 * 1e8, // strike price
+            101900 * 1e8, // market price
+            false, // isProfit (varies based on implementation)
+            0, // profitLoss
             expectedPayout, // expected payout
             btcInterestReceived, // interest
-            address(usdt), // profitToken
             address(usdt), // payoutToken
             address(btc)  // interestToken
         );
         
         // Execute settlement
-        (uint64[] memory readyPositions, SettleAccumulate memory settleAccu) = doppiCore.getReadyAllPositions();
-        doppiCore.settleOrders(readyPositions, settleAccu);
+        doppiCore.settleOrders(1);
     }
 
     function test_SettleBuyStrikedTraded_EmitsSettledEvent() public {
@@ -430,21 +432,20 @@ contract DoppiCoreExtTest is Test {
             user1,
             1, // positionId
             true, // striked
+            99500 * 1e8, // strike price
+            INITIAL_PRICE - 1000 * 1e8, // market price
             true, // isProfit (varies based on implementation)
-            7181314736950057, // profitLoss
+            2084375961439852, // profitLoss
             expectedPayout, // expected payout
             usdtInterestReceived, // interest
-            address(btc), // profitToken
             address(btc), // payoutToken
             address(usdt)  // interestToken
         );
         
         // Execute settlement
-        (uint64[] memory readyPositions, SettleAccumulate memory settleAccu) = doppiCore.getReadyAllPositions();
-        doppiCore.settleOrders(readyPositions, settleAccu);
+        doppiCore.settleOrders(1);
     }
 
-    
     function test_settle_recordPoints() public {
 
         // Deposit a buy position
@@ -452,9 +453,8 @@ contract DoppiCoreExtTest is Test {
         vm.warp(block.timestamp + 1 days + 1);
         oracle.setPrice(int256(INITIAL_PRICE)); // Price stays same, above strike
 
-        (uint64[] memory readyPositions, SettleAccumulate memory settleAccu) = doppiCore.getReadyAllPositions();
         vm.startPrank(owner);
-        doppiCore.settleOrders(readyPositions, settleAccu);
+        doppiCore.settleOrders(1);
 
         (,, uint256 currentMonthPoint) = doppiPoints.getAllPointData(user1);
         assertEq(currentMonthPoint, 50000 ether);
@@ -465,9 +465,8 @@ contract DoppiCoreExtTest is Test {
         _depositBTC();
         vm.warp(block.timestamp + 2 days + 1);
         oracle.setPrice(int256(99_000 * 1e8)); // Price stays same, above strike
-        (readyPositions, settleAccu) = doppiCore.getReadyAllPositions();
         vm.startPrank(owner);
-        doppiCore.settleOrders(readyPositions, settleAccu);
+        doppiCore.settleOrders(1);
 
         (,, currentMonthPoint) = doppiPoints.getAllPointData(user1);
         uint256 sellOrderPoints = 0.5 ether * INITIAL_PRICE / 1e8;
@@ -494,10 +493,18 @@ contract DoppiCoreExtTest is Test {
 
         uint256 start_usdtbal = usdt.balanceOf(user1);
         uint256 start_btcbal = btc.balanceOf(user1);
-        // emergency withdraw buy and sell
-        vm.startPrank(user1);
-        doppiCore.emergencyWithdraw();
+        
+        // emergency settlement by admin
+        vm.startPrank(doppiCore.owner());
+        doppiCore.emergencySettlement(1);
         vm.stopPrank();
+
+        uint256 pos1day = doppiCore.getPositionLength(1);
+        console.log(pos1day);
+        uint256 countB = doppiCore.getBuyPositionCount(user1);
+        console.log(countB, "count buy");
+        uint256 count = doppiCore.getSellPositionCount(user1);
+        console.log(count, "count sell");
 
         assertEq(doppiCore.getBuyPositionCount(user1), 0);
         assertEq(doppiCore.getSellPositionCount(user1), 0);
@@ -522,7 +529,7 @@ contract DoppiCoreExtTest is Test {
         _depositUSDT();
         // 3rd order 50k
         _depositUSDT();
-        _depositUSDT();
+        // _depositUSDT();
         
         // 4th order 50k, should fail
         DepositParams memory params = DepositParams({
@@ -553,7 +560,7 @@ contract DoppiCoreExtTest is Test {
         _depositBTC();
         // 3rd order 0.5
         _depositBTC();
-        _depositBTC();
+        // _depositBTC();
         
         // 4th order 0.5, should fail
         DepositParams memory params = DepositParams({
@@ -572,6 +579,7 @@ contract DoppiCoreExtTest is Test {
         vm.stopPrank();
 
     }
+    
 
     function _depositBTC() internal returns (DualAssetOffer memory) {
 
