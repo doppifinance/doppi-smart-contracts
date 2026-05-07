@@ -19,16 +19,16 @@ import {AggregatorV3Interface} from "../../src/Interface/AggregatorV3Interface.s
 
 contract MyScript is Script {
 
-    address DOPPI_OFFER = address(0x375ebC1196d84D817A8E3b58d662b3A4A71665b1);
-    address DOPPI_LP = address(0x80730E85C91aC99C8e647A679AC2826354e03501);
-    address DOPPI_OFFER_ETH = address(0x978cC774263617410DAD2Ce67B891960f07d5ff5);
-    address DOPPI_LP_ETH = address(0xfbDa2c22E161686E63b0Ef37549901b768952f37);
-    address DOPPI_CORE = address(0xc3f384A25e5118949cD88cac760398F303AAcDC1);
-    address DOPPI_CORE_ETH = address(0xCeA9aa9BDe192241e2260B49dF2B0B50c560c5Fe);
-    address DOPPI_OPPO = address(0x4c4F8f2C7d827D33ad2aa4c8df75E03AC2B2EcC9);
-    address DOPPI_UPKEEP = address(0xC3600cE4614453bCDfFE00D6a653B59D3e8d1f8F);
-    address DOPPI_REF = address(0xFD8933b24af8fB4382091896d368E22D3aA87945);
-    address DOPPI_POINTS = address(0x42E2A27341a06211C0FEe7eDC2B179209Fc376d1);
+    address DOPPI_OFFER = address(0x418f56B5e660882ae00145fc6ab200AfEE9e0595);
+    address DOPPI_LP = address(0x2deB22F6fCFE371c5024b52045850d9B32d33Bcd);
+    address DOPPI_OFFER_ETH = address(0x42d7C78839Ff39D797d08Fde1Ae3f1433035519A);
+    address DOPPI_LP_ETH = address(0x9b0e4260311a8874a0f7EeDB9545e93960e113c6);
+    address DOPPI_CORE = address(0xa2d49d1c8b89Cd0b11AeA445887661CDcF9e9611);
+    address DOPPI_CORE_ETH = address(0x8532f74529F4295f882f73Cd3D3cCfBcD6900e08);
+    address DOPPI_OPPO = address(0x66C4e3c5A73d0fF469462a7fE7D740DF972CbB6D);
+    address DOPPI_UPKEEP = address(0x2C9853A32a7d07CA7aC2841B5E1f7eCc2E89d132);
+    address DOPPI_REF = address(0xAA9CBB0221638720F3b73C50DFC08Ed1E6e878b3);
+    address DOPPI_POINTS = address(0x656AC29F67fd8FA3f273f4594E9B07ee53eC8D5D);
     
     function run() external {
         
@@ -38,17 +38,19 @@ contract MyScript is Script {
         vm.startBroadcast(deployerPrivateKey);
         
 
-        AggregatorV3Interface chainLinkFeed = AggregatorV3Interface(address(0xca236E327F629f9Fc2c30A4E95775EbF0B89fac8));
-        uint256 price = DALiquidityLib.getPrice(chainLinkFeed, 10 days);
-        console.log("Price from DALiquidityLib:", price);
+        // AggregatorV3Interface chainLinkFeed = AggregatorV3Interface(address(0xca236E327F629f9Fc2c30A4E95775EbF0B89fac8));
+        // uint256 price = DALiquidityLib.getPrice(chainLinkFeed, 10 minutes);
+        // console.log("Price from DALiquidityLib:", price);
 
         // _getDoppiPoints();
-        // address bot = address(0x89b7810Fd8520C5B122CCea0585be1a45CAC5505);
+        // address bot = address(0x3A296c9191e7698091661C337b68b5E7B18Ed610);
         // _traderBotInfo(bot);
+        // console.log("-----", block.timestamp, block.number);
+
         // _getUpkeepData(bot);
         // _getBuffer(DOPPI_OFFER, DOPPI_LP);
         // _getBuffer(DOPPI_OFFER_ETH, DOPPI_LP_ETH);
-        // _getTotalOrders(DOPPI_CORE);
+        _getTotalOrders(DOPPI_CORE);
         // _getTotalOrders(DOPPI_CORE_ETH);
 
         // _manipulateRealChainlink(int256(79_400 * 1e8)); 
@@ -232,8 +234,8 @@ contract MyScript is Script {
         console.log("Opportunity Upkeep needed:", upkeepNeeded);
         if (upkeepNeeded) {
             console.log("Performing upkeep for opportunity");
-            // Perform the upkeep
-            doppiOpportunity.performUpkeep(performData);
+            // // Perform the upkeep
+            // doppiOpportunity.performUpkeep(performData);
             console.log("Upkeep performed successfully");
         } else {
             console.log("No upkeep needed at this time");
