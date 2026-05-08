@@ -11,5 +11,18 @@
         "openzeppelin-contracts/=lib/openzeppelin-contracts/",
         "v3-core/=lib/v3-core/",
         "v3-periphery/=lib/v3-periphery/contracts/"
-    ]
+    ],
+    "github.copilot.enable": {
+        "*": true,
+        "dotenv": false,
+        "plaintext": false,
+        "markdown": true
+    },
+
+    "files.associations": {
+        "*.secret": "plaintext",
+        "*.key": "plaintext",
+        "*.pem": "plaintext",
+        ".env": "dotenv"
+    }
 }
