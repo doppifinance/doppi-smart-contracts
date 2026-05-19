@@ -273,7 +273,7 @@ contract Scenario2Test is Test {
         uint256 balUSDTB4 = usdt.balanceOf(trader);
         doppiUpkeepManager.cancelUpkeep(upkeepId);
         vm.roll(block.number + 51);
-        doppiUpkeepManager.stopWithdraw(upkeepId);
+        doppiUpkeepManager.stopWithdraw(upkeepId, true);
         uint256 balUSDTAfter = usdt.balanceOf(trader);
         assertGt(balUSDTAfter, balUSDTB4);
         vm.stopPrank();

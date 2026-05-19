@@ -123,6 +123,10 @@ contract MockRegistryConsumer is IAutomationRegistryConsumer {
 		linkToken.transfer(to, 12329638941840579811);
 	}
 
+	function setUpkeepGasLimit(uint256 id, uint32 gasLimit) external {
+		dummyAdd(id);
+	}
+
     function getUpkeep(
         uint256 id
     ) external view returns (IAutomationRegistryConsumer.UpkeepInfo memory upkeepInfo){

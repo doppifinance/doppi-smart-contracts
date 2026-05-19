@@ -19,4 +19,11 @@ forge verify-contract --watch --chain-id 56 0xAB0a39Ee19797E273c94737100D811498B
 DoppiUpkeepManager: 0x95834DE603b487cBD2d7c09E41Ec2fC11d032611
 forge verify-contract --watch --chain-id 56 0x95834DE603b487cBD2d7c09E41Ec2fC11d032611 src/mainnet/DoppiUpkeepManager.sol:DoppiUpkeepManager --verifier etherscan --etherscan-api-key API_KEY
 
+2026/5/19:
+DoppiUpkeepManager: 0x759F3F0f98D388839d3B0892cBE1aCF5F6c1315e
+forge verify-contract --watch --chain-id 56 0x759F3F0f98D388839d3B0892cBE1aCF5F6c1315e src/mainnet/DoppiUpkeepManager.sol:DoppiUpkeepManager --verifier etherscan --
+etherscan-api-key QRHGPF17WP5ND4FV5SMDU9FJ5PX3S2IAKI
 
+DoppiTrader: 0xc55748e282bCdB79dc2ff761bbED44e292765132
+forge verify-contract --watch --chain-id 56 0xc55748e282bCdB79dc2ff761bbED44e292765132 src/mainnet/DoppiTrader.sol:DoppiTrader --verifier etherscan --
+etherscan-api-key API_KEY

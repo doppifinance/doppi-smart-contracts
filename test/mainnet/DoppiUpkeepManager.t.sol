@@ -174,6 +174,23 @@ contract DoppiUpkeepManagerTest is Test {
         vm.stopPrank();
     }
 
+    function test_mainnet_registry_setMaxGas() public {
+        
+        // set to mainnet contract for testing
+        vm.prank(owner);
+        doppiUpkeepManager.setRegistryConsumer(address(0xDc21E279934fF6721CaDfDD112DAfb3261f09A2C)); 
+        vm.stopPrank();
+
+        address existingOwner = address(0xB0FA270BB88450D6d6012E9D8FA0bbFD468bB738);
+        uint256 Id = 75337200939400900360603264278047073108837566842861562262682542704207173235601;
+        
+        vm.startPrank(existingOwner);
+        registryConsumer.setUpkeepGasLimit(Id, 2000000);
+        IAutomationRegistryConsumer.UpkeepInfo memory result2 = doppiUpkeepManager.getUpkeep(Id);
+        assertEq(result2.executeGas, 2000000);
+        vm.stopPrank();
+    }
+
     function test_mainnet_registry_getMinBalance() public {
         
         // set to mainnet contract for testing
@@ -220,7 +237,7 @@ contract DoppiUpkeepManagerTest is Test {
         vm.roll(block.number + 1000);
         
         vm.prank(trader);
-        doppiUpkeepManager.stopWithdraw(upKeepid);
+        doppiUpkeepManager.stopWithdraw(upKeepid, true);
         vm.stopPrank();
         uint256 endBal = usdt.balanceOf(trader);
         // console.log(endBal - initBal, "endBal - initBal");
@@ -266,7 +283,7 @@ contract DoppiUpkeepManagerTest is Test {
         
         vm.roll(block.number + 1000);
         vm.prank(trader);
-        doppiUpkeepManager.stopWithdraw(upKeepid);
+        doppiUpkeepManager.stopWithdraw(upKeepid, true);
         vm.stopPrank();
 
         uint256 endBal = usdt.balanceOf(trader);
@@ -333,6 +350,21 @@ contract DoppiUpkeepManagerTest is Test {
         assertEq(fee, 0);
         assertEq(payment.lastPaidAmount, 4.1 ether); 
         
+    }
+
+    function test_setUpkeepGasLimit() public {
+        
+        DoppiTrader traderBot = _deployBot(trader);
+        uint256 upKeepid = doppiUpkeepManager.getUpkeepIdByBot(address(traderBot));
+        
+        uint32 newGasLimit = 3_000_000;
+        
+        // Only trader can call setUpkeepGasLimit
+        vm.prank(trader);
+        vm.expectEmit(true, false, false, true);
+        emit DoppiUpkeepManager.UpkeepGasLimitSet(upKeepid, newGasLimit);
+        doppiUpkeepManager.setUpkeepGasLimit(upKeepid, newGasLimit);
+        vm.stopPrank();
     }
 
     function _setupLP(address _assetA, address _assetB) internal returns (DoppiLiquidity _doppiLP) {

@@ -266,6 +266,22 @@ contract DoppiLiquidityRouterTest is Test {
         assertTrue(address(entryPointA) != address(entryPointB));
     }
 
+    function test_ConvertToAssetsReturnsExpectedAssetAmount() public {
+        vm.startPrank(user1);
+
+        uint256 depositAmount = 100 * 10 ** usdt.decimals();
+        usdt.approve(address(router), depositAmount);
+        uint256 shares = router.deposit(address(usdt), depositAmount);
+
+        IERC7575 entryPointA = router.entryPointA();
+        uint256 oneShare = 1e18;
+
+        assertEq(entryPointA.convertToAssets(shares), depositAmount);
+        assertEq(entryPointA.convertToAssets(oneShare), oneShare);
+
+        vm.stopPrank();
+    }
+
     function test_RedeemWithoutApprovalReverts() public {
         vm.startPrank(user1);
         

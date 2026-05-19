@@ -14,7 +14,6 @@ contract DoppiTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCompati
     using SafeERC20 for IERC20;
     
     OrderConfig[] public orderConfigs;
-    bool public useCustomConfig;
     UndoStat public undoStat;
 
     event BulkDeposited(address indexed trader, uint256 totalAmount, bool isBuy);
@@ -90,6 +89,25 @@ contract DoppiTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCompati
             if(_amountA <= forUpkeep) revert AmountMustGreaterThanUpkeep();
             _amountA = _amountA - forUpkeep;
         }
+
+        // Unit price tracking: snapshot value BEFORE deposit, then issue proportional units.
+        uint256 price = doppiLP.getPrice();
+        uint256 depositValueInA = _amountA;
+        if (_amountB > 0 && price > 0) {
+            depositValueInA += _amountB * price / priceDecimals;
+        }
+        if (depositValueInA > 0) {
+            if (totalUnits == 0) {
+                totalUnits = depositValueInA;
+            } else {
+                uint256 currentValueInA = _getTotalValueInA(price);
+                if (currentValueInA > 0) {
+                    totalUnits += depositValueInA * totalUnits / currentValueInA;
+                }
+            }
+            costBasis += depositValueInA;
+        }
+
         _processDeposit(_amountA, _amountB);
         _placeBulk();
         
@@ -127,6 +145,8 @@ contract DoppiTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCompati
         }
         undoStat.undo_assetB = 0;
         undoStat.undo_assetA = 0;
+        totalUnits = 0;
+        costBasis = 0;
         _removeMapping();
     }
 
@@ -146,6 +166,8 @@ contract DoppiTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCompati
         
         undoStat.undo_assetB = 0;
         undoStat.undo_assetA = 0;
+        totalUnits = 0;
+        costBasis = 0;
         _removeMapping();
     }
 
@@ -169,11 +191,6 @@ contract DoppiTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCompati
         }
     }
 
-    function setUseCustomConfig(bool _useCustom) external {
-        _onlyTrader();
-        useCustomConfig = _useCustom;
-    }
-
     function getOrderConfigs() external view returns (OrderConfig[] memory) {
         return orderConfigs;
     }
@@ -191,7 +208,6 @@ contract DoppiTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCompati
         }
         defaultWeights[maxOrder - 1] = 10000 - total;
         _initializeOrderConfigs(defaultWeights);
-        useCustomConfig = false;
     }
 
     function createUnwindPosition(uint256 _payout, uint256 _strikePrice, bool _isBuyUndo) external nonReentrant {
