@@ -56,7 +56,7 @@ contract DoppiUpkeepManager is Ownable {
     event UpkeepFunded(uint256 indexed upkeepId, uint256 fundTokenAmount, uint256 linkAmount, uint256 fee);
     event UpkeepCanceled(uint256 indexed upkeepId);
     event TopUpPerformed(uint256 indexed upkeepId, address bot, uint256 topUpAmountInfundToken, uint256 linkOut, uint256 fee);
-
+    event UpkeepGasLimitSet(uint256 indexed upkeepId, uint32 gasLimit);
     
     modifier onlyTrader(uint256 _upkeepId) {
         require(doppiUpkeeps[doppiUpKeepsId[_upkeepId]].trader == msg.sender, "only trader");
@@ -166,7 +166,7 @@ contract DoppiUpkeepManager is Ownable {
         slippage = _slippage;
     }
 
-    function stopWithdraw(uint256 _upkeepId) external onlyTrader(_upkeepId) validUpkeepId(_upkeepId) {
+    function stopWithdraw(uint256 _upkeepId, bool conversion) external onlyTrader(_upkeepId) validUpkeepId(_upkeepId) {
         
         IAutomationRegistryConsumer.UpkeepInfo memory result = registryConsumer.getUpkeep(_upkeepId);
         require(result.maxValidBlocknumber < block.number, "not cancel yet");
@@ -191,8 +191,13 @@ contract DoppiUpkeepManager is Ownable {
 
         if(finalBal >= fee) IERC20(address(linkToken)).safeTransfer(treasury, fee);
         if(refund > 0) {
-            uint256 fundTokenOut = _swapERC677ToFundToken(refund);
-            fundToken.safeTransfer(trader, fundTokenOut);
+            if(conversion) {
+                uint256 fundTokenOut = _swapERC677ToFundToken(refund);
+                fundToken.safeTransfer(trader, fundTokenOut);
+            }else{
+                pegSwap.swap(refund, address(linkToken), address(link));
+                IERC20(address(link)).safeTransfer(trader, refund);
+            }
         }
     }
 
@@ -213,6 +218,13 @@ contract DoppiUpkeepManager is Ownable {
         
         registryConsumer.cancelUpkeep(_upkeepId);
         emit UpkeepCanceled(_upkeepId);
+    }
+
+    function setUpkeepGasLimit(uint256 _upkeepId, uint32 _gasLimit) external onlyTrader(_upkeepId) validUpkeepId(_upkeepId) {
+        
+        registryConsumer.setUpkeepGasLimit(_upkeepId, _gasLimit);
+        emit UpkeepGasLimitSet(_upkeepId, _gasLimit);
+        
     }
 
     function getUpkeep(uint256 _upkeepId) external view returns (

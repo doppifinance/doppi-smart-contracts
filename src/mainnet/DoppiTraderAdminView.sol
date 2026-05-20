@@ -9,7 +9,7 @@ import {IDoppiUpkeepManager} from "../Interface/IDoppiUpkeepManager.sol";
 import {IDoppiLiquidityRouter} from "../Interface/IDoppiLiquidityRouter.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "./DoppiCoreTypes.sol";
-import "forge-std/console.sol";
+// import "forge-std/console.sol";
 
 
 abstract contract DoppiTraderAdminView is Ownable, Pausable {
@@ -32,6 +32,8 @@ abstract contract DoppiTraderAdminView is Ownable, Pausable {
     uint8 public traderDefaultDay;
     uint24 public maxOrder;
     uint32 public ratioLP;
+    uint256 public totalUnits;   // scaled 1e18; cumulative units issued across all start() calls
+    uint256 public costBasis;    // lifetime deposits converted to assetA terms
     uint256 internal buyHead;
     uint256 internal buyTail;
     uint256 internal sellHead;
@@ -50,7 +52,17 @@ abstract contract DoppiTraderAdminView is Ownable, Pausable {
         return doppiLP.getBalances(address(this));
     }
 
-    function getTotalBalances() external view returns (uint256 totalAssetA, uint256 totalAssetB, uint256 price) {
+    function getTotalValueInA() public view returns (uint256 totalInA) {
+        uint256 price = doppiLP.getPrice();
+        return _getTotalValueInA(price);
+    }
+
+    function getUnitPrice() external view returns (uint256) {
+        if (totalUnits == 0) return 1e18;
+        return getTotalValueInA() * 1e18 / totalUnits;
+    }
+
+    function getTotalBalances() public view returns (uint256 totalAssetA, uint256 totalAssetB, uint256 price) {
         
         price = doppiLP.getPrice();
         
@@ -71,6 +83,16 @@ abstract contract DoppiTraderAdminView is Ownable, Pausable {
         }
     }
 
+    function _getTotalValueInA(uint256 price) internal view returns (uint256 totalInA) {
+        (uint256 balA, uint256 balB, ) = getTotalBalances();
+        (uint256 lpA, uint256 lpB) = doppiLP.getBalances(address(this));
+        totalInA = balA + lpA;
+        uint256 totalB = balB + lpB;
+        if (price > 0) {
+            totalInA += totalB * price / priceDecimals;
+        }
+    }
+
     function get_unrealized_PNL() external view returns (int256 pnl) {
         uint256 price = doppiLP.getPrice();
         int256 pnlprofit = _calcPnL(price, true);
@@ -88,8 +110,8 @@ abstract contract DoppiTraderAdminView is Ownable, Pausable {
         _unpause();
     }
 
-    function setDefaultDay(uint8 _day) external onlyOwner {
-
+    function setDefaultDay(uint8 _day) external {
+        _onlyTrader();
         bool valid;
         uint8[] memory supportDays = doppiCore.supportDays();
         for (uint8 x = 0; x < supportDays.length; ) {
@@ -107,21 +129,19 @@ abstract contract DoppiTraderAdminView is Ownable, Pausable {
         maxOrder = _maxOrder;
     }
 
-    function setMaxSwap(uint256 _maxSwap) external onlyOwner {
+    function setMaxSwap(uint256 _maxSwap) external {
+        _onlyTrader();
         maxSwap = _maxSwap;
     }
 
-    function setUnwindGapMultiplier(uint8 _multiplier) external onlyOwner {
+    function setUnwindGapMultiplier(uint8 _multiplier) external {
+        _onlyTrader();
         unwindGapMultiplier = _multiplier;
     }
 
     function setForwarderAddress(address forwarderAddress) external {
         _onlyUpkeepOrTrader();
         s_forwarderAddress = forwarderAddress;
-    }
-
-    function setRatioLP(uint32 _ratioLP) external onlyOwner {
-        ratioLP = _ratioLP;
     }
 
     function getUnwindInfo(bool isBuy, uint256 strikePrice) external view returns (uint256) {

@@ -26,7 +26,7 @@ contract MyScript is Script {
     address DOPPI_CORE = address(0xa2d49d1c8b89Cd0b11AeA445887661CDcF9e9611);
     address DOPPI_CORE_ETH = address(0x8532f74529F4295f882f73Cd3D3cCfBcD6900e08);
     address DOPPI_OPPO = address(0x66C4e3c5A73d0fF469462a7fE7D740DF972CbB6D);
-    address DOPPI_UPKEEP = address(0x2C9853A32a7d07CA7aC2841B5E1f7eCc2E89d132);
+    address DOPPI_UPKEEP = address(0x72F662ebf6d2E4c89BDD6f5Ca2EfAaBebf6A715a);
     address DOPPI_REF = address(0xAA9CBB0221638720F3b73C50DFC08Ed1E6e878b3);
     address DOPPI_POINTS = address(0x656AC29F67fd8FA3f273f4594E9B07ee53eC8D5D);
     
@@ -38,19 +38,20 @@ contract MyScript is Script {
         vm.startBroadcast(deployerPrivateKey);
         
 
-        // AggregatorV3Interface chainLinkFeed = AggregatorV3Interface(address(0xca236E327F629f9Fc2c30A4E95775EbF0B89fac8));
-        // uint256 price = DALiquidityLib.getPrice(chainLinkFeed, 10 minutes);
-        // console.log("Price from DALiquidityLib:", price);
+        AggregatorV3Interface chainLinkFeed = AggregatorV3Interface(address(0xca236E327F629f9Fc2c30A4E95775EbF0B89fac8));
+        uint256 price = DALiquidityLib.getPrice(chainLinkFeed, 10 minutes);
+        console.log("Price from DALiquidityLib:", block.timestamp, price);
 
         // _getDoppiPoints();
-        // address bot = address(0x3A296c9191e7698091661C337b68b5E7B18Ed610);
+        address bot = address(0x1E389F00c11D6B6721D8F703e2D9eCb38F54BB95);
         // _traderBotInfo(bot);
+        // _getDoppiTraderUnwindData(bot);
         // console.log("-----", block.timestamp, block.number);
 
-        // _getUpkeepData(bot);
+        _getUpkeepData(bot);
         // _getBuffer(DOPPI_OFFER, DOPPI_LP);
         // _getBuffer(DOPPI_OFFER_ETH, DOPPI_LP_ETH);
-        _getTotalOrders(DOPPI_CORE);
+        // _getTotalOrders(DOPPI_CORE);
         // _getTotalOrders(DOPPI_CORE_ETH);
 
         // _manipulateRealChainlink(int256(79_400 * 1e8)); 
@@ -64,6 +65,11 @@ contract MyScript is Script {
         // _getDoppiReferral();
 
         // _getDoppiLP(DOPPI_LP);
+        // _getDoppiLPUnwindData(DOPPI_LP);
+
+        // DoppiTraderFactory factory = DoppiTraderFactory(address(0x095e4C543839c3C0403DbC5AA8acC259689A419C)); 
+        // console.log(factory.traderBotImplementation(), "Trader Bot Implementation Address");
+        
 
         
         vm.stopBroadcast();
@@ -138,6 +144,9 @@ contract MyScript is Script {
         console.log("Total Asset A:", totalAssetA);
         console.log("Total Asset B:", totalAssetB); 
         console.log("Current Price:", price);
+        bot = DoppiTrader(address(0x062eA0062499455765241b1fC2bBdE4B9405B6B2));
+        console.log("-----", bot.owner());
+        
     }
 
     function _getUpkeepData(address bot) internal {
@@ -148,7 +157,9 @@ contract MyScript is Script {
         address forwarder = doppiUpkeepManager.getForwarder(keepId);
         console.log(forwarder, "Forwarder address");
         console.log(result.admin, result.balance);
-        console.log(result.maxValidBlocknumber, result.paused, result.target);
+        console.log(result.maxValidBlocknumber, block.timestamp, result.paused, result.target);
+        console.log("Paused:", result.paused);
+        console.log("Execute Gas:", result.executeGas);
 
         uint256 upkeepBalance = doppiUpkeepManager.getUpkeepBalance(keepId);
         console.log("Upkeep ID for bot:", keepId);
@@ -260,6 +271,43 @@ contract MyScript is Script {
         uint256 maxDepositAmount,
         uint256 availableCapacity) = doppiLP.getPoolCapacityInfo(true);
         console.log(currentDeposits, maxDepositAmount, availableCapacity, "Current deposits, Max deposit amount, Available capacity");
+    }
+
+    function _getDoppiLPUnwindData(address lpaddress) internal view {
+
+        console.log("start DoppiLPUnwindData");
+        DoppiLiquidity doppiLP = DoppiLiquidity(lpaddress);
+        (uint256 lowerBound, uint256 upperBound) = doppiLP.getLowerUpperBound();
+        console.log(lowerBound, upperBound, "lowerBound, upperBound");
+        for (uint256 price = upperBound; price >= lowerBound; ) {
+            uint256 amountBuy = doppiLP.amountToBuy(price);
+            uint256 amountSell = doppiLP.amountToSell(price);
+            console.log(price, amountBuy, amountSell);
+            price -= (500 * 1e8); 
+        }
+        
+    }
+
+    function _getDoppiTraderUnwindData(address traderBot) internal view {
+        DoppiTrader doppiTrader = DoppiTrader(traderBot);
+        (uint256 lowerBound, uint256 upperBound) = doppiTrader.getLowerUpperBound();
+        
+        console.log(doppiTrader.unwindGapMultiplier(), "Unwind gap multiplier");
+        console.log(doppiTrader.owner(), "Owner");
+        console.log(lowerBound, upperBound, "lowerBound, upperBound");
+        
+        if(lowerBound == 0 && upperBound == 0) {
+            console.log("No active positions");
+            return;
+        }
+
+        for (uint256 price = upperBound; price >= lowerBound; ) {
+            uint256 unwindBuy = doppiTrader.unWindBuy(price);
+            uint256 unwindSell = doppiTrader.unWindSell(price);
+            console.log(price, unwindBuy, unwindSell);
+            price -= (500 * 1e8); 
+        }
+
     }
 
     function _manipulateRealChainlink(int256 newPrice) internal {

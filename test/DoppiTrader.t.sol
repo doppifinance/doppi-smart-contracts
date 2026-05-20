@@ -21,6 +21,12 @@ import "../src/mainnet/DoppiCoreTypes.sol";
 import {TestParamLib} from "../src/Library/TestParamLib.sol";
 import "../src/mainnet/DoppiLiquidityTypes.sol";
 
+contract DoppiTraderV2Mock is DoppiTrader {
+    function version() external pure returns (uint256) {
+        return 2;
+    }
+}
+
 contract DoppiTraderTest is Test {
     DoppiTraderFactory doppiFactory;
     DoppiTrader doppiTrader;
@@ -143,6 +149,30 @@ contract DoppiTraderTest is Test {
         assertEq(address(doppiTrader.doppiCore()), address(doppiCore));
     }
 
+    function test_updateImplementation_onlyAffectsNewBots() public {
+        address oldBot = address(doppiTrader);
+        address oldImplementation = doppiFactory.traderBotImplementation();
+
+        DoppiTraderV2Mock newImplementation = new DoppiTraderV2Mock();
+        doppiFactory.updateImplementation(address(newImplementation));
+
+        assertEq(doppiFactory.traderBotImplementation(), address(newImplementation));
+        assertTrue(oldImplementation != address(newImplementation));
+
+        vm.prank(trader);
+        uint32 newId = doppiFactory.deployTraderBot(defaultweights);
+        address newBot = doppiFactory.traderBots(newId);
+
+        // Old clone still points to old implementation, so version() should not exist.
+        (bool okOld, ) = oldBot.staticcall(abi.encodeWithSignature("version()"));
+        assertFalse(okOld);
+
+        // New clone points to V2 implementation and exposes version().
+        (bool okNew, bytes memory dataNew) = newBot.staticcall(abi.encodeWithSignature("version()"));
+        assertTrue(okNew);
+        assertEq(abi.decode(dataNew, (uint256)), 2);
+    }
+
     function test_getTotalBalances() public {
         _start();
         (uint256 totalAssetA, uint256 totalAssetB, uint256 price) = doppiTrader.getTotalBalances();
@@ -191,7 +221,6 @@ contract DoppiTraderTest is Test {
         
         vm.startPrank(trader);
         doppiTrader.setMultipleOrderConfigs(strikeZones, weights);
-        doppiTrader.setUseCustomConfig(true);
         vm.stopPrank();
 
         _start();
@@ -560,20 +589,51 @@ contract DoppiTraderTest is Test {
     function test_multiple_unwind_positions() public {
         vm.startPrank(address(doppiCore));
 
-        // Create multiple buy unwind positions
-        doppiTrader.createUnwindPosition(50_000 ether, 100_000 * 1e8, true);
-        doppiTrader.createUnwindPosition(75_000 ether, 101_000 * 1e8, true);
-        doppiTrader.createUnwindPosition(100_000 ether, 99_000 * 1e8, true);
-
-        // Create multiple sell unwind positions
-        doppiTrader.createUnwindPosition(0.5 ether, 100_000 * 1e8, false);
-        doppiTrader.createUnwindPosition(0.7 ether, 101_000 * 1e8, false);
-
+        uint256 price = doppiLP.getPrice();
+        // Create multiple buy unwind positions, payout in assetB
+        doppiTrader.createUnwindPosition(1 ether, 99_000 * 1e8, true);
+        doppiTrader.createUnwindPosition(0.5 ether, 100_000 * 1e8, true);
+        doppiTrader.createUnwindPosition(0.7 ether, 101_000 * 1e8, true);
+        
+        // Create multiple sell unwind positions, payout in assetA
+        doppiTrader.createUnwindPosition(50000 ether, 100_000 * 1e8, false);
+        doppiTrader.createUnwindPosition(70000 ether, 100_010 * 1e8, false);
+        doppiTrader.createUnwindPosition(70000 ether, 101_000 * 1e8, false);
+        
         vm.stopPrank();
 
         (uint256 undo_assetB, uint256 undo_assetA)= doppiTrader.undoStat();
         assertGt(undo_assetB, 0);
         assertGt(undo_assetA, 0);
+
+        vm.startPrank(trader);
+        doppiTrader.setUnwindGapMultiplier(1);
+        doppiTrader.setMaxSwap(300000 ether);
+        vm.stopPrank();
+
+        // buy : those buy <= 99000 will trigger, sell : only those sold > 101500 will trigger
+        oracle.setPrice(int256(100_100 * 1e8));
+        (bool upkeepNeeded, bytes memory performData) = doppiTrader.checkUpkeep("");
+        (bool performUnwind, bool isNetBuy, uint256[] memory targetPricesBuy, uint256[] memory targetPricesSell, uint256 totalAmount, uint256 totalSellAmountInA, uint256 totalBuyAmountInB, bool placeBuy, bool placeSell, bool toTopUp) = 
+            abi.decode(performData, (bool, bool, uint256[], uint256[], uint256, uint256, uint256, bool, bool, bool));
+        
+        console.log(targetPricesSell.length, targetPricesBuy.length, isNetBuy);
+        assertTrue(performUnwind);
+        assertEq(targetPricesBuy.length, 1);
+        assertEq(targetPricesSell.length, 0);
+
+        
+        // buy : those buy <= 100_000 will trigger, sell : only those sold > 102_500 will trigger
+        oracle.setPrice(int256(101_100 * 1e8));
+        (upkeepNeeded,  performData) = doppiTrader.checkUpkeep("");
+        (performUnwind, isNetBuy, targetPricesBuy, targetPricesSell, totalAmount, totalSellAmountInA, totalBuyAmountInB, placeBuy, placeSell, toTopUp) = 
+            abi.decode(performData, (bool, bool, uint256[], uint256[], uint256, uint256, uint256, bool, bool, bool));
+        
+        console.log(targetPricesSell.length, targetPricesBuy.length, isNetBuy);
+        assertTrue(performUnwind);
+        assertEq(targetPricesBuy.length, 2);
+        assertEq(targetPricesSell.length, 0);
+        
     }
 
     function test_MultipleOrderConfigs() public {
@@ -590,7 +650,6 @@ contract DoppiTraderTest is Test {
         weights[2] = 1000;
         
         doppiTrader.setMultipleOrderConfigs(strikeZones, weights);
-        doppiTrader.setUseCustomConfig(true);
         
         // Verify the configuration
         OrderConfig[] memory orderConfig = doppiTrader.getOrderConfigs();
@@ -617,8 +676,7 @@ contract DoppiTraderTest is Test {
         weights[2] = 1000;
         
         doppiTrader.setMultipleOrderConfigs(strikeZones, weights);
-        doppiTrader.setUseCustomConfig(true);
-
+        
         // Reset to default
         doppiTrader.resetToDefaultConfig();
         OrderConfig[] memory orderConfig = doppiTrader.getOrderConfigs();
@@ -626,8 +684,6 @@ contract DoppiTraderTest is Test {
         for (uint8 i = 0; i < 5; i++) {
             assertEq(orderConfig[i].weight, 2000);
         }
-        assertFalse(doppiTrader.useCustomConfig());
-        
         vm.stopPrank();
     }
 
@@ -653,7 +709,6 @@ contract DoppiTraderTest is Test {
         weights[2] = 1000;
         
         doppiTrader.setMultipleOrderConfigs(strikeZones, weights);
-        doppiTrader.setUseCustomConfig(true);
         
         _start();
 
@@ -859,6 +914,128 @@ contract DoppiTraderTest is Test {
 
     }
 
+    function test_unitPrice_increasesAfterGains() public {
+        // Zero out treasury fee so 100% of interest stays in the portfolio.
+        // With a non-zero fee the treasury extracts value, causing net loss on LP
+        // that exceeds the interest credited to the bot.
+        doppiCore.setTreasury(treasury, 0);
+
+        // USDT-only start to avoid BTC price-exposure noise
+        uint256 amountUSDT = 100_000 ether;
+        vm.startPrank(trader);
+        usdt.approve(address(doppiTrader), amountUSDT);
+        doppiTrader.start(amountUSDT, 0);
+        vm.stopPrank();
+
+        // Immediately after first deposit the unit price must be exactly 1e18
+        assertEq(doppiTrader.getUnitPrice(), 1e18);
+
+        // Settle after 1 day — keep oracle price unchanged so LP BTC exposure is neutral;
+        // unit price must rise purely from interest earned on DoppiCore positions.
+        vm.warp(block.timestamp + 1 days + 1);
+        (bool upkeepNeeded, bytes memory performData) = doppiCore.checkUpkeep("");
+        assertTrue(upkeepNeeded);
+        vm.prank(mockForwarder);
+        doppiCore.performUpkeep(performData);
+
+
+        // Set LP gain
+        usdt.mint(address(doppiLP), 100 ether);
+
+        // Interest received increases totalValueInA without changing totalUnits
+        assertGt(doppiTrader.getUnitPrice(), 1e18);
+    }
+
+    function test_unitPrice_secondDepositDoesNotDilute() public {
+        // Zero out treasury fee so interest is net-positive for the bot.
+        doppiCore.setTreasury(treasury, 0);
+
+        // First deposit (USDT only)
+        uint256 amountUSDT = 100_000 ether;
+        vm.startPrank(trader);
+        usdt.approve(address(doppiTrader), 10_000_000 ether);
+        doppiTrader.start(amountUSDT, 0);
+        vm.stopPrank();
+
+        // Settle to generate gains — keep oracle price unchanged so LP BTC exposure is neutral
+        vm.warp(block.timestamp + 1 days + 1);
+        (, bytes memory performData) = doppiCore.checkUpkeep("");
+        vm.prank(mockForwarder);
+        doppiCore.performUpkeep(performData);
+
+        // Set LP gain
+        usdt.mint(address(doppiLP), 100 ether);
+
+        uint256 unitPriceBefore = doppiTrader.getUnitPrice();
+        assertGt(unitPriceBefore, 1e18); // confirm portfolio has gains
+
+        _updateIV();
+
+        // Second deposit of the same size
+        vm.prank(trader);
+        doppiTrader.start(amountUSDT, 0);
+
+        // Unit price must be preserved within 0.01% (integer rounding only)
+        assertApproxEqRel(doppiTrader.getUnitPrice(), unitPriceBefore, 1e14);
+    }
+
+    function test_stop_resetsUnitTracking() public {
+        _start();
+
+        // settle so stop() is allowed
+        vm.warp(block.timestamp + 1 days + 1);
+        oracle.setPrice(int256(98_000 * 1e8));
+        (bool upkeepNeeded, bytes memory performData) = doppiCore.checkUpkeep("");
+        assertTrue(upkeepNeeded);
+        vm.prank(mockForwarder);
+        doppiCore.performUpkeep(performData);
+
+        // confirm units and costBasis were set after start()
+        assertGt(doppiTrader.totalUnits(), 0);
+        assertGt(doppiTrader.costBasis(), 0);
+
+        vm.prank(trader);
+        doppiTrader.stop();
+
+        // both must be reset to 0
+        assertEq(doppiTrader.totalUnits(), 0);
+        assertEq(doppiTrader.costBasis(), 0);
+    }
+
+    function test_stop_thenRestart_unitPriceStartsFresh() public {
+        _start();
+
+        // settle and stop
+        vm.warp(block.timestamp + 1 days + 1);
+        oracle.setPrice(int256(98_000 * 1e8));
+        (, bytes memory performData) = doppiCore.checkUpkeep("");
+        vm.prank(mockForwarder);
+        doppiCore.performUpkeep(performData);
+
+        vm.prank(trader);
+        doppiTrader.stop();
+
+        assertEq(doppiTrader.totalUnits(), 0);
+
+        _updateIV();
+
+        // restart with a fresh deposit
+        uint256 amountUSDT = 100_000 ether;
+        vm.startPrank(trader);
+        usdt.approve(address(doppiTrader), amountUSDT);
+        doppiTrader.start(amountUSDT, 0);
+        vm.stopPrank();
+
+        // totalUnits should equal the deposit value (first-deposit seed path)
+        uint256 price = doppiTrader.doppiLP().getPrice();
+        uint256 expectedUnits = amountUSDT; // _amountB == 0
+        assertEq(doppiTrader.totalUnits(), expectedUnits);
+        assertEq(doppiTrader.costBasis(), expectedUnits);
+
+        // unit price should be exactly 1e18 (no gains/losses yet on first deposit)
+        assertEq(doppiTrader.getUnitPrice(), 1e18);
+    }
+
     // internal
     function _start() internal {
         uint256 amountUSDT = 100_000 ether;
@@ -880,5 +1057,4 @@ contract DoppiTraderTest is Test {
         int256 c_sell = 1485.8762857142906 * 1e27;
         impliedVol.setRegression(86400, a_buy, b_buy, c_buy, a_sell, b_sell, c_sell);
     }
-
 }

@@ -35,3 +35,10 @@ DoppiToken: 0xBcFAd3f2cC3F9A8138A8c2c080C30Ae3C2c650A7
 forge verify-contract --watch --chain-id 56 0xBcFAd3f2cC3F9A8138A8c2c080C30Ae3C2c650A7 src/test/Doppi.sol:DOPPI --verifier etherscan --
 etherscan-api-key API_KEY
 
+2026/5/19:
+DoppiUpkeepManager: 0x72F662ebf6d2E4c89BDD6f5Ca2EfAaBebf6A715a
+forge verify-contract --watch --chain-id 56 0x72F662ebf6d2E4c89BDD6f5Ca2EfAaBebf6A715a src/mainnet/DoppiUpkeepManager.sol:DoppiUpkeepManager --verifier etherscan --
+etherscan-api-key API_KEY
+
+DoppiTrader: 0xdD15644510B14fAEBea097873312E89cb671ddEf
+forge verify-contract --watch --chain-id 56 \ 0xdD15644510B14fAEBea097873312E89cb671ddEf \ src/mainnet/DoppiTrader.sol:DoppiTrader \ --verifier etherscan \ --etherscan-api-key API_KEY

@@ -138,7 +138,7 @@ contract DoppiTraderGasTest is Test {
         traderBot.setForwarderAddress(forwarder);
         vm.stopPrank();
 
-        vm.startPrank(traderBot.owner());            
+        vm.startPrank(trader);            
         traderBot.setMaxSwap(500000 ether);
         vm.stopPrank();
 
@@ -207,7 +207,7 @@ contract DoppiTraderGasTest is Test {
         traderBot.setForwarderAddress(forwarder);
         vm.stopPrank();
 
-        vm.startPrank(traderBot.owner());            
+        vm.startPrank(trader);            
         traderBot.setMaxSwap(500000 ether);
         vm.stopPrank();
 
@@ -276,7 +276,7 @@ contract DoppiTraderGasTest is Test {
         traderBot.setForwarderAddress(forwarder);
         vm.stopPrank();
         
-        vm.startPrank(traderBot.owner());            
+        vm.startPrank(trader);            
         traderBot.setMaxSwap(500000 ether);
         traderBot.setUnwindGapMultiplier(0);
         vm.stopPrank();
@@ -382,7 +382,7 @@ contract DoppiTraderGasTest is Test {
         traderBot.setForwarderAddress(forwarder);
         vm.stopPrank();
 
-         vm.startPrank(traderBot.owner());            
+         vm.startPrank(trader);            
         traderBot.setMaxSwap(500000 ether);
         traderBot.setUnwindGapMultiplier(0);
         vm.stopPrank();
@@ -515,7 +515,7 @@ contract DoppiTraderGasTest is Test {
         traderBot.setForwarderAddress(forwarder);
         vm.stopPrank();
 
-        vm.startPrank(traderBot.owner());            
+        vm.startPrank(trader);            
         traderBot.setMaxSwap(500000 ether);
         traderBot.setUnwindGapMultiplier(0);
         vm.stopPrank();

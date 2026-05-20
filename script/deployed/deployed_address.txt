@@ -34,6 +34,11 @@
   DoppiToken: 0xBcFAd3f2cC3F9A8138A8c2c080C30Ae3C2c650A7
 
 
+2026-05-19:
+  DoppiTrader BTCB-USDT implementation deployed to: 0xdD15644510B14fAEBea097873312E89cb671ddEf
+  DoppiUpkeepManager BTCB-USDT deployed to: 0x72F662ebf6d2E4c89BDD6f5Ca2EfAaBebf6A715a
+
+
 === Deployment Summary 2026-05-06 ETH-USDT === 
 
   BlackScholes: 0xF817aae69CC8F200Ce5cb365dC8e630C0f83e3FC
@@ -47,3 +52,7 @@
   DoppiUpkeepManager: 0x95834DE603b487cBD2d7c09E41Ec2fC11d032611
   DoppiReferral: 0xAA9CBB0221638720F3b73C50DFC08Ed1E6e878b3
   DoppiClaim: 0xA22F6B3544E7e19fb6C84fDdd5bF00dDf873fF28
+
+2026-05-19:
+  DoppiTrader ETH-USDT implementation deployed to: 0xc55748e282bCdB79dc2ff761bbED44e292765132
+  DoppiUpkeepManager ETH-USDT deployed to: 0x759F3F0f98D388839d3B0892cBE1aCF5F6c1315e

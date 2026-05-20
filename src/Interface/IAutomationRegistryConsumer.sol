@@ -50,6 +50,8 @@ interface IAutomationRegistryConsumer {
 
   function withdrawFunds(uint256 id, address to) external;
 
+  function setUpkeepGasLimit(uint256 id, uint32 gasLimit) external;
+  
   function registerUpkeep(
         RegistrationParams calldata requestParams
     ) external returns (uint256);
