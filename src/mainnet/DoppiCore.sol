@@ -737,6 +737,12 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
         IERC20 payoutToken
     ) internal returns (bool isProfit, uint256 profitLoss) {
         if (tradeState == 0) {
+
+            uint256 bal = payoutToken.balanceOf(address(this));
+            uint256 notenough = bal > p.amount ? 0 : p.amount - bal;
+            if(notenough > 0) {
+                _doppiInterestGet(payoutToken, notenough, price, isBuy);
+            }
             // Scenario 3: No Strike + Not Traded — return deposit directly
             payoutToken.safeTransfer(p.owner, p.amount);
         } else {
@@ -857,6 +863,9 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
         ) {
         
         uint256 oneDayMove = doppiOffer.getOneDayBuffer(price, _isBuy);
+        if(oneDayMove == 0) {
+            return (new uint256[](0), new uint256[](0), 0, 0);
+        }
         (targetPrices, totalAmount) = _checkOppoOrUnwind(_isBuy, price, oneDayMove, false);
         (targetPricesUnwind, totalAmountUnwind) = _checkOppoOrUnwind(_isBuy, price, oneDayMove, true);
     }
