@@ -5,16 +5,18 @@ import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
+import {Initializable} from "@openzeppelin/contracts/proxy/utils/Initializable.sol";
 import {AutomationCompatibleInterface} from "../Interface/AutomationCompatibleInterface.sol";
 import {IDoppiTrader} from "../Interface/IDoppiTrader.sol";
 import {IDoppiPoints} from "../Interface/IDoppiPoints.sol";
 import {IDoppiOffer} from "../Interface/IDoppiOffer.sol";
+import {IDoppiOpportunity} from "../Interface/IDoppiOpportunity.sol";
 import "./DoppiCoreTypes.sol";
 import "./DoppiCoreAdmin.sol";
 import "./DoppiCoreView.sol";
 // import "forge-std/console.sol";
 
-contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, AutomationCompatibleInterface {
+contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, AutomationCompatibleInterface, Initializable {
     using SafeERC20 for IERC20;
 
     bytes4 constant SWAP_SELECTOR = bytes4(keccak256("swap(uint256,uint256,bool)"));
@@ -22,11 +24,17 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
     bytes4 constant SETTLE_SELECTOR = bytes4(keccak256("settle(uint256,uint256,uint256,bool)"));
     bytes4 constant INTEREST_SELECTOR = bytes4(keccak256("interestGet(address,uint256,uint256,bool)"));
     bytes4 constant RECORD_SELECTOR = bytes4(keccak256("recordTrade(address,uint256)"));
+    bytes4 constant OPP_SET_BUY_SELECTOR = bytes4(keccak256("setOpportunityBuy(uint256,uint256,uint256,uint256)"));
+    bytes4 constant OPP_SET_SELL_SELECTOR = bytes4(keccak256("setOpportunitySell(uint256,uint256,uint256,uint256)"));
+    bytes4 constant OPP_ADD_BUY_SELECTOR = bytes4(keccak256("addOpportunityBuyAmount(uint256,uint256)"));
+    bytes4 constant OPP_ADD_SELL_SELECTOR = bytes4(keccak256("addOpportunitySellAmount(uint256,uint256)"));
+    bytes4 constant OPP_SUB_BUY_SELECTOR = bytes4(keccak256("subtractOpportunityBuy(uint256,uint256,uint256)"));
+    bytes4 constant OPP_SUB_SELL_SELECTOR = bytes4(keccak256("subtractOpportunitySell(uint256,uint256,uint256)"));
 
-    IERC20 public immutable assetA; // Made immutable
-    IERC20 public immutable assetB; // Made immutable
-    IDoppiOffer public immutable doppiOffer; // Made immutable
-    IDoppiPoints public immutable doppiPoints;
+    IERC20 public assetA;
+    IERC20 public assetB;
+    IDoppiOffer public doppiOffer;
+    IDoppiPoints public doppiPoints;
 
     uint32 private constant SECONDS_PER_YEAR = 31536000;
     uint24 private constant SECONDS_PER_DAY = 86400;
@@ -63,24 +71,58 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
     error OnlyTraderBot();
     error NotOpen();
     error NotExist();
+    error NoPositionsToSettle();
+    error DayAlreadyRegistered();
+    error OpportunityMutateFailed();
 
 
     constructor(address _assetA, address _assetB, IDoppiLiquidity _doppiLP, IDoppiOffer _doppiOffer, address _doppiPoints)
         Ownable(msg.sender)
     {
+        _initializeDoppiCore(_assetA, _assetB, _doppiLP, _doppiOffer, _doppiPoints, msg.sender, address(0));
+    }
+
+    /// @notice Initialize for proxy pattern (called via proxy after deployment)
+    function initialize(
+        address _assetA,
+        address _assetB,
+        address _doppiLP,
+        address _doppiOffer,
+        address _doppiPoints,
+        address _owner,
+        address _doppiOpportunity
+    ) external initializer {
+        _initializeDoppiCore(_assetA, _assetB, IDoppiLiquidity(_doppiLP), IDoppiOffer(_doppiOffer), _doppiPoints, _owner, _doppiOpportunity);
+    }
+
+    /// @notice Internal initialization logic shared by constructor and initialize
+    function _initializeDoppiCore(
+        address _assetA,
+        address _assetB,
+        IDoppiLiquidity _doppiLP,
+        IDoppiOffer _doppiOffer,
+        address _doppiPoints,
+        address _owner,
+        address _doppiOpportunity
+    ) internal {
         assetA = IERC20(_assetA);
         assetB = IERC20(_assetB);
         doppiLP = _doppiLP;
         doppiOffer = _doppiOffer;
         priceDecimal = 10 ** _doppiLP.getPriceDecimals();
         doppiPoints = IDoppiPoints(_doppiPoints);
-        opportunityBots[msg.sender] = true;
+        if (_doppiOpportunity != address(0)) {
+            doppiOpportunity = IDoppiOpportunity(_doppiOpportunity);
+        }
+        opportunityBots[_owner] = true;
         assetA.safeIncreaseAllowance(address(doppiLP), type(uint256).max);
         assetB.safeIncreaseAllowance(address(doppiLP), type(uint256).max);
 
         supportDays.push(1);
         nextProcessId[1] = 1;
         nextPositionId[1] = 1;
+        
+        _transferOwnership(_owner);
     }
 
     // Single deposit functionality
@@ -221,7 +263,7 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
         uint256 price = _getPriceFromLP();
         uint64 endPosId = _getReadyAllPositions(day);
         uint64 start = nextProcessId[day];
-        require(endPosId >= start && endPosId != 0, "no positions to settle");
+        if (!(endPosId >= start && endPosId != 0)) revert NoPositionsToSettle();
         _settlePositionsAggregated(day, start, endPosId, price);
     }
 
@@ -233,7 +275,7 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
 
     function addSupportDay(uint8 _day) external onlyOwner {
         for (uint256 i = 0; i < supportDays.length; i++) {
-            require(supportDays[i] != _day, "day already registered");
+            if (supportDays[i] == _day) revert DayAlreadyRegistered();
         }
         supportDays.push(_day);
         nextProcessId[_day] = 1;
@@ -343,7 +385,7 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
                 if (pos.amount > 0) {
                     uint256 amountToReturn = pos.amount;
                     uint256 interest = pos.interest;
-                    OpportunityOrders memory opp = isBuy ? opportunityBuy[pos.strikePrice] : opportunitySell[pos.strikePrice];
+                    OpportunityOrders memory opp = _getOpportunityOrdersInternal(isBuy, pos.strikePrice);
                     uint256 tradedPortion = opp.swappedAmount < pos.amount ? opp.swappedAmount : pos.amount;
                     uint8 tradeState = tradedPortion == 0 ? 0 : (tradedPortion >= pos.amount ? 2 : 1);
                     uint256 myAmountOut = opp.swappedAmount > 0 ? Math.mulDiv(opp.outAmount, tradedPortion, opp.swappedAmount) : 0;
@@ -409,7 +451,7 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
             interest,
             payout
         );
-        opportunityBuy[_buyOffer.strikePrice].amount += amount;
+        _addOpportunityAmount(_buyOffer.strikePrice, amount, true);
         _updateInterestLiability(interest, true);
         
         emit Deposited(sender, positionId, address(assetA), amount, interest, _buyOffer.strikePrice, _buyOffer.apr, numDays);
@@ -443,7 +485,7 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
             interest,
             payout
         );
-        opportunitySell[_sellOffer.strikePrice].amount += amount;
+        _addOpportunityAmount(_sellOffer.strikePrice, amount, false);
         _updateInterestLiability(interest, false);
         emit Deposited(sender, positionId, address(assetB), amount, interest, _sellOffer.strikePrice, _sellOffer.apr, numDays);
     }
@@ -514,7 +556,7 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
                     }
                     if (idx == bCount) {
                         // First encounter for this buy strike — seed from storage
-                        OpportunityOrders memory opp = opportunityBuy[p.strikePrice];
+                        OpportunityOrders memory opp = _getOpportunityOrdersInternal(true, p.strikePrice);
                         bStrike[bCount]  = p.strikePrice;
                         bRemSwap[bCount] = opp.swappedAmount;
                         bRemOut[bCount]  = opp.outAmount;
@@ -532,7 +574,7 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
                         unchecked { ++k; }
                     }
                     if (idx == sCount) {
-                        OpportunityOrders memory opp = opportunitySell[p.strikePrice];
+                        OpportunityOrders memory opp = _getOpportunityOrdersInternal(false, p.strikePrice);
                         sStrike[sCount]  = p.strikePrice;
                         sRemSwap[sCount] = opp.swappedAmount;
                         sRemOut[sCount]  = opp.outAmount;
@@ -718,10 +760,7 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
 
             // Reduce opp storage by the pre-allocated amounts (ordered reduction is safe
             // because planning already consumed exactly these values from the in-memory cache).
-            mapping(uint256 => OpportunityOrders) storage opporMap = isBuy ? opportunityBuy : opportunitySell;
-            OpportunityOrders storage opp = opporMap[p.strikePrice];
-            opp.outAmount     = opp.outAmount     > myAmountOut   ? opp.outAmount     - myAmountOut   : 0;
-            opp.swappedAmount = opp.swappedAmount > tradedPortion ? opp.swappedAmount - tradedPortion : 0;
+            _subtractOpportunityTrade(p.strikePrice, tradedPortion, myAmountOut, isBuy);
         }
 
         _createTraderBotUnwindPosition(p, isBuy);
@@ -764,10 +803,7 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
             // untradedPortion was already held by this contract; return full amount to user.
             payoutToken.safeTransfer(p.owner, p.amount);
 
-            mapping(uint256 => OpportunityOrders) storage opporMap = isBuy ? opportunityBuy : opportunitySell;
-            OpportunityOrders storage opp = opporMap[p.strikePrice];
-            opp.outAmount     = opp.outAmount     > myAmountOut   ? opp.outAmount     - myAmountOut   : 0;
-            opp.swappedAmount = opp.swappedAmount > tradedPortion ? opp.swappedAmount - tradedPortion : 0;
+            _subtractOpportunityTrade(p.strikePrice, tradedPortion, myAmountOut, isBuy);
         }
     }
 
@@ -775,149 +811,39 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
         return positions_buy[day][posId].amount > 0 || positions_sell[day][posId].amount > 0;
     }
 
-    function _checkOppoOrUnwind(
-        bool _isBuy,
-        uint256 price, 
-        uint256 oneDayMove,
-        bool _unwind
-    ) internal view returns (uint256[] memory targetPrices, uint256 totalAmount) 
+    function opportunitySwap(uint256 amountIn, uint256 price, bool isBuy)
+        external
+        nonReentrant
+        returns (uint256 amountOut)
     {
-        if (_isBuy) {
-            return _scanActiveStrikes(opportunityBuy, buyStrikeNodes, activeBuyStrikeCount, price, oneDayMove, true, _unwind, buyHead, buyTail);
-        }
-        return _scanActiveStrikes(opportunitySell, sellStrikeNodes, activeSellStrikeCount, price, oneDayMove, false, _unwind, sellHead, sellTail);
-    }
-
-    function _scanActiveStrikes(
-        mapping(uint256 => OpportunityOrders) storage opporMap,
-        mapping(uint256 => StrikeNode) storage strikeNodes,
-        uint256 activeCount,
-        uint256 price,
-        uint256 oneDayMove,
-        bool isBuy,
-        bool unwind,
-        uint256 head,
-        uint256 tail
-    ) internal view returns (uint256[] memory targetPrices, uint256 totalAmount) {
-        if (activeCount == 0) {
-            return (new uint256[](0), 0);
-        }
-
-        uint256[] memory tempTargetPrice = new uint256[](activeCount);
-        uint256 count = 0;
-        uint256 buffer = price * oneDayMove / 10000;
-        uint256 triggerPrice = isBuy ? price + buffer : price - buffer;
-        uint256 triggerUnwindPrice = isBuy ? price - buffer : price + buffer;
-        uint256 maxSwapInLocal = (isBuy == unwind) ? maxSwap * priceDecimal / price : maxSwap;
-        bool ascending = isBuy != unwind;
-        uint256 strikeprice = ascending ?  tail: head;
-
-        while (strikeprice != 0) {
-            uint256 nextStrike = ascending ? strikeNodes[strikeprice].prev : strikeNodes[strikeprice].next;
-            OpportunityOrders storage order = opporMap[strikeprice];
-            bool isTriggered;
-            uint256 comparedAmount;
-
-            if (unwind) {
-                comparedAmount = order.outAmount;
-                uint256 unwindSwappedAmount = order.swappedAmount;
-                if (comparedAmount > 0 && unwindSwappedAmount > 0) {
-                    uint256 costPrice = isBuy
-                        ? unwindSwappedAmount * priceDecimal / comparedAmount
-                        : comparedAmount * priceDecimal / unwindSwappedAmount;
-                    isTriggered = isBuy ? costPrice < triggerUnwindPrice : costPrice > triggerUnwindPrice;
-                }
-            } else {
-                comparedAmount = order.amount > order.swappedAmount ? order.amount - order.swappedAmount : 0;
-                isTriggered = isBuy
-                    ? (comparedAmount > 0 && strikeprice > triggerPrice)
-                    : (comparedAmount > 0 && strikeprice < triggerPrice);
-                
-            }
-
-            if (isTriggered && comparedAmount > 0) {
-                uint256 totalAmountPost = totalAmount + comparedAmount;
-                uint256 toTradeAmount = totalAmountPost > maxSwapInLocal
-                    ? comparedAmount - (totalAmountPost - maxSwapInLocal)
-                    : comparedAmount;
-
-                if (toTradeAmount > 0 && (totalAmount + toTradeAmount) <= maxSwapInLocal) {
-                    totalAmount += toTradeAmount;
-                    tempTargetPrice[count] = strikeprice;
-                    unchecked { ++count; }
-                }
-            }
-
-            strikeprice = nextStrike;
-        }
-
-        targetPrices = _createResultArrays(tempTargetPrice, count);
-    }
-
-    function checkOpportunity(uint256 price, bool _isBuy) external view
-        returns (
-            uint256[] memory targetPrices, 
-            uint256[] memory targetPricesUnwind, 
-            uint256 totalAmount,
-            uint256 totalAmountUnwind
-        ) {
-        
-        uint256 oneDayMove = doppiOffer.getOneDayBuffer(price, _isBuy);
-        if(oneDayMove == 0) {
-            return (new uint256[](0), new uint256[](0), 0, 0);
-        }
-        (targetPrices, totalAmount) = _checkOppoOrUnwind(_isBuy, price, oneDayMove, false);
-        (targetPricesUnwind, totalAmountUnwind) = _checkOppoOrUnwind(_isBuy, price, oneDayMove, true);
-    }
-
-    function performOpportunity(
-        uint256[] memory targetPrices, 
-        uint256[] memory targetPricesUnwind, 
-        uint256 totalAmount,
-        uint256 totalAmountUnwind,
-        bool isBuy
-    ) external nonReentrant {
-        
         _checkOpportunityBot();
-        uint256 price = _getPriceFromLP();
-        mapping(uint256 => OpportunityOrders) storage opporMap = isBuy ? opportunityBuy : opportunitySell; 
-        
-        if(targetPrices.length > 0){
-            uint256 amountOut = _swapLowLevel(totalAmount, price, isBuy);
-            uint256 reduced = totalAmount;
-            uint256 reducedout = amountOut;
-            for (uint256 j = targetPrices.length; j > 0 ; ) {
-                uint256 strikePrice = targetPrices[j - 1];
-                (reduced, reducedout) = _executeOpportunity(totalAmount, amountOut, price, reduced, reducedout, isBuy, strikePrice, opporMap[strikePrice]);
-                unchecked { --j; }
-            }
-        }
-        if(targetPricesUnwind.length > 0){
-            uint256 amountOutUnwind = _swapLowLevel(totalAmountUnwind, price, !isBuy);
-            uint256 reduced = totalAmountUnwind;
-            uint256 reducedout = amountOutUnwind;
-            for (uint256 j = 0; j < targetPricesUnwind.length; ) {
-                uint256 strikePrice = targetPricesUnwind[j];
-                (reduced, reducedout) = _executeUnwind(
-                    totalAmountUnwind, amountOutUnwind, price, reduced, reducedout, isBuy, strikePrice, opporMap[strikePrice]
-                    );
-                unchecked { ++j; }
-            }
-        }
+        return _swapLowLevel(amountIn, price, isBuy);
     }
 
-    function _createResultArrays(
-        uint256[] memory tempPrices,
-        uint256 count
-    ) private pure returns (uint256[] memory prices) {
-        uint256 resultSize = count < tempPrices.length ? count : tempPrices.length;
-        
-        prices = new uint256[](resultSize);
-        
-        for (uint256 i = 0; i < resultSize;) {
-            prices[i] = tempPrices[resultSize - 1 - i];
-            unchecked { ++i; }
-        }
+    function executeOpportunityStep(
+        uint256 totalAmount,
+        uint256 totalAmountOut,
+        uint256 price,
+        uint256 reduced,
+        uint256 reducedout,
+        bool isBuy,
+        uint256 strikePrice
+    ) external nonReentrant returns (uint256 reducedUpdated, uint256 reducedoutUpdated) {
+        _checkOpportunityBot();
+        return _executeOpportunity(totalAmount, totalAmountOut, price, reduced, reducedout, isBuy, strikePrice);
+    }
+
+    function executeUnwindStep(
+        uint256 totalAmountUnwind,
+        uint256 amountOutUnwind,
+        uint256 price,
+        uint256 reduced,
+        uint256 reducedout,
+        bool isBuy,
+        uint256 strikePrice
+    ) external nonReentrant returns (uint256 reducedUpdated, uint256 reducedoutUpdated) {
+        _checkOpportunityBot();
+        return _executeUnwind(totalAmountUnwind, amountOutUnwind, price, reduced, reducedout, isBuy, strikePrice);
     }
 
     function _executeOpportunity(
@@ -927,10 +853,10 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
         uint256 reduced,
         uint256 reducedout,
         bool isBuy,
-        uint256 strikePrice,
-        OpportunityOrders storage order
+        uint256 strikePrice
     ) internal returns (uint256 reducedUpdated, uint256 reducedoutUpdated) {
         
+        OpportunityOrders memory order = _getOpportunityOrdersInternal(isBuy, strikePrice);
         uint256 amount = order.amount;
         uint256 swappedAmount = order.swappedAmount;
         uint256 unTrade = amount - swappedAmount;
@@ -951,6 +877,7 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
             myAmountOut = reducedout;
             amount = reduced;
         }
+        _setOpportunityOrders(strikePrice, order.amount, order.swappedAmount, order.outAmount, isBuy);
         _syncStrikeState(strikePrice, isBuy);
         emit OppPerformed(isBuy, price, amount, myAmountOut);
     }
@@ -962,10 +889,10 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
         uint256 reduced,
         uint256 reducedout,
         bool isBuy,
-        uint256 strikePrice,
-        OpportunityOrders storage order
+        uint256 strikePrice
     ) internal returns (uint256 reducedUpdated, uint256 reducedoutUpdated){
 
+        OpportunityOrders memory order = _getOpportunityOrdersInternal(isBuy, strikePrice);
         uint256 unwind = order.outAmount;
         uint256 swappedAmount = order.swappedAmount;
         uint256 ratio;
@@ -998,12 +925,13 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
             _safeTransferWithFee(profitToken, address(doppiLP), profit);
             reducedoutUpdated -= profit;
         }
+        _setOpportunityOrders(strikePrice, order.amount, order.swappedAmount, order.outAmount, isBuy);
         _syncStrikeState(strikePrice, isBuy);
         emit OppUnwindPerformed(isBuy, price, unwind, myAmountOut, profit, address(profitToken));
     }
 
     function _syncStrikeState(uint256 strikePrice, bool isBuy) internal {
-        OpportunityOrders storage opp = isBuy ? opportunityBuy[strikePrice] : opportunitySell[strikePrice];
+        OpportunityOrders memory opp = _getOpportunityOrdersInternal(isBuy, strikePrice);
         bool shouldBeActive = opp.amount > 0 || opp.swappedAmount > 0 || opp.outAmount > 0;
         if (isBuy) {
             if (shouldBeActive) {
@@ -1129,9 +1057,28 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
         return (lower, upper);
     }
 
+    function getActiveStrikeSnapshot(bool isBuy)
+        external
+        view
+        returns (uint256 activeCount, uint256 head, uint256 tail)
+    {
+        if (isBuy) {
+            return (activeBuyStrikeCount, buyHead, buyTail);
+        }
+        return (activeSellStrikeCount, sellHead, sellTail);
+    }
+
+    function getStrikeNode(bool isBuy, uint256 strikePrice)
+        external
+        view
+        returns (uint256 prev, uint256 next, bool active)
+    {
+        StrikeNode memory node = isBuy ? buyStrikeNodes[strikePrice] : sellStrikeNodes[strikePrice];
+        return (node.prev, node.next, node.active);
+    }
+
     function _reduceOpportunityOrder(uint256 strikePrice, uint256 amount, bool isBuy) internal {
-        mapping(uint256 => OpportunityOrders) storage opporMap = isBuy ? opportunityBuy : opportunitySell;
-        OpportunityOrders storage opp = opporMap[strikePrice];
+        OpportunityOrders memory opp = _getOpportunityOrdersInternal(isBuy, strikePrice);
 
         if (opp.amount <= amount) {
             opp.amount = 0;
@@ -1139,7 +1086,59 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
             opp.amount -= amount;
         }
 
+        _setOpportunityOrders(strikePrice, opp.amount, opp.swappedAmount, opp.outAmount, isBuy);
         _syncStrikeState(strikePrice, isBuy);
+    }
+
+    function _getOpportunityOrdersInternal(bool isBuy, uint256 strikePrice) internal view virtual returns (OpportunityOrders memory) {
+        if (address(doppiOpportunity) != address(0)) {
+            return _opportunityGetOrdersLowLevel(isBuy, strikePrice);
+        }
+        return isBuy ? opportunityBuy[strikePrice] : opportunitySell[strikePrice];
+    }
+
+    function _setOpportunityOrders(
+        uint256 strikePrice,
+        uint256 amount,
+        uint256 swappedAmount,
+        uint256 outAmount,
+        bool isBuy
+    ) internal virtual {
+        if (address(doppiOpportunity) != address(0)) {
+            _opportunitySetOrdersLowLevel(strikePrice, amount, swappedAmount, outAmount, isBuy);
+            return;
+        }
+
+        OpportunityOrders storage opp = isBuy ? opportunityBuy[strikePrice] : opportunitySell[strikePrice];
+        opp.amount = amount;
+        opp.swappedAmount = swappedAmount;
+        opp.outAmount = outAmount;
+    }
+
+    function _addOpportunityAmount(uint256 strikePrice, uint256 amount, bool isBuy) internal virtual {
+        if (address(doppiOpportunity) != address(0)) {
+            _opportunityAddAmountLowLevel(strikePrice, amount, isBuy);
+            return;
+        }
+
+        OpportunityOrders storage opp = isBuy ? opportunityBuy[strikePrice] : opportunitySell[strikePrice];
+        opp.amount += amount;
+    }
+
+    function _subtractOpportunityTrade(
+        uint256 strikePrice,
+        uint256 subtractSwapped,
+        uint256 subtractOut,
+        bool isBuy
+    ) internal virtual {
+        if (address(doppiOpportunity) != address(0)) {
+            _opportunitySubtractTradeLowLevel(strikePrice, subtractSwapped, subtractOut, isBuy);
+            return;
+        }
+
+        OpportunityOrders storage opp = isBuy ? opportunityBuy[strikePrice] : opportunitySell[strikePrice];
+        opp.swappedAmount = opp.swappedAmount > subtractSwapped ? opp.swappedAmount - subtractSwapped : 0;
+        opp.outAmount = opp.outAmount > subtractOut ? opp.outAmount - subtractOut : 0;
     }
 
     function _safeTransferWithFee(IERC20 _asset, address _to, uint256 _amount) internal {
@@ -1177,6 +1176,51 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
         if (!(ok && ret.length >= 32)) revert PriceFailed();
         price = abi.decode(ret, (uint256));
         if(price == 0) revert PriceFailed();
+    }
+
+    function _opportunityGetOrdersLowLevel(bool isBuy, uint256 strikePrice)
+        internal
+        view
+        returns (OpportunityOrders memory order)
+    {
+        (bool ok, bytes memory ret) = address(doppiOpportunity).staticcall(
+            abi.encodeWithSelector(OPP_GET_SELECTOR, isBuy, strikePrice)
+        );
+        if (!(ok && ret.length >= 96)) revert OpportunityViewFailed();
+        order = abi.decode(ret, (OpportunityOrders));
+    }
+
+    function _opportunitySetOrdersLowLevel(
+        uint256 strikePrice,
+        uint256 amount,
+        uint256 swappedAmount,
+        uint256 outAmount,
+        bool isBuy
+    ) internal {
+        bytes4 selector = isBuy ? OPP_SET_BUY_SELECTOR : OPP_SET_SELL_SELECTOR;
+        (bool ok, ) = address(doppiOpportunity).call(
+            abi.encodeWithSelector(selector, strikePrice, amount, swappedAmount, outAmount)
+        );
+        if (!ok) revert OpportunityMutateFailed();
+    }
+
+    function _opportunityAddAmountLowLevel(uint256 strikePrice, uint256 amount, bool isBuy) internal {
+        bytes4 selector = isBuy ? OPP_ADD_BUY_SELECTOR : OPP_ADD_SELL_SELECTOR;
+        (bool ok, ) = address(doppiOpportunity).call(abi.encodeWithSelector(selector, strikePrice, amount));
+        if (!ok) revert OpportunityMutateFailed();
+    }
+
+    function _opportunitySubtractTradeLowLevel(
+        uint256 strikePrice,
+        uint256 subtractSwapped,
+        uint256 subtractOut,
+        bool isBuy
+    ) internal {
+        bytes4 selector = isBuy ? OPP_SUB_BUY_SELECTOR : OPP_SUB_SELL_SELECTOR;
+        (bool ok, ) = address(doppiOpportunity).call(
+            abi.encodeWithSelector(selector, strikePrice, subtractSwapped, subtractOut)
+        );
+        if (!ok) revert OpportunityMutateFailed();
     }
 
     function _doppiSettleCall(uint256 amount, uint256 payout, uint256 price, bool isBuy) internal returns (uint256 out) {

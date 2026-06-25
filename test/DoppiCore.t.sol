@@ -75,7 +75,7 @@ contract DoppiCoreTest is Test {
         configLP.router = address(swapper);
         
         doppiLP =
-            new DoppiLiquidity("Dual Asset Liquidity Pool", "DALP", IERC20(usdt), IERC20(btc));
+            new DoppiLiquidity("Dual Asset Liquidity Pool", "DALP", address(IERC20(usdt)), address(IERC20(btc)));
 
         doppiLP.setConfig(configLP);
         doppiLP.approveRouter();
@@ -91,7 +91,7 @@ contract DoppiCoreTest is Test {
         doppiLP.setEntryPoint(address(doppiRouter.entryPointB()), true);
         
         traderFactory =
-            new DoppiTraderFactory(IERC20(usdt), IERC20(btc), address(doppiCore), address(doppiLP), address(doppiRouter));
+            new DoppiTraderFactory(IERC20(usdt), IERC20(btc), address(doppiCore), address(doppiLP), address(doppiRouter), address(impliedVol), address(doppiPoints));
 
         doppiCore.setDoppiTraderFactory(traderFactory);
         doppiCore.setOpportunityBot(admin, true);
@@ -141,7 +141,7 @@ contract DoppiCoreTest is Test {
 
     function test_setTraderFactory() public {
         DoppiTraderFactory newFactory =
-            new DoppiTraderFactory(IERC20(usdt), IERC20(btc), address(doppiCore), address(doppiLP), address(doppiRouter));
+            new DoppiTraderFactory(IERC20(usdt), IERC20(btc), address(doppiCore), address(doppiLP), address(doppiRouter), address(impliedVol), address(doppiPoints));
         doppiCore.setDoppiTraderFactory(newFactory);
         assertEq(address(doppiCore.doppiTraderFactory()), address(newFactory));
     }

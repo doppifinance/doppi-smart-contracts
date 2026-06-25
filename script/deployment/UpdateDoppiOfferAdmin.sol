@@ -17,11 +17,11 @@ contract UpdateDoppiOfferAdmin is Script {
         // Start broadcasting transactions
         vm.startBroadcast(deployerPrivateKey);
 
-        // Get DoppiOffer instance
-        DoppiOffer doppiOffer = DoppiOffer(DOPPI_OFFER_BTC);
-        doppiOffer.setAdmin(executor, true);
-        console.log("done updating doppiOffer BTC-USDT admin address");
-        console.log(doppiOffer.admins(executor), "is admin BTC");
+        // // Get DoppiOffer instance
+        // DoppiOffer doppiOffer = DoppiOffer(DOPPI_OFFER_BTC);
+        // doppiOffer.setAdmin(executor, true);
+        // console.log("done updating doppiOffer BTC-USDT admin address");
+        // console.log(doppiOffer.admins(executor), "is admin BTC");
 
         // Get DoppiOffer instance
         DoppiOffer doppiOfferETH = DoppiOffer(DOPPI_OFFER_ETH);

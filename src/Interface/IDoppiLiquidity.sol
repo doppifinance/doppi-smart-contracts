@@ -1,12 +1,9 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.26;
 
-import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import {IShares} from "../Interface/IShares.sol";
-
-interface IDoppiLiquidity is IShares {
-    function assetA() external view returns (IERC20);
-    function assetB() external view returns (IERC20);
+interface IDoppiLiquidity {
+    function assetA() external view returns (address);
+    function assetB() external view returns (address);
     function doppiCore() external view returns (address);
     function amountToBuy(uint256 price) external view returns (uint256);
     function amountToSell(uint256 price) external view returns (uint256);

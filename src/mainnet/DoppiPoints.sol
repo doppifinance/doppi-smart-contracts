@@ -15,6 +15,7 @@ contract DoppiPoints is Ownable, Pausable {
     
     address public doppiClaim;
     mapping(address => IDoppiTraderFactory) public coreToTraderFactory;
+    mapping(address => bool) public coreRegistrars;
     IDoppiReferral public doppiReferral;
     mapping(address => bool) public doppiCore;
     uint256 public totalVolume;
@@ -44,6 +45,8 @@ contract DoppiPoints is Ownable, Pausable {
     event PointsReset(address indexed trader, uint256 points);
     event ReferralChainUpdated(address indexed trader, address l1, address l2, address l3);
     event CoreTraderFactorySet(address indexed core, address indexed factory);
+    event CoreRegistrarSet(address indexed registrar, bool allowed);
+    event CoreRegistered(address indexed core, address indexed factory, address indexed registrar);
     event BotVolumeMultiplierUpdated(uint256 numerator, uint256 denominator);
 
     constructor()
@@ -138,6 +141,23 @@ contract DoppiPoints is Ownable, Pausable {
         doppiCore[_doppiCore] = _status;
     }
 
+    function setCoreRegistrar(address registrar, bool allowed) external onlyOwner {
+        require(registrar != address(0), "Zero address");
+        coreRegistrars[registrar] = allowed;
+        emit CoreRegistrarSet(registrar, allowed);
+    }
+
+    /// @notice Registers a new DoppiCore and links it to its trader factory.
+    /// Callable by owner or a whitelisted registrar (e.g. private bot factory).
+    function registerCore(address _core, address _factory) external onlyOwnerOrRegistrar {
+        require(_core != address(0), "Zero address");
+        require(_factory != address(0), "Zero address");
+        doppiCore[_core] = true;
+        coreToTraderFactory[_core] = IDoppiTraderFactory(_factory);
+        emit CoreTraderFactorySet(_core, _factory);
+        emit CoreRegistered(_core, _factory, msg.sender);
+    }
+
     function setDoppiClaim(address _doppiClaim) external onlyOwner {
         require(_doppiClaim != address(0), "Zero address");
         doppiClaim = _doppiClaim;
@@ -225,6 +245,11 @@ contract DoppiPoints is Ownable, Pausable {
 
     modifier onlyDoppiClaim() {
         require(msg.sender == doppiClaim, "only doppiClaim");
+        _;
+    }
+
+    modifier onlyOwnerOrRegistrar() {
+        require(msg.sender == owner() || coreRegistrars[msg.sender], "only owner or registrar");
         _;
     }
 }

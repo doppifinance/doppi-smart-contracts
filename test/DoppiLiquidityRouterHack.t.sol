@@ -50,7 +50,7 @@ contract DoppiLiquidityRouterTest is Test {
         
         // Deploy doppiLP
         doppiLP =
-            new DoppiLiquidity("Dual Asset LP", "DALP", IERC20(address(usdt)), IERC20(address(btc)));
+            new DoppiLiquidity("Dual Asset LP", "DALP", address(usdt), address(btc));
 
         // Deploy doppiLPRouter
         router = new DoppiLiquidityRouter(IERC20(address(usdt)), IERC20(address(btc)), doppiLP);

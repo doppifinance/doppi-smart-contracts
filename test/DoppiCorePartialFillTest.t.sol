@@ -77,7 +77,7 @@ contract DoppiCorePartialFillTest is Test {
         swapper.setOracle(MockOracle(oracle));    
         doppiPoints = _deployDoppiPoints();
         doppiLP =
-            new DoppiLiquidity("Dual Asset Liquidity Pool", "DALP", IERC20(usdt), IERC20(btc));
+            new DoppiLiquidity("Dual Asset Liquidity Pool", "DALP", address(IERC20(usdt)), address(IERC20(btc)));
         
         configLP = TestParamLib.get_configLP();
         configLP.chainLinkFeed = address(oracle);

@@ -69,7 +69,7 @@ abstract contract ERC7575 is IERC7575 {
      * See {IERC20Metadata-decimals}.
      */
     function decimals() public view returns (uint8) {
-        (bool ok, uint8 assetDecimals) = _tryGetAssetDecimals(_shareToken);
+        (bool ok, uint8 assetDecimals) = _tryGetAssetDecimals(IERC20(address(_shareToken)));
         if (ok) {
             return assetDecimals;
         } else {
@@ -104,11 +104,11 @@ abstract contract ERC7575 is IERC7575 {
     }
 
     function maxWithdraw(address owner) public view virtual returns (uint256) {
-        return _convertToAssets(_shareToken.balanceOf(owner), Math.Rounding.Floor);
+        return _convertToAssets(IERC20(address(_shareToken)).balanceOf(owner), Math.Rounding.Floor);
     }
 
     function maxRedeem(address owner) public view virtual returns (uint256) {
-        return _shareToken.balanceOf(owner);
+        return IERC20(address(_shareToken)).balanceOf(owner);
     }
 
     function previewDeposit(uint256 assets) public view virtual returns (uint256) {
@@ -179,14 +179,14 @@ abstract contract ERC7575 is IERC7575 {
      * @dev Internal conversion function (from assets to shares) with support for rounding direction.
      */
     function _convertToShares(uint256 assets, Math.Rounding rounding) internal view virtual returns (uint256) {
-        return assets.mulDiv(_shareToken.totalSupply() + 10 ** _decimalsOffset(), totalAssets() + 1, rounding);
+        return assets.mulDiv(IERC20(address(_shareToken)).totalSupply() + 10 ** _decimalsOffset(), totalAssets() + 1, rounding);
     }
 
     /**
      * @dev Internal conversion function (from shares to assets) with support for rounding direction.
      */
     function _convertToAssets(uint256 shares, Math.Rounding rounding) internal view virtual returns (uint256) {
-        return shares.mulDiv(totalAssets() + 1, _shareToken.totalSupply() + 10 ** _decimalsOffset(), rounding);
+        return shares.mulDiv(totalAssets() + 1, IERC20(address(_shareToken)).totalSupply() + 10 ** _decimalsOffset(), rounding);
     }
 
     /**

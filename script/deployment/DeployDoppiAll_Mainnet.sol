@@ -71,7 +71,7 @@ contract DeployDoppiAllMainnet is Script {
         console.log("DoppiLiquidityRouter deployed at:", address(doppiRouter));
         
         console.log("Deploying DoppiTraderFactory...");
-        DoppiTraderFactory doppiFactory = new DoppiTraderFactory(IERC20(USDT), IERC20(BTC), address(doppiCore), address(doppiLP), address(doppiRouter));
+        DoppiTraderFactory doppiFactory = new DoppiTraderFactory(IERC20(USDT), IERC20(BTC), address(doppiCore), address(doppiLP), address(doppiRouter), address(impliedVol), address(doppiPoints));
         console.log("DoppiTraderFactory deployed at:", address(doppiFactory));
         
         DoppiUpkeepManager doppiUpkeepManager = _deployDoppiUpkeepManager(doppiFactory);
@@ -157,7 +157,7 @@ contract DeployDoppiAllMainnet is Script {
     function _deployDoppiLiquidity() internal returns (DoppiLiquidity) {
         
         console.log("Deploying DoppiLiquidity...");
-        DoppiLiquidity _doppiLP = new DoppiLiquidity("Doppi LP BTC-USDT", "BTCB-USDT", IERC20(USDT), IERC20(BTC));
+        DoppiLiquidity _doppiLP = new DoppiLiquidity("Doppi LP BTC-USDT", "BTCB-USDT", address(IERC20(USDT)), address(IERC20(BTC)));
         console.log("DoppiLiquidity deployed at:", address(_doppiLP));
         _doppiLP.setConfig(configLP); 
         _doppiLP.approveRouter();

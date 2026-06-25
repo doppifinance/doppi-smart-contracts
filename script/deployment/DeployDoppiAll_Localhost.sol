@@ -20,6 +20,9 @@ import {DoppiOpportunity} from "../../src/mainnet/DoppiOpportunity.sol";
 import {DoppiUpkeepManager} from "../../src/mainnet/DoppiUpkeepManager.sol";
 import {MockRegistryConsumer} from "../../src/test/MockRegistryConsumerLocalhost.sol";
 import {DoppiReferral} from "../../src/mainnet/DoppiReferral.sol";
+import {PrivateDoppiTraderFactory} from "../../src/mainnet/private/PrivateDoppiTraderFactory.sol";
+import {DoppiCorePrivate} from "../../src/mainnet/private/DoppiCorePrivate.sol";
+import {DoppiOpportunityStorage} from "../../src/mainnet/private/DoppiOpportunityStorage.sol";
 import "../../src/mainnet/DoppiLiquidityTypes.sol";
 import {TestParamLib} from "../../src/Library/TestParamLib.sol";
 
@@ -58,7 +61,7 @@ contract DeployDoppiAll is Script {
         DoppiOffer impliedVol = _deployDoppiOffer(address(blackScholes));
         DoppiPoints doppiPoints = _deployDoppiPoints();
         DoppiLiquidity doppiLP = _deployDoppiLiquidity();
-        DoppiCore doppiCore = _deployDoppiCore(doppiLP, impliedVol, doppiPoints);
+        DoppiCorePrivate doppiCore = _deployDoppiCorePrivate(doppiLP, impliedVol, doppiPoints);
         DoppiOpportunity doppiOpportunity = _deployDoppiOpportunity(address(doppiCore), address(doppiLP));
         DoppiReferral doppiReferral = _deployDoppiReferral(address(doppiPoints));
     
@@ -69,7 +72,7 @@ contract DeployDoppiAll is Script {
         console.log("DoppiLiquidityRouter deployed at:", address(doppiRouter));
         
         console.log("Deploying DoppiTraderFactory...");
-        DoppiTraderFactory doppiFactory = new DoppiTraderFactory(IERC20(USDT), IERC20(BTC), address(doppiCore), address(doppiLP), address(doppiRouter));
+        DoppiTraderFactory doppiFactory = new DoppiTraderFactory(IERC20(USDT), IERC20(BTC), address(doppiCore), address(doppiLP), address(doppiRouter), address(impliedVol), address(doppiPoints));
         console.log("DoppiTraderFactory deployed at:", address(doppiFactory));
         
         DoppiUpkeepManager doppiUpkeepManager = _deployDoppiUpkeepManager(doppiFactory);
@@ -82,6 +85,38 @@ contract DeployDoppiAll is Script {
         _setDoppiCoreProperties(doppiCore, doppiFactory, address(doppiOpportunity));
 
         doppiPoints.setCoreTraderFactory(address(doppiCore), address(doppiFactory));
+
+        // // Deploy private factory implementations
+        DoppiCorePrivate privateCoreImpl = new DoppiCorePrivate(USDT, BTC, doppiLP, impliedVol, address(doppiPoints));
+        DoppiTrader privateTraderImpl = new DoppiTrader();
+        DoppiOpportunityStorage privateOpportunityImpl = new DoppiOpportunityStorage();
+
+        // Deploy private factory
+        PrivateDoppiTraderFactory privateFactory = new PrivateDoppiTraderFactory(
+            IERC20(USDT),
+            IERC20(BTC),
+            address(impliedVol),
+            address(doppiPoints),
+            address(doppiUpkeepManager),
+            address(doppiFactory),
+            address(privateTraderImpl),
+            address(privateCoreImpl),
+            address(privateOpportunityImpl),
+            configLP
+        );
+
+        doppiUpkeepManager.addTraderFactory(address(privateFactory));
+        doppiPoints.setCoreRegistrar(address(privateFactory), true);
+
+        // Deploy one initial private bot for the broadcasting EOA
+        uint24[] memory privateWeights = _defaultPrivateWeights();
+        uint32 privateBotId = privateFactory.deployPrivateBot(privateWeights);
+        address privateBot = privateFactory.traderBots(privateBotId);
+        privateFactory.setPrivateBotForwarder(privateBot, forwarder);
+        address privateCore = privateFactory.getPrivateCore(privateBot);
+        address privateOpportunity = privateFactory.getPrivateOpportunity(privateBot);
+        address privateLP = privateFactory.getPrivateLiquidity(privateBot);
+        address privateRouter = privateFactory.getPrivateRouter(privateBot);
         
         vm.stopBroadcast();
 
@@ -99,6 +134,16 @@ contract DeployDoppiAll is Script {
         console.log("DoppiReferral:", address(doppiReferral));
         console.log("DoppiClaim:", address(doppiClaim));
         console.log("DoppiToken:", address(doppiToken));
+        console.log("PrivateDoppiFactory:", address(privateFactory));
+        console.log("PrivateCoreImpl:", address(privateCoreImpl));
+        console.log("PrivateTraderImpl:", address(privateTraderImpl));
+        console.log("PrivateOpportunityImpl:", address(privateOpportunityImpl));
+        console.log("InitialPrivateBotId:", privateBotId);
+        console.log("InitialPrivateBot:", privateBot);
+        console.log("InitialPrivateCore:", privateCore);
+        console.log("InitialPrivateOpportunity:", privateOpportunity);
+        console.log("InitialPrivateLP:", privateLP);
+        console.log("InitialPrivateRouter:", privateRouter);
 
     }
 
@@ -141,6 +186,18 @@ contract DeployDoppiAll is Script {
         _doppiCore.setMinOrder(minOrderA, minOrderB);
         return _doppiCore;
     }
+
+    function _deployDoppiCorePrivate(DoppiLiquidity _doppiLP, DoppiOffer _impliedVol, DoppiPoints _doppiPoints)
+        internal
+        returns (DoppiCorePrivate)
+    {
+        console.log("Deploying DoppiCorePrivate...");
+        DoppiCorePrivate _doppiCore = new DoppiCorePrivate(USDT, BTC, _doppiLP, _impliedVol, address(_doppiPoints));
+        console.log("DoppiCorePrivate deployed at:", address(_doppiCore));
+        _doppiPoints.setDoppiCore(address(_doppiCore), true);
+        _doppiCore.setMinOrder(minOrderA, minOrderB);
+        return _doppiCore;
+    }
         
         
     function _deployDoppiOpportunity(address _doppiCore, address _doppiLP) internal returns (DoppiOpportunity) {
@@ -155,7 +212,7 @@ contract DeployDoppiAll is Script {
     function _deployDoppiLiquidity() internal returns (DoppiLiquidity) {
         
         console.log("Deploying DoppiLiquidity...");
-        DoppiLiquidity _doppiLP = new DoppiLiquidity("Doppi BTC-USDT LP", "BTCB-USDT", IERC20(USDT), IERC20(BTC));
+        DoppiLiquidity _doppiLP = new DoppiLiquidity("Doppi BTC-USDT LP", "BTCB-USDT", address(IERC20(USDT)), address(IERC20(BTC)));
         console.log("DoppiLiquidity deployed at:", address(_doppiLP));
         _doppiLP.setConfig(configLP); 
         _doppiLP.approveRouter();
@@ -240,6 +297,15 @@ contract DeployDoppiAll is Script {
         _doppiFactory.setDoppiUpKeepManager(address(doppiUpkeepManager));
         return doppiUpkeepManager;
     }  
+
+    function _defaultPrivateWeights() internal pure returns (uint24[] memory weights) {
+        weights = new uint24[](5);
+        weights[0] = 500;
+        weights[1] = 1000;
+        weights[2] = 1500;
+        weights[3] = 2500;
+        weights[4] = 4500;
+    }
         
 
             

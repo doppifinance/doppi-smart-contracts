@@ -5,6 +5,10 @@ import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {IDoppiTraderFactory} from "../Interface/IDoppiTraderFactory.sol";
 
 abstract contract DoppiCoreAdmin is Ownable, Pausable {
+    error ZeroTreasury();
+    error TreasuryFeeTooHigh();
+    error AprToleranceTooHigh();
+    error ZeroForwarder();
     
     uint256 public priceDecimal;
     uint24 public treasury_fee; 
@@ -29,8 +33,8 @@ abstract contract DoppiCoreAdmin is Ownable, Pausable {
     }
 
     function setTreasury(address _treasury, uint24 _treasury_fee) external onlyOwner {
-        require(_treasury != address(0), "zero treasury");
-        require(_treasury_fee <= 2500, "fee exceeds 25%"); 
+        if (_treasury == address(0)) revert ZeroTreasury();
+        if (_treasury_fee > 2500) revert TreasuryFeeTooHigh();
         treasury_fee = _treasury_fee;
         treasury = _treasury;
     }
@@ -41,7 +45,7 @@ abstract contract DoppiCoreAdmin is Ownable, Pausable {
     }
 
     function setAPRTolerance(uint16 _toleranceBP) external onlyOwner {
-        require(_toleranceBP <= 1000, "exceeds 10%");
+        if (_toleranceBP > 1000) revert AprToleranceTooHigh();
         aprToleranceBP = _toleranceBP;
     }
 
@@ -62,8 +66,7 @@ abstract contract DoppiCoreAdmin is Ownable, Pausable {
     }
 
     function setForwarderAddress(address forwarderAddress) external onlyOwner {
-        
-        require(forwarderAddress != address(0), "zero forwarder");
+        if (forwarderAddress == address(0)) revert ZeroForwarder();
         s_forwarderAddress = forwarderAddress;
     }
 

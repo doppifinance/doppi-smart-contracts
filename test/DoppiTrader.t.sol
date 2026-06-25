@@ -83,7 +83,7 @@ contract DoppiTraderTest is Test {
         swapper.setOracle(MockOracle(oracle));    
         
         doppiLP =
-            new DoppiLiquidity("Dual Asset Liquidity Pool", "DALP", IERC20(usdt), IERC20(btc));
+            new DoppiLiquidity("Dual Asset Liquidity Pool", "DALP", address(IERC20(usdt)), address(IERC20(btc)));
         
         configLP = TestParamLib.get_configLP();
         configLP.chainLinkFeed = address(oracle);
@@ -116,7 +116,7 @@ contract DoppiTraderTest is Test {
         doppiLP.setDoppiLiquidityRouter(address(doppiRouter));
 
         doppiFactory =
-            new DoppiTraderFactory(IERC20(usdt), IERC20(btc), address(doppiCore), address(doppiLP), address(doppiRouter));
+            new DoppiTraderFactory(IERC20(usdt), IERC20(btc), address(doppiCore), address(doppiLP), address(doppiRouter), address(impliedVol), address(doppiPoints));
         doppiLP.setDoppiTraderFactory(address(doppiFactory));
         doppiCore.setDoppiTraderFactory(doppiFactory);
         doppiFactory.setDoppiUpKeepManager(address(mockDoppiUpKeepManager));
@@ -728,6 +728,69 @@ contract DoppiTraderTest is Test {
         assertEq(positions[2].amount, 0.05 ether); // 10%
 
         vm.stopPrank();
+    }
+
+    function test_placeOrders_scenario1_zone3_zone4_50_50_with_205usdt() public {
+        vm.startPrank(trader);
+
+        uint8[] memory strikeZones = new uint8[](2);
+        uint24[] memory weights = new uint24[](2);
+        strikeZones[0] = 3;
+        weights[0] = 5000;
+        strikeZones[1] = 4;
+        weights[1] = 5000;
+        doppiTrader.setMultipleOrderConfigs(strikeZones, weights);
+
+        uint256 amountUSDT = 500 ether;
+        usdt.approve(address(doppiTrader), amountUSDT);
+        doppiTrader.start(amountUSDT, 0);
+
+        OrderConfig[] memory orderConfig = doppiTrader.getOrderConfigs();
+        console.log(orderConfig[0].weight, orderConfig[0].strikeZone);
+        console.log(orderConfig[1].weight, orderConfig[1].strikeZone);
+        // console.log(orderConfig[2].weight, orderConfig[2].strikeZone);
+        
+    //     assertEq(orderConfig[0].weight, 6000);
+    //     assertEq(orderConfig[0].strikeZone, 0);
+    //     assertEq(orderConfig[1].weight, 3000);
+    //     assertEq(orderConfig[1].strikeZone, 2);
+    //     assertEq(orderConfig[2].weight, 1000);
+    //     assertEq(orderConfig[2].strikeZone, 4);  
+        DualAssetPosition[] memory buyPositions = doppiCore.get_positions_buy(address(doppiTrader));
+        assertEq(buyPositions.length, 2);
+        console.log(buyPositions[0].strikePrice, buyPositions[1].strikePrice);
+        console.log(buyPositions[0].amount, buyPositions[1].amount);
+        // assertEq(buyPositions[0].strikePrice, 3);
+        // assertEq(buyPositions[1].strikePrice, 4);
+
+        // vm.warp(block.timestamp + 1 days + 1);
+        // oracle.setPrice(int256(98_500 * 1e8));
+        // (bool upkeepNeeded, bytes memory performData) = doppiCore.checkUpkeep("");
+        // assertTrue(upkeepNeeded);
+        // vm.stopPrank();
+
+        // vm.prank(mockForwarder);
+        // doppiCore.performUpkeep(performData);
+
+        // _updateIV();
+
+        // vm.prank(trader);
+        // doppiTrader.placeOrders();
+
+        // DualAssetPosition[] memory buyPositions = doppiCore.get_positions_buy(address(doppiTrader));
+        // assertEq(buyPositions.length, 2);
+        // assertEq(buyPositions[0].strikePrice, 3);
+        // assertEq(buyPositions[1].strikePrice, 4);
+
+        // uint256 expectedPerOrder = amountUSDT / 2;
+        // assertApproxEqAbs(buyPositions[0].amount, expectedPerOrder, 1);
+        // assertApproxEqAbs(buyPositions[1].amount, expectedPerOrder, 1);
+
+        // // Integer division may leave 1 wei USDT unallocated.
+        // assertLe(usdt.balanceOf(address(doppiTrader)), 1);
+
+        // DualAssetPosition[] memory sellPositions = doppiCore.get_positions_sell(address(doppiTrader));
+        // assertEq(sellPositions.length, 0);
     }
 
     function test_out_of_strikezone() public {

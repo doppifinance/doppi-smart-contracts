@@ -1,10 +1,14 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.26;
 import {IDoppiLiquidity} from "../Interface/IDoppiLiquidity.sol";
+import {IDoppiOpportunity} from "../Interface/IDoppiOpportunity.sol";
 import "./DoppiCoreTypes.sol";
 // import "forge-std/console.sol";
 
 abstract contract DoppiCoreView {
+    bytes4 internal constant OPP_GET_SELECTOR = bytes4(keccak256("getOpportunityOrders(bool,uint256)"));
+
+    error OpportunityViewFailed();
     
     uint256 public totalBuyDeposits;
     uint256 public totalSellDeposits;
@@ -14,12 +18,17 @@ abstract contract DoppiCoreView {
     mapping(uint8 => uint64) public nextProcessId;
     mapping(uint8 => uint64) public nextPositionId;
     
-    IDoppiLiquidity public immutable doppiLP; // Made immutable
+    IDoppiLiquidity public doppiLP;
     
     mapping(uint32 => mapping(uint64 => DualAssetPosition)) public positions_buy;
     mapping(uint32 => mapping(uint64 => DualAssetPosition)) public positions_sell;
+    
+    /// @notice Opportunity storage (for shared core) - can be empty if using separate DoppiOpportunity
     mapping(uint256 => OpportunityOrders) public opportunityBuy;
     mapping(uint256 => OpportunityOrders) public opportunitySell;
+    
+    /// @notice Reference to external DoppiOpportunity (for private cores only)
+    IDoppiOpportunity public doppiOpportunity;
     
     // View functions for positions    
     function get_positions_buy(address _owner) external view returns (DualAssetPosition[] memory) {
@@ -110,6 +119,15 @@ abstract contract DoppiCoreView {
     }
 
     function getOpportunityOrders(bool isBuy, uint256 strikePrice) external view returns (OpportunityOrders memory) {
+        // If using external DoppiOpportunity (private core), delegate to it
+        if (address(doppiOpportunity) != address(0)) {
+            (bool ok, bytes memory ret) = address(doppiOpportunity).staticcall(
+                abi.encodeWithSelector(OPP_GET_SELECTOR, isBuy, strikePrice)
+            );
+            if (!(ok && ret.length >= 96)) revert OpportunityViewFailed();
+            return abi.decode(ret, (OpportunityOrders));
+        }
+        // Otherwise use local storage (shared core)
         return isBuy ? opportunityBuy[strikePrice] : opportunitySell[strikePrice];
     }
 

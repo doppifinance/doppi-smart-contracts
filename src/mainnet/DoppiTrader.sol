@@ -42,7 +42,7 @@ contract DoppiTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCompati
         IERC20 _assetB,
         address _doppiLP,
         address _doppiRouter,
-        address _da,
+        address _doppiCore,
         address _doppiUpKeepManager,
         uint24[] memory _weights
     ) external initializer {
@@ -52,13 +52,13 @@ contract DoppiTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCompati
         assetB = _assetB;
         doppiLP = IDoppiLiquidity(_doppiLP);
         doppiRouter = IDoppiLiquidityRouter(_doppiRouter);
-        doppiCore = IDoppiCore(_da);
+        doppiCore = IDoppiCore(_doppiCore);
         validTrader = _trader;
         _transferOwnership(msg.sender); 
 
         // Batch approvals
         address[] memory tokens = new address[](3);
-        tokens[0] = _da;
+        tokens[0] = _doppiCore;
         tokens[1] = _doppiRouter;
         tokens[2] = _doppiLP;
         for (uint256 i = 0; i < tokens.length; i++) {
@@ -158,7 +158,7 @@ contract DoppiTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCompati
         uint256 sellPosCount = doppiCore.getSellPositionCount(address(this));
         if (buyPosCount > 0 || sellPosCount > 0) revert ActiveOrders();
 
-        IERC20(doppiLP).safeIncreaseAllowance(address(doppiRouter), doppiLP.balanceOf(address(this)));
+        IERC20(address(doppiLP)).safeIncreaseAllowance(address(doppiRouter), IERC20(address(doppiLP)).balanceOf(address(this)));
         doppiRouter.emergencyWithdraw();
 
         assetA.safeTransfer(msg.sender, assetA.balanceOf(address(this)));
@@ -545,7 +545,7 @@ contract DoppiTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCompati
     }
 
     function _withdrawFromLP(uint256 _shares) internal {
-        IERC20(doppiLP).safeIncreaseAllowance(address(doppiRouter), _shares);
+        IERC20(address(doppiLP)).safeIncreaseAllowance(address(doppiRouter), _shares);
         doppiRouter.redeem(_shares);
     }
 

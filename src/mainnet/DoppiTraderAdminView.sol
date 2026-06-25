@@ -311,7 +311,7 @@ abstract contract DoppiTraderAdminView is Ownable, Pausable {
     }
 
     function _onlyUpkeepOrTrader() internal view {
-        if(msg.sender != address(doppiUpkeepManager) && msg.sender != validTrader) revert NotValidTraderOrUpkeep();
+        if(msg.sender != address(doppiUpkeepManager) && msg.sender != validTrader && msg.sender != owner()) revert NotValidTraderOrUpkeep();
     }    
 
 }
