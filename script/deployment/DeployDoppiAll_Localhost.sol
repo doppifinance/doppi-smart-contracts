@@ -21,7 +21,6 @@ import {DoppiUpkeepManager} from "../../src/mainnet/DoppiUpkeepManager.sol";
 import {MockRegistryConsumer} from "../../src/test/MockRegistryConsumerLocalhost.sol";
 import {DoppiReferral} from "../../src/mainnet/DoppiReferral.sol";
 import {PrivateDoppiTraderFactory} from "../../src/mainnet/private/PrivateDoppiTraderFactory.sol";
-import {DoppiCorePrivate} from "../../src/mainnet/private/DoppiCorePrivate.sol";
 import {DoppiOpportunityStorage} from "../../src/mainnet/private/DoppiOpportunityStorage.sol";
 import "../../src/mainnet/DoppiLiquidityTypes.sol";
 import {TestParamLib} from "../../src/Library/TestParamLib.sol";
@@ -61,7 +60,7 @@ contract DeployDoppiAll is Script {
         DoppiOffer impliedVol = _deployDoppiOffer(address(blackScholes));
         DoppiPoints doppiPoints = _deployDoppiPoints();
         DoppiLiquidity doppiLP = _deployDoppiLiquidity();
-        DoppiCorePrivate doppiCore = _deployDoppiCorePrivate(doppiLP, impliedVol, doppiPoints);
+        DoppiCore doppiCore = _deployDoppiCore(doppiLP, impliedVol, doppiPoints);
         DoppiOpportunity doppiOpportunity = _deployDoppiOpportunity(address(doppiCore), address(doppiLP));
         DoppiReferral doppiReferral = _deployDoppiReferral(address(doppiPoints));
     
@@ -87,7 +86,7 @@ contract DeployDoppiAll is Script {
         doppiPoints.setCoreTraderFactory(address(doppiCore), address(doppiFactory));
 
         // // Deploy private factory implementations
-        DoppiCorePrivate privateCoreImpl = new DoppiCorePrivate(USDT, BTC, doppiLP, impliedVol, address(doppiPoints));
+        DoppiCore privateCoreImpl = new DoppiCore(USDT, BTC, doppiLP, impliedVol, address(doppiPoints));
         DoppiTrader privateTraderImpl = new DoppiTrader();
         DoppiOpportunityStorage privateOpportunityImpl = new DoppiOpportunityStorage();
 
@@ -187,19 +186,7 @@ contract DeployDoppiAll is Script {
         return _doppiCore;
     }
 
-    function _deployDoppiCorePrivate(DoppiLiquidity _doppiLP, DoppiOffer _impliedVol, DoppiPoints _doppiPoints)
-        internal
-        returns (DoppiCorePrivate)
-    {
-        console.log("Deploying DoppiCorePrivate...");
-        DoppiCorePrivate _doppiCore = new DoppiCorePrivate(USDT, BTC, _doppiLP, _impliedVol, address(_doppiPoints));
-        console.log("DoppiCorePrivate deployed at:", address(_doppiCore));
-        _doppiPoints.setDoppiCore(address(_doppiCore), true);
-        _doppiCore.setMinOrder(minOrderA, minOrderB);
-        return _doppiCore;
-    }
-        
-        
+
     function _deployDoppiOpportunity(address _doppiCore, address _doppiLP) internal returns (DoppiOpportunity) {
     
         console.log("Deploying DoppiOpportunity...");

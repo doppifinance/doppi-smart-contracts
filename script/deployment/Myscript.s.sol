@@ -10,6 +10,7 @@ import "../../src/mainnet/DoppiUpkeepManager.sol";
 import "../../src/mainnet/DoppiTrader.sol";
 import "../../src/mainnet/DoppiPoints.sol";
 import "../../src/mainnet/DoppiReferral.sol";
+import {IDoppiOpportunity} from "../../src/Interface/IDoppiOpportunity.sol";
 import {MockOracle} from "../../src/test/MockOracle.sol";
 import {DoppiTraderFactory} from "../../src/mainnet/DoppiTraderFactory.sol";
 import {TestParamLib} from "../../src/Library/TestParamLib.sol";
@@ -224,7 +225,8 @@ contract MyScript is Script {
 
         DoppiOpportunity doppiOpportunity = DoppiOpportunity(DOPPI_OPPO_ETH);
         DoppiCore doppiCore = DoppiCore(DOPPI_CORE_ETH);
-        (uint256 lowerBound, uint256 upperBound) = doppiCore.getLowerUpperBound();
+        IDoppiOpportunity opportunityStore = doppiCore.doppiOpportunity();
+        (uint256 lowerBound, uint256 upperBound) = opportunityStore.getLowerUpperBound();
         console.log(lowerBound, upperBound, "lowerBound, upperBound");
         
         if(doppiOpportunity.s_forwarderAddress() != OWNER){
@@ -239,9 +241,15 @@ contract MyScript is Script {
         for (uint256 price = upperBound; price >= lowerBound; ) {
             // console.log(price, "price");
             bool isBuy = true;
-            (uint256 amount, uint256 swappedAmount, uint256 outAmount) = doppiCore.opportunityBuy(price);
+            OpportunityOrders memory order = doppiCore.getOpportunityOrders(true, price);
+            uint256 amount = order.amount;
+            uint256 swappedAmount = order.swappedAmount;
+            uint256 outAmount = order.outAmount;
             console.log(price, amount, swappedAmount, outAmount);
-            // (amount, swappedAmount, outAmount) = doppiCore.opportunitySell(price);
+            // order = doppiCore.getOpportunityOrders(false, price);
+            // amount = order.amount;
+            // swappedAmount = order.swappedAmount;
+            // outAmount = order.outAmount;
             // console.log("Sell", price, amount, swappedAmount, outAmount);
             price -= (25 * 1e8); 
         }
@@ -264,9 +272,15 @@ contract MyScript is Script {
         for (uint256 price = upperBound; price >= lowerBound; ) {
             // console.log(price, "price");
             bool isBuy = true;
-            (uint256 amount, uint256 swappedAmount, uint256 outAmount) = doppiCore.opportunityBuy(price);
+            OpportunityOrders memory order = doppiCore.getOpportunityOrders(true, price);
+            uint256 amount = order.amount;
+            uint256 swappedAmount = order.swappedAmount;
+            uint256 outAmount = order.outAmount;
             console.log(price, amount, swappedAmount, outAmount);
-            // (amount, swappedAmount, outAmount) = doppiCore.opportunitySell(price);
+            // order = doppiCore.getOpportunityOrders(false, price);
+            // amount = order.amount;
+            // swappedAmount = order.swappedAmount;
+            // outAmount = order.outAmount;
             // console.log("Sell", price, amount, swappedAmount, outAmount);
             price -= (25 * 1e8); 
         }

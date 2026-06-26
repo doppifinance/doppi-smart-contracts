@@ -11,7 +11,6 @@ import {DoppiOffer} from "../src/mainnet/DoppiOffer.sol";
 import {DoppiPoints} from "../src/mainnet/DoppiPoints.sol";
 import {DoppiTraderFactory} from "../src/mainnet/DoppiTraderFactory.sol";
 import {PrivateDoppiTraderFactory} from "../src/mainnet/private/PrivateDoppiTraderFactory.sol";
-import {DoppiCorePrivate} from "../src/mainnet/private/DoppiCorePrivate.sol";
 import {DoppiOpportunityStorage} from "../src/mainnet/private/DoppiOpportunityStorage.sol";
 import {IDoppiOpportunity} from "../src/Interface/IDoppiOpportunity.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
@@ -129,7 +128,7 @@ contract PrivateBotFlowTest is Test {
         sharedCore.setOpportunityBot(address(sharedOpportunityBot), true);
 
         // Deploy implementation contracts for private factory clones
-        coreImplementation              = new DoppiCorePrivate(address(usdt), address(btc), sharedLP, impliedVol, address(doppiPoints));
+        coreImplementation              = new DoppiCore(address(usdt), address(btc), sharedLP, impliedVol, address(doppiPoints));
         traderImplementation            = new DoppiTrader();
         opportunityStorageImplementation = new DoppiOpportunityStorage();
 
@@ -279,8 +278,8 @@ contract PrivateBotFlowTest is Test {
         assertEq(address(dc.doppiOpportunity()), opp, "opportunity storage not linked");
     }
 
-    function test_sharedCore_hasNoOpportunityStorage() public {
-        assertEq(address(sharedCore.doppiOpportunity()), address(0), "shared core should have no external opp storage");
+    function test_sharedCore_hasOpportunityStorageSet() public {
+        assertTrue(address(sharedCore.doppiOpportunity()) != address(0), "shared core should have external opp storage");
     }
 
     function test_privateCore_isIsolatedFromSharedCore() public {
@@ -359,7 +358,7 @@ contract PrivateBotFlowTest is Test {
 
     function test_setImplementations_updatesAll() public {
         address newBot  = address(new DoppiTrader());
-        address newCore = address(new DoppiCorePrivate(address(usdt), address(btc), sharedLP, impliedVol, address(doppiPoints)));
+        address newCore = address(new DoppiCore(address(usdt), address(btc), sharedLP, impliedVol, address(doppiPoints)));
         address newOpp  = address(new DoppiOpportunityStorage());
 
         vm.prank(owner);

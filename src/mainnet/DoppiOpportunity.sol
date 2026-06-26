@@ -4,6 +4,7 @@ pragma solidity ^0.8.26;
 import "./DoppiCore.sol";
 import "../Interface/AutomationCompatibleInterface.sol";
 import {IDoppiLiquidity} from "../Interface/IDoppiLiquidity.sol";
+import {IDoppiOpportunity} from "../Interface/IDoppiOpportunity.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {Pausable} from "@openzeppelin/contracts/utils/Pausable.sol";
 import "./DoppiCoreTypes.sol";
@@ -117,7 +118,8 @@ contract DoppiOpportunity is Ownable, Pausable, AutomationCompatibleInterface {
         uint256 oneDayMove,
         bool unwind
     ) internal view returns (uint256[] memory targetPrices, uint256 totalAmount) {
-        (uint256 activeCount, uint256 head, uint256 tail) = doppiCore.getActiveStrikeSnapshot(isBuy);
+        IDoppiOpportunity opportunityStore = doppiCore.doppiOpportunity();
+        (uint256 activeCount, uint256 head, uint256 tail) = opportunityStore.getActiveStrikeSnapshot(isBuy);
         if (activeCount == 0) {
             return (new uint256[](0), 0);
         }
@@ -133,10 +135,10 @@ contract DoppiOpportunity is Ownable, Pausable, AutomationCompatibleInterface {
         uint256 strikePrice = ascending ? tail : head;
 
         while (strikePrice != 0) {
-            (uint256 prevStrike, uint256 nextStrike,) = doppiCore.getStrikeNode(isBuy, strikePrice);
+            (uint256 prevStrike, uint256 nextStrike,) = opportunityStore.getStrikeNode(isBuy, strikePrice);
             uint256 cursor = ascending ? prevStrike : nextStrike;
 
-            OpportunityOrders memory order = doppiCore.getOpportunityOrders(isBuy, strikePrice);
+            OpportunityOrders memory order = opportunityStore.getOpportunityOrders(isBuy, strikePrice);
             bool isTriggered;
             uint256 comparedAmount;
 

@@ -9,6 +9,7 @@ import {IBlackScholes} from "../../src/Interface/IBlackScholes.sol";
 import {DoppiTraderFactory} from "../../src/mainnet/DoppiTraderFactory.sol";
 import {DoppiTrader} from "../../src/mainnet/DoppiTrader.sol";
 import {DoppiCore} from "../../src/mainnet/DoppiCore.sol";
+import {IDoppiOpportunity} from "../../src/Interface/IDoppiOpportunity.sol";
 import {DoppiLiquidity} from "../../src/mainnet/DoppiLiquidity.sol";
 import {DoppiLiquidityRouter} from "../../src/mainnet/DoppiLiquidityRouter.sol";
 import {BlackScholes} from "../../src/mainnet/BlackScholes.sol";
@@ -118,6 +119,7 @@ contract DoppiCoreGasTest is Test {
     }
 
     function test_Scenario_DoppiCore_CheckUpKeep_GasMaxBuy() public {
+        IDoppiOpportunity opportunityStore = doppiCore.doppiOpportunity();
         
         uint256 depositLPAmount = 10_000_000 ether;
         uint256 depositBTCAmount = 10.0000 ether;
@@ -174,7 +176,7 @@ contract DoppiCoreGasTest is Test {
         int256 newPrice = int256(9152000000000);
         _manipulateRealChainlink(newPrice, address(oracle));
 
-        (uint256 lowerBound, uint256 upperBound) = doppiCore.getLowerUpperBound();
+        (uint256 lowerBound, uint256 upperBound) = opportunityStore.getLowerUpperBound();
         assertEq(lowerBound, 9050000000000);
         assertEq(upperBound, 9050000000000);
         // 1 day fast forward and settle
@@ -195,13 +197,14 @@ contract DoppiCoreGasTest is Test {
         console.log("pos1day", pos1day);
         assertEq(pos1day, 0);
         // doppiCore.display();
-        (lowerBound, upperBound) = doppiCore.getLowerUpperBound();
+        (lowerBound, upperBound) = opportunityStore.getLowerUpperBound();
         console.log(lowerBound, upperBound, "lowerBound, upperBound");
         assertEq(lowerBound, 0);
         assertEq(upperBound, 0);
     }
 
     function test_Scenario_DoppiCore_CheckUpKeep_GasMaxBuySell() public {
+        IDoppiOpportunity opportunityStore = doppiCore.doppiOpportunity();
         
         uint256 depositLPAmount = 100_000_000 ether;
         uint256 depositBTCAmount = 30.0000 ether;
@@ -306,7 +309,7 @@ contract DoppiCoreGasTest is Test {
         int256 newPrice = int256(90556 * 1e8);
         _manipulateRealChainlink(newPrice, address(oracle));
         // 1 day fast forward and settle
-        (uint256 lowerBound, uint256 upperBound) = doppiCore.getLowerUpperBound();
+        (uint256 lowerBound, uint256 upperBound) = opportunityStore.getLowerUpperBound();
         assertEq(lowerBound, 9700000000000);
         assertEq(upperBound, 10300000000000);
 
@@ -317,7 +320,7 @@ contract DoppiCoreGasTest is Test {
         _doppiCoreCheckUpkeep_performUpkeep();
         _doppiCoreCheckUpkeep_performUpkeep();
         _doppiCoreCheckUpkeep_performUpkeep();
-        (lowerBound, upperBound) = doppiCore.getLowerUpperBound();
+        (lowerBound, upperBound) = opportunityStore.getLowerUpperBound();
         console.log(lowerBound, upperBound);
         assertEq(lowerBound, 0);
         assertEq(upperBound, 0);
@@ -325,6 +328,7 @@ contract DoppiCoreGasTest is Test {
     }
 
     function test_Scenario_DoppiCore_CheckUpKeep_GasMaxBuySell_1Day3Days() public {
+        IDoppiOpportunity opportunityStore = doppiCore.doppiOpportunity();
         
         uint256 depositLPAmount = 100_000_000 ether;
         uint256 depositBTCAmount = 30.0000 ether;
@@ -446,7 +450,7 @@ contract DoppiCoreGasTest is Test {
         int256 newPrice = int256(90556 * 1e8);
         _manipulateRealChainlink(newPrice, address(oracle));
         // 1 day fast forward and settle
-        (uint256 lowerBound, uint256 upperBound) = doppiCore.getLowerUpperBound();
+        (uint256 lowerBound, uint256 upperBound) = opportunityStore.getLowerUpperBound();
         _displayBound(lowerBound, upperBound);
         assertEq(lowerBound, 9700000000000);
         assertEq(upperBound, 10300000000000);
@@ -471,7 +475,7 @@ contract DoppiCoreGasTest is Test {
 
         _doppiCoreCheckUpkeep_performUpkeep();
 
-        (lowerBound, upperBound) = doppiCore.getLowerUpperBound();
+        (lowerBound, upperBound) = opportunityStore.getLowerUpperBound();
         _displayBound(lowerBound, upperBound);
         
         
@@ -493,7 +497,7 @@ contract DoppiCoreGasTest is Test {
         assertEq(pos1day, 0); 
         assertEq(pos3day, 0); 
         
-        (lowerBound, upperBound) = doppiCore.getLowerUpperBound();
+        (lowerBound, upperBound) = opportunityStore.getLowerUpperBound();
         
         _displayBound(lowerBound, upperBound);
         
@@ -503,6 +507,7 @@ contract DoppiCoreGasTest is Test {
     }
 
     function test_Scenario_DoppiCore_SettleManual() public {
+        IDoppiOpportunity opportunityStore = doppiCore.doppiOpportunity();
         
         vm.startPrank(doppiCore.owner());
         doppiCore.setUpkeeps_per_check(5);
@@ -587,7 +592,7 @@ contract DoppiCoreGasTest is Test {
         _manipulateRealChainlink(newPrice, address(oracle));
 
         
-        (uint256 lowerBound, uint256 upperBound) = doppiCore.getLowerUpperBound();
+        (uint256 lowerBound, uint256 upperBound) = opportunityStore.getLowerUpperBound();
         _displayBound(lowerBound, upperBound);
 
         assertEq(lowerBound, 10000000000000);
@@ -616,7 +621,7 @@ contract DoppiCoreGasTest is Test {
         assertEq(totalOrders, 0);
         assertEq(doppiCore.nextPositionId(1), doppiCore.nextProcessId(1));
 
-        (lowerBound, upperBound) = doppiCore.getLowerUpperBound();
+        (lowerBound, upperBound) = opportunityStore.getLowerUpperBound();
         assertEq(lowerBound, 0);
         assertEq(upperBound, 0);
         
@@ -852,6 +857,7 @@ contract DoppiCoreGasTest is Test {
     }
 
     function _displayBound(uint256 lowerBound, uint256 upperBound) internal view {
+        IDoppiOpportunity opportunityStore = doppiCore.doppiOpportunity();
         
         if(lowerBound == 0 && upperBound == 0) {
             console.log("No active positions");
@@ -861,11 +867,17 @@ contract DoppiCoreGasTest is Test {
         for (uint256 price = upperBound; price >= lowerBound; ) {
             // console.log(price, "price");
             bool isBuy = true;
-            (uint256 amount, uint256 swappedAmount, uint256 outAmount) = doppiCore.opportunityBuy(price);
+            OpportunityOrders memory order = opportunityStore.getBuyOpportunity(price);
+            uint256 amount = order.amount;
+            uint256 swappedAmount = order.swappedAmount;
+            uint256 outAmount = order.outAmount;
             
             if(amount == 0){
                 isBuy = false;
-                (amount, swappedAmount, outAmount) = doppiCore.opportunitySell(price);
+                order = opportunityStore.getSellOpportunity(price);
+                amount = order.amount;
+                swappedAmount = order.swappedAmount;
+                outAmount = order.outAmount;
             }
             console.log(isBuy, price, amount, swappedAmount);
             price -= (500 * 1e8); 

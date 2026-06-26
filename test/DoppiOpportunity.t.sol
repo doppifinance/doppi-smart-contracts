@@ -9,6 +9,7 @@ import {DoppiLiquidityRouter} from "../src/mainnet/DoppiLiquidityRouter.sol";
 import {BlackScholes} from "../src/mainnet/BlackScholes.sol";
 import {DoppiOffer} from "../src/mainnet/DoppiOffer.sol";
 import {IDoppiOffer} from "../src/Interface/IDoppiOffer.sol";
+import {IDoppiOpportunity} from "../src/Interface/IDoppiOpportunity.sol";
 import {DoppiPoints} from "../src/mainnet/DoppiPoints.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {MockToken} from "../src/test/MockToken.sol";
@@ -576,7 +577,8 @@ contract DoppiOpportunityTest is Test {
         int256 newPrice = int256(90556 * 1e8);
         oracle.setPrice(newPrice);
 
-        (uint256 lowerBound, uint256 upperBound) = doppiCore.getLowerUpperBound();
+        IDoppiOpportunity opportunityStore = doppiCore.doppiOpportunity();
+        (uint256 lowerBound, uint256 upperBound) = opportunityStore.getLowerUpperBound();
         console.log(lowerBound, upperBound, "lowerBound, upperBound");
         assertEq(lowerBound, 9700000000000);
         assertEq(upperBound, 10300000000000);
@@ -639,7 +641,7 @@ contract DoppiOpportunityTest is Test {
         assertEq(buy.swappedAmount, 75000000000000000000000);
         assertEq(buy.outAmount, 776254238352379755);
         
-        (lowerBound, upperBound) = doppiCore.getLowerUpperBound();
+        (lowerBound, upperBound) = opportunityStore.getLowerUpperBound();
         assertEq(lowerBound, 9700000000000);
         assertEq(upperBound, 10300000000000);
 
@@ -786,15 +788,22 @@ contract DoppiOpportunityTest is Test {
     }
 
     function _displayBound(uint256 lowerBound, uint256 upperBound) internal view {
+        IDoppiOpportunity opportunityStore = doppiCore.doppiOpportunity();
         
         for (uint256 price = upperBound; price >= lowerBound; ) {
             // console.log(price, "price");
             bool isBuy = true;
-            (uint256 amount, uint256 swappedAmount, uint256 outAmount) = doppiCore.opportunityBuy(price);
+            OpportunityOrders memory order = opportunityStore.getBuyOpportunity(price);
+            uint256 amount = order.amount;
+            uint256 swappedAmount = order.swappedAmount;
+            uint256 outAmount = order.outAmount;
             
             if(amount == 0){
                 isBuy = false;
-                (amount, swappedAmount, outAmount) = doppiCore.opportunitySell(price);
+                order = opportunityStore.getSellOpportunity(price);
+                amount = order.amount;
+                swappedAmount = order.swappedAmount;
+                outAmount = order.outAmount;
             }
             console.log(isBuy, price, swappedAmount, outAmount);
             price -= (500 * 1e8); 
