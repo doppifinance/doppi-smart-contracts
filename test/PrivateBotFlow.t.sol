@@ -12,6 +12,7 @@ import {DoppiPoints} from "../src/mainnet/DoppiPoints.sol";
 import {DoppiTraderFactory} from "../src/mainnet/DoppiTraderFactory.sol";
 import {PrivateDoppiTraderFactory} from "../src/mainnet/private/PrivateDoppiTraderFactory.sol";
 import {DoppiOpportunityStorage} from "../src/mainnet/private/DoppiOpportunityStorage.sol";
+import {IDoppiTraderFactory} from "../src/Interface/IDoppiTraderFactory.sol";
 import {IDoppiOpportunity} from "../src/Interface/IDoppiOpportunity.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {MockToken} from "../src/test/MockToken.sol";
@@ -545,6 +546,139 @@ contract PrivateBotFlowTest is Test {
         assertEq(orders.amount, 0);
         assertEq(orders.swappedAmount, 0);
         assertEq(orders.outAmount, 0);
+    }
+
+    // ──────────────────────────────────────────────────────────────────────
+    //  PRIVATE FACTORY ADMIN WRAPPER TESTS
+    // ──────────────────────────────────────────────────────────────────────
+
+    function test_privateCore_traderCanUpdateOperationalControls() public {
+        (address bot, address core,,,) = _deployAndCapture(trader1);
+        DoppiCore dc = DoppiCore(core);
+
+        vm.prank(trader1);
+        privateFactory.setPrivateCoreMinOrder(bot, 123 ether, 0.002 ether);
+        assertEq(dc.minOrderA(), 123 ether, "minOrderA not updated");
+        assertEq(dc.minOrderB(), 0.002 ether, "minOrderB not updated");
+
+        vm.prank(trader1);
+        privateFactory.setPrivateCoreMaxSwap(bot, 777_777 ether);
+        assertEq(dc.maxSwap(), 777_777 ether, "maxSwap not updated");
+
+        vm.prank(trader1);
+        privateFactory.setPrivateCoreAPRTolerance(bot, 250);
+        assertEq(dc.aprToleranceBP(), 250, "apr tolerance not updated");
+
+        vm.prank(trader1);
+        privateFactory.setPrivateCoreUpkeepsPerCheck(bot, 33);
+        assertEq(dc.UPKEEPS_PER_CHECK(), 33, "upkeeps per check not updated");
+
+        vm.prank(trader1);
+        privateFactory.setPrivateCorePause(bot);
+        assertTrue(dc.paused(), "core should be paused");
+
+        vm.prank(trader1);
+        privateFactory.setPrivateCoreEmergencyMode(bot, true);
+        assertTrue(dc.emergencyMode(), "core emergency mode not updated");
+
+        vm.prank(trader1);
+        privateFactory.setPrivateCoreUnPause(bot);
+        assertFalse(dc.paused(), "core should be unpaused");
+    }
+
+    function test_privateCore_ownerCanUpdateOwnerOnlyControls() public {
+        (address bot, address core,,,) = _deployAndCapture(trader1);
+        DoppiCore dc = DoppiCore(core);
+
+        vm.prank(owner);
+        privateFactory.setPrivateCoreTreasury(bot, treasury, 1200);
+        assertEq(dc.treasury(), treasury, "treasury not updated");
+        assertEq(dc.treasury_fee(), 1200, "treasury fee not updated");
+
+        vm.prank(owner);
+        privateFactory.setPrivateCoreOpportunityBot(bot, trader2, true);
+        assertTrue(dc.opportunityBots(trader2), "opportunity bot not updated");
+
+        vm.prank(owner);
+        privateFactory.setPrivateCoreTraderFactory(bot, IDoppiTraderFactory(address(sharedFactory)));
+        assertEq(address(dc.doppiTraderFactory()), address(sharedFactory), "trader factory not updated");
+    }
+
+    function test_privateCore_traderCannotUpdateOwnerOnlyControls() public {
+        (address bot,,,,) = _deployAndCapture(trader1);
+
+        vm.startPrank(trader1);
+        vm.expectRevert();
+        privateFactory.setPrivateCoreTreasury(bot, treasury, 500);
+
+        vm.expectRevert();
+        privateFactory.setPrivateCoreOpportunityBot(bot, trader2, true);
+
+        vm.expectRevert();
+        privateFactory.setPrivateCoreTraderFactory(bot, IDoppiTraderFactory(address(sharedFactory)));
+        vm.stopPrank();
+    }
+
+    function test_privateRouter_traderCanUpdateOperationalControls() public {
+        (address bot,,,, address privRouter) = _deployAndCapture(trader1);
+        DoppiLiquidityRouter router = DoppiLiquidityRouter(privRouter);
+
+        vm.prank(trader1);
+        privateFactory.setPrivateRouterPause(bot);
+        assertTrue(router.paused(), "router should be paused");
+
+        vm.prank(trader1);
+        privateFactory.setPrivateRouterEmergencyMode(bot, true);
+        assertTrue(router.emergencyMode(), "router emergency mode not updated");
+
+        vm.prank(trader1);
+        privateFactory.setPrivateRouterUnPause(bot);
+        assertFalse(router.paused(), "router should be unpaused");
+    }
+
+    function test_privateRouter_ownerCanUpdateOwnerOnlyControls() public {
+        (address bot,,,, address privRouter) = _deployAndCapture(trader1);
+        DoppiLiquidityRouter router = DoppiLiquidityRouter(privRouter);
+
+        vm.prank(owner);
+        privateFactory.setPrivateRouterAllowedUser(bot, trader2, true);
+        assertTrue(router.allowedUsers(trader2), "allowed user not updated");
+
+        vm.prank(owner);
+        privateFactory.setPrivateRouterMode(bot, false);
+        assertFalse(router.privateMode(), "private mode not updated");
+
+        vm.prank(owner);
+        privateFactory.setPrivateRouterCore(bot, address(sharedCore));
+        assertEq(router.doppiCore(), address(sharedCore), "router core not updated");
+    }
+
+    function test_privateRouter_traderCannotUpdateOwnerOnlyControls() public {
+        (address bot,,,,) = _deployAndCapture(trader1);
+
+        vm.startPrank(trader1);
+        vm.expectRevert();
+        privateFactory.setPrivateRouterAllowedUser(bot, trader2, true);
+
+        vm.expectRevert();
+        privateFactory.setPrivateRouterMode(bot, false);
+
+        vm.expectRevert();
+        privateFactory.setPrivateRouterCore(bot, address(sharedCore));
+        vm.stopPrank();
+    }
+
+    function test_privateWrappers_outsiderCannotCallTraderOrOwnerPaths() public {
+        (address bot,,,,) = _deployAndCapture(trader1);
+        address outsider = address(0xBEEF);
+
+        vm.startPrank(outsider);
+        vm.expectRevert(PrivateDoppiTraderFactory.NotAuthorized.selector);
+        privateFactory.setPrivateCorePause(bot);
+
+        vm.expectRevert(PrivateDoppiTraderFactory.NotAuthorized.selector);
+        privateFactory.setPrivateRouterPause(bot);
+        vm.stopPrank();
     }
 
     // ──────────────────────────────────────────────────────────────────────

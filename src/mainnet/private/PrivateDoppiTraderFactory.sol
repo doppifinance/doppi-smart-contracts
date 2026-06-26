@@ -18,6 +18,19 @@ interface ISetTraderFactory {
     function setDoppiTraderFactory(IDoppiTraderFactory _traderFactory) external;
 }
 
+interface IPrivateCoreAdmin {
+    function setEmergencyMode(bool _emergency) external;
+    function setPause() external;
+    function setUnPause() external;
+    function setUpkeeps_per_check(uint16 _percheck) external;
+    function setMinOrder(uint256 _minOrderA, uint256 _minOrderB) external;
+    function setMaxSwap(uint256 _maxSwap) external;
+    function setAPRTolerance(uint16 _toleranceBP) external;
+    function setTreasury(address _treasury, uint24 _treasury_fee) external;
+    function setOpportunityBot(address _opportunityBot, bool _status) external;
+    function setDoppiTraderFactory(IDoppiTraderFactory _traderFactory) external;
+}
+
 interface IPrivateLiquidityAdmin {
     function setDoppiCore(address _doppiCore) external;
     function setDoppiTraderFactory(address _traderFactory) external;
@@ -28,6 +41,9 @@ interface IPrivateRouterAdmin {
     function setDoppiCore(address _doppiCore) external;
     function setPrivateMode(bool _privateMode) external;
     function setAllowedUser(address user, bool allowed) external;
+    function setPause() external;
+    function setUnPause() external;
+    function setEmergencyMode(bool _emergency) external;
 }
 
 interface IPrivateRouterView {
@@ -204,13 +220,96 @@ contract PrivateDoppiTraderFactory is Ownable, IDoppiTraderFactory {
     /// @notice Update the forwarder on all components of a private bot in one call.
     /// @dev Callable by owner OR the bot's validTrader EOA.
     function setPrivateBotForwarder(address bot, address forwarderAddress) external {
-        if (!botRegistry.isBot(bot))                                                    revert NotRegisteredBot();
-        if (forwarderAddress == address(0))                                             revert ZeroForwarder();
-        if (!(msg.sender == owner() || msg.sender == IPrivateBot(bot).validTrader()))   revert NotAuthorized();
+        _requireOwnerOrTrader(bot);
+        if (forwarderAddress == address(0)) revert ZeroForwarder();
 
         ISetForwarder(botPrivateCore[bot]).setForwarderAddress(forwarderAddress);
         ISetForwarder(botPrivateLiquidity[bot]).setForwarderAddress(forwarderAddress);
         IPrivateBot(bot).setForwarderAddress(forwarderAddress);
+    }
+
+    // ─── Private Core wrappers ───────────────────────────────────────────────
+
+    function setPrivateCoreEmergencyMode(address bot, bool _emergency) external {
+        _requireOwnerOrTrader(bot);
+        IPrivateCoreAdmin(botPrivateCore[bot]).setEmergencyMode(_emergency);
+    }
+
+    function setPrivateCorePause(address bot) external {
+        _requireOwnerOrTrader(bot);
+        IPrivateCoreAdmin(botPrivateCore[bot]).setPause();
+    }
+
+    function setPrivateCoreUnPause(address bot) external {
+        _requireOwnerOrTrader(bot);
+        IPrivateCoreAdmin(botPrivateCore[bot]).setUnPause();
+    }
+
+    function setPrivateCoreUpkeepsPerCheck(address bot, uint16 _percheck) external {
+        _requireOwnerOrTrader(bot);
+        IPrivateCoreAdmin(botPrivateCore[bot]).setUpkeeps_per_check(_percheck);
+    }
+
+    function setPrivateCoreMinOrder(address bot, uint256 _minOrderA, uint256 _minOrderB) external {
+        _requireOwnerOrTrader(bot);
+        IPrivateCoreAdmin(botPrivateCore[bot]).setMinOrder(_minOrderA, _minOrderB);
+    }
+
+    function setPrivateCoreMaxSwap(address bot, uint256 _maxSwap) external {
+        _requireOwnerOrTrader(bot);
+        IPrivateCoreAdmin(botPrivateCore[bot]).setMaxSwap(_maxSwap);
+    }
+
+    function setPrivateCoreAPRTolerance(address bot, uint16 _toleranceBP) external {
+        _requireOwnerOrTrader(bot);
+        IPrivateCoreAdmin(botPrivateCore[bot]).setAPRTolerance(_toleranceBP);
+    }
+
+    function setPrivateCoreTreasury(address bot, address _treasury, uint24 _treasury_fee) external onlyOwner {
+        _requireRegisteredBot(bot);
+        IPrivateCoreAdmin(botPrivateCore[bot]).setTreasury(_treasury, _treasury_fee);
+    }
+
+    function setPrivateCoreOpportunityBot(address bot, address _opportunityBot, bool _status) external onlyOwner {
+        _requireRegisteredBot(bot);
+        IPrivateCoreAdmin(botPrivateCore[bot]).setOpportunityBot(_opportunityBot, _status);
+    }
+
+    function setPrivateCoreTraderFactory(address bot, IDoppiTraderFactory _traderFactory) external onlyOwner {
+        _requireRegisteredBot(bot);
+        IPrivateCoreAdmin(botPrivateCore[bot]).setDoppiTraderFactory(_traderFactory);
+    }
+
+    // ─── Private Router wrappers ─────────────────────────────────────────────
+
+    function setPrivateRouterPause(address bot) external {
+        _requireOwnerOrTrader(bot);
+        IPrivateRouterAdmin(botPrivateRouter[bot]).setPause();
+    }
+
+    function setPrivateRouterUnPause(address bot) external {
+        _requireOwnerOrTrader(bot);
+        IPrivateRouterAdmin(botPrivateRouter[bot]).setUnPause();
+    }
+
+    function setPrivateRouterEmergencyMode(address bot, bool _emergency) external {
+        _requireOwnerOrTrader(bot);
+        IPrivateRouterAdmin(botPrivateRouter[bot]).setEmergencyMode(_emergency);
+    }
+
+    function setPrivateRouterAllowedUser(address bot, address user, bool allowed) external onlyOwner {
+        _requireRegisteredBot(bot);
+        IPrivateRouterAdmin(botPrivateRouter[bot]).setAllowedUser(user, allowed);
+    }
+
+    function setPrivateRouterMode(address bot, bool _privateMode) external onlyOwner {
+        _requireRegisteredBot(bot);
+        IPrivateRouterAdmin(botPrivateRouter[bot]).setPrivateMode(_privateMode);
+    }
+
+    function setPrivateRouterCore(address bot, address _doppiCore) external onlyOwner {
+        _requireRegisteredBot(bot);
+        IPrivateRouterAdmin(botPrivateRouter[bot]).setDoppiCore(_doppiCore);
     }
 
     // ─── IDoppiTraderFactory compat ───────────────────────────────────────────
@@ -242,4 +341,15 @@ contract PrivateDoppiTraderFactory is Ownable, IDoppiTraderFactory {
     function getPrivateLiquidity(address _bot)   external view returns (address) { return botPrivateLiquidity[_bot]; }
     function getPrivateRouter(address _bot)      external view returns (address) { return botPrivateRouter[_bot]; }
     function getNextBotId()                      external view returns (uint32)  { return botRegistry.nextBotId; }
+
+    // ─── Internal auth helpers ───────────────────────────────────────────────
+
+    function _requireRegisteredBot(address bot) internal view {
+        if (!botRegistry.isBot(bot)) revert NotRegisteredBot();
+    }
+
+    function _requireOwnerOrTrader(address bot) internal view {
+        _requireRegisteredBot(bot);
+        if (!(msg.sender == owner() || msg.sender == IPrivateBot(bot).validTrader())) revert NotAuthorized();
+    }
 }
