@@ -48,6 +48,17 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
     event EmergencyWithdraw(bool isBuy, address indexed trader, uint64 positionId, uint256 amount);
     event OppPerformed(bool isBuy, uint256 price, uint256 amount, uint256 amountOut);
     event OppUnwindPerformed(bool isBuy, uint256 price, uint256 swappedAmount, uint256 amountOut, uint256 profit, address profitToken);
+    event PendingSettlementCreated(
+        uint256 indexed pendingId,
+        address indexed owner
+    );
+    event PendingSettlementClaimed(
+        uint256 indexed pendingId,
+        address indexed owner,
+        uint256 paidPayout,
+        uint256 paidInterest,
+        bool fullyClaimed
+    );
     
     error InvalidStrikePriceOrPrice();
     error InvalidAPR();
@@ -69,6 +80,8 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
     error NoPositionsToSettle();
     error DayAlreadyRegistered();
     error OpportunityMutateFailed();
+    error PendingNotFound();
+    error NotPendingOwner();
 
 
     constructor(address _assetA, address _assetB, IDoppiLiquidity _doppiLP, IDoppiOffer _doppiOffer, address _doppiPoints)
@@ -268,6 +281,40 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
         _settlePositionsAggregated(day, start, endPosId, price);
     }
 
+    function claimPendingSettlement(uint256 pendingId) external nonReentrant {
+        PendingSettlement storage pending = pendingSettlements[pendingId];
+        if (pending.owner == address(0)) revert PendingNotFound();
+        if (pending.owner != msg.sender) revert NotPendingOwner();
+        if (pending.claimed) return;
+
+        uint256 paidPayout;
+        uint256 paidInterest;
+
+        uint256 payoutToClaim = pending.pendingPayout;
+        if (payoutToClaim > 0 && _attemptDirectTransfer(IERC20(pending.payoutToken), pending.owner, payoutToClaim)) {
+            pending.pendingPayout = 0;
+            paidPayout = payoutToClaim;
+        }
+
+        uint256 interestToClaim = pending.pendingInterest;
+        if (interestToClaim > 0 && _attemptTransferWithFee(IERC20(pending.interestToken), pending.owner, interestToClaim)) {
+            pending.pendingInterest = 0;
+            paidInterest = interestToClaim;
+        }
+
+        if (pending.pendingPayout == 0 && pending.pendingInterest == 0) {
+            pending.claimed = true;
+        }
+
+        emit PendingSettlementClaimed(
+            pendingId,
+            pending.owner,
+            paidPayout,
+            paidInterest,
+            pending.claimed
+        );
+    }
+
     function emergencySettlement(uint8 day) external whenPaused nonReentrant onlyOwner {
         
         if (!emergencyMode) revert EmergencyModeActive();
@@ -390,16 +437,29 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
                     uint256 tradedPortion = opp.swappedAmount < pos.amount ? opp.swappedAmount : pos.amount;
                     uint8 tradeState = tradedPortion == 0 ? 0 : (tradedPortion >= pos.amount ? 2 : 1);
                     uint256 myAmountOut = opp.swappedAmount > 0 ? Math.mulDiv(opp.outAmount, tradedPortion, opp.swappedAmount) : 0;
+                    IERC20 payoutToken = isBuy ? assetA : assetB;
 
                     // Update total deposits (prevent underflow)
                     _updateTotalDeposit(amountToReturn, isBuy);
                     _removeInterestLiability(interest, isBuy);
                     if (isBuy) {
                         delete positions_buy[day][i];
-                        _settleNoStrikePlanned(pos, price, isBuy, tradeState, tradedPortion, myAmountOut, assetA);
+                        _settleNoStrikePlanned(pos, price, isBuy, tradeState, tradedPortion, myAmountOut, payoutToken);
                     } else {                            
                         delete positions_sell[day][i];
-                        _settleNoStrikePlanned(pos, price, isBuy, tradeState, tradedPortion, myAmountOut, assetB);
+                        _settleNoStrikePlanned(pos, price, isBuy, tradeState, tradedPortion, myAmountOut, payoutToken);
+                    }
+
+                    if (!_attemptDirectTransfer(payoutToken, pos.owner, amountToReturn)) {
+                        _storePendingSettlement(
+                            pos.owner,
+                            pos.strikePrice,
+                            price,
+                            payoutToken,
+                            payoutToken,
+                            amountToReturn,
+                            0
+                        );
                     }
                     nextProcessId[day] = i + 1;
                     emit EmergencyWithdraw(isBuy, pos.owner, i, amountToReturn);
@@ -696,7 +756,28 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
 
         _reduceOpportunityOrder(p.strikePrice, p.amount, isBuy);
 
-        if (p.interest > 0) _safeTransferWithFee(interestToken, p.owner, p.interest);
+        uint256 payoutAmount = striked ? p.payout : p.amount;
+        uint256 pendingPayout;
+        uint256 pendingInterest;
+
+        if (payoutAmount > 0 && !_attemptDirectTransfer(payoutToken, p.owner, payoutAmount)) {
+            pendingPayout = payoutAmount;
+        }
+        if (p.interest > 0 && !_attemptTransferWithFee(interestToken, p.owner, p.interest)) {
+            pendingInterest = p.interest;
+        }
+
+        if (pendingPayout > 0 || pendingInterest > 0) {
+            _storePendingSettlement(
+                p.owner,
+                p.strikePrice,
+                price,
+                payoutToken,
+                interestToken,
+                pendingPayout,
+                pendingInterest
+            );
+        }
 
         emit Settled(
             p.owner,
@@ -727,7 +808,6 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
         if (tradeState == 0) {
             // Scenario 1: Strike + Not Traded
             // LP sent proceeds for the full amount via the aggregated _doppiSettleCall.
-            payoutToken.safeTransfer(p.owner, payout);
             uint256 amountOut = isBuy ? (p.amount * priceDecimal) / price : (p.amount * price) / priceDecimal;
             uint256 settleprofit = amountOut > payout ? amountOut - payout : 0;
             if (settleprofit > 0) {
@@ -757,7 +837,6 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
                     isProfit = true;
                 }
             }
-            payoutToken.safeTransfer(p.owner, payout);
 
             // Reduce opp storage by the pre-allocated amounts (ordered reduction is safe
             // because planning already consumed exactly these values from the in-memory cache).
@@ -783,8 +862,6 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
             if(notenough > 0) {
                 _doppiInterestGet(payoutToken, notenough, price, isBuy);
             }
-            // Scenario 3: No Strike + Not Traded — return deposit directly
-            payoutToken.safeTransfer(p.owner, p.amount);
         } else {
             // Scenario 4 (fully traded) or partial:
             // myAmountOut and tradedPortion are pre-allocated from the planning phase.
@@ -801,11 +878,38 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
                 uint256 notenough = tradedPortion - amountInOrig;
                 _doppiInterestGet(payoutToken, notenough, price, isBuy);
             }
-            // untradedPortion was already held by this contract; return full amount to user.
-            payoutToken.safeTransfer(p.owner, p.amount);
-
             _subtractOpportunityTrade(p.strikePrice, tradedPortion, myAmountOut, isBuy);
         }
+    }
+
+    function _storePendingSettlement(
+        address owner,
+        uint256 strikePrice,
+        uint256 settlePrice,
+        IERC20 payoutToken,
+        IERC20 interestToken,
+        uint256 pendingPayout,
+        uint256 pendingInterest
+    ) internal {
+        uint256 pendingId = nextPendingSettlementId;
+        unchecked { ++nextPendingSettlementId; }
+
+        pendingSettlements[pendingId] = PendingSettlement({
+            owner: owner,
+            strikePrice: strikePrice,
+            settlePrice: settlePrice,
+            payoutToken: address(payoutToken),
+            interestToken: address(interestToken),
+            pendingPayout: pendingPayout,
+            pendingInterest: pendingInterest,
+            claimed: false
+        });
+        pendingSettlementIdsByOwner[owner].push(pendingId);
+
+        emit PendingSettlementCreated(
+            pendingId,
+            owner
+        );
     }
 
     function _posExist(uint8 day, uint64 posId) internal view returns (bool) {
@@ -971,6 +1075,28 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
         uint256 amountAfterFee = _amount - amountFee;
         _asset.safeTransfer(_to, amountAfterFee);
         if (amountFee > 0) _asset.safeTransfer(treasury, amountFee);
+    }
+
+    function selfTransferWithFee(IERC20 token, address to, uint256 amount) external {
+        if (msg.sender != address(this)) revert NotOpen();
+        _safeTransferWithFee(token, to, amount);
+    }
+
+    function _attemptDirectTransfer(IERC20 token, address to, uint256 amount) internal returns (bool) {
+        if (amount == 0) return true;
+        (bool ok, bytes memory ret) = address(token).call(
+            abi.encodeWithSelector(IERC20.transfer.selector, to, amount)
+        );
+        return ok && (ret.length == 0 || abi.decode(ret, (bool)));
+    }
+
+    function _attemptTransferWithFee(IERC20 token, address to, uint256 amount) internal returns (bool) {
+        if (amount == 0) return true;
+        try this.selfTransferWithFee(token, to, amount) {
+            return true;
+        } catch {
+            return false;
+        }
     }
     
     // Helpers interacting via low-level calls (to avoid interface in module)

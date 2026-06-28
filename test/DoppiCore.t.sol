@@ -19,6 +19,21 @@ import "../src/mainnet/DoppiCoreTypes.sol";
 import {TestParamLib} from "../src/Library/TestParamLib.sol";
 import "../src/mainnet/DoppiLiquidityTypes.sol";
 
+contract BlockedReceiverToken is MockToken {
+    address public blocked;
+
+    constructor(string memory name, string memory symbol) MockToken(name, symbol) {}
+
+    function setBlocked(address blockedReceiver) external {
+        blocked = blockedReceiver;
+    }
+
+    function _update(address from, address to, uint256 value) internal override {
+        if (blocked != address(0) && to == blocked && from != address(0)) revert("BlockedReceiver");
+        super._update(from, to, value);
+    }
+}
+
 
 contract DoppiCoreTest is Test {
     DoppiCore doppiCore;
@@ -56,7 +71,7 @@ contract DoppiCoreTest is Test {
         int256 b_sell = -0.02447200000000008 * 1e27;
         int256 c_sell = 1485.8762857142906 * 1e27;
 
-        usdt = new MockToken("USDT", "USDT");
+        usdt = new BlockedReceiverToken("USDT", "USDT");
         btc = new MockToken("Bitcoin", "BTC");
         oracle = new MockOracle(int256(INITIAL_PRICE), 8);
 
@@ -634,6 +649,95 @@ contract DoppiCoreTest is Test {
         assertEq(btcInterestReceived - btcFee, userBTCafter - userBTCbefore);
         assertEq(usdtPayout, userUSDTafter - userUSDTbefore);
         
+    }
+
+    function test_settle_transferFailure_movesToPending_andContinues() public {
+        BlockedReceiverToken(address(usdt)).setBlocked(user1);
+
+        DualAssetOffer memory buyOffer = impliedVol.getOffer(true, 1, 1);
+        DepositParams memory params = DepositParams({
+            amount: 50_000 ether,
+            strikeZone: 1,
+            strikePrice: buyOffer.strikePrice,
+            numDays: 1,
+            apr: buyOffer.apr,
+            expiry: buyOffer.expiry
+        });
+
+        vm.startPrank(user1);
+        usdt.approve(address(doppiCore), params.amount);
+        doppiCore.deposit_buy(params);
+        vm.stopPrank();
+
+        vm.startPrank(user2);
+        usdt.approve(address(doppiCore), params.amount);
+        doppiCore.deposit_buy(params);
+        vm.stopPrank();
+
+        vm.warp(block.timestamp + 1 days + 1);
+        oracle.setPrice(int256(INITIAL_PRICE));
+
+        uint256 user2BalanceBefore = usdt.balanceOf(user2);
+
+        vm.prank(owner);
+        doppiCore.settleOrders(1);
+
+        assertEq(doppiCore.getBuyPositionCount(user1), 0);
+        assertEq(doppiCore.getBuyPositionCount(user2), 0);
+        assertGt(usdt.balanceOf(user2), user2BalanceBefore);
+
+        uint256[] memory pendingIds = doppiCore.getPendingSettlementIds(user1);
+        assertEq(pendingIds.length, 1);
+
+        PendingSettlement memory pending = doppiCore.getPendingSettlement(pendingIds[0]);
+        assertEq(pending.owner, user1);
+        assertEq(pending.strikePrice, buyOffer.strikePrice);
+        assertEq(pending.settlePrice, INITIAL_PRICE);
+        assertEq(pending.payoutToken, address(usdt));
+        assertEq(pending.interestToken, address(usdt));
+        assertEq(pending.pendingPayout, params.amount);
+        assertGt(pending.pendingInterest, 0);
+        assertFalse(pending.claimed);
+    }
+
+    function test_claimPendingSettlement_afterUnblock() public {
+        BlockedReceiverToken(address(usdt)).setBlocked(user1);
+
+        DualAssetOffer memory buyOffer = impliedVol.getOffer(true, 1, 1);
+        DepositParams memory params = DepositParams({
+            amount: 50_000 ether,
+            strikeZone: 1,
+            strikePrice: buyOffer.strikePrice,
+            numDays: 1,
+            apr: buyOffer.apr,
+            expiry: buyOffer.expiry
+        });
+
+        vm.startPrank(user1);
+        usdt.approve(address(doppiCore), params.amount);
+        doppiCore.deposit_buy(params);
+        vm.stopPrank();
+
+        vm.warp(block.timestamp + 1 days + 1);
+        oracle.setPrice(int256(INITIAL_PRICE));
+
+        vm.prank(owner);
+        doppiCore.settleOrders(1);
+
+        uint256[] memory pendingIds = doppiCore.getPendingSettlementIds(user1);
+        assertEq(pendingIds.length, 1);
+
+        uint256 userBalanceBeforeClaim = usdt.balanceOf(user1);
+        BlockedReceiverToken(address(usdt)).setBlocked(address(0));
+
+        vm.prank(user1);
+        doppiCore.claimPendingSettlement(pendingIds[0]);
+
+        PendingSettlement memory pending = doppiCore.getPendingSettlement(pendingIds[0]);
+        assertEq(pending.pendingPayout, 0);
+        assertEq(pending.pendingInterest, 0);
+        assertTrue(pending.claimed);
+        assertGt(usdt.balanceOf(user1), userBalanceBeforeClaim);
     }
 
     function _depositBTC() internal returns (DualAssetOffer memory) {

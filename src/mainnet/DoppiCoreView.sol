@@ -20,6 +20,9 @@ abstract contract DoppiCoreView {
     
     mapping(uint32 => mapping(uint64 => DualAssetPosition)) public positions_buy;
     mapping(uint32 => mapping(uint64 => DualAssetPosition)) public positions_sell;
+    uint256 internal nextPendingSettlementId = 1;
+    mapping(uint256 => PendingSettlement) internal pendingSettlements;
+    mapping(address => uint256[]) internal pendingSettlementIdsByOwner;
 
     /// @notice Reference to external DoppiOpportunity storage
     IDoppiOpportunity public doppiOpportunity;
@@ -115,6 +118,14 @@ abstract contract DoppiCoreView {
     function getOpportunityOrders(bool isBuy, uint256 strikePrice) external view returns (OpportunityOrders memory) {
         if (address(doppiOpportunity) == address(0)) revert OpportunityViewFailed();
         return doppiOpportunity.getOpportunityOrders(isBuy, strikePrice);
+    }
+
+    function getPendingSettlementIds(address owner) external view returns (uint256[] memory) {
+        return pendingSettlementIdsByOwner[owner];
+    }
+
+    function getPendingSettlement(uint256 pendingId) external view returns (PendingSettlement memory) {
+        return pendingSettlements[pendingId];
     }
 
     function _getBuyPositionCount(address _owner) internal view returns (uint256 count) {

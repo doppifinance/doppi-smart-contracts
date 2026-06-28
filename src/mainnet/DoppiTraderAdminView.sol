@@ -42,6 +42,8 @@ abstract contract DoppiTraderAdminView is Ownable, Pausable {
     uint256 internal activeSellStrikeCount;
     uint256 public maxSwap;
     uint8 public unwindGapMultiplier;
+    uint256 public maxOrderPerRoundA;
+    uint256 public maxOrderPerRoundB;
     uint256 priceDecimals;
 
     error NotValidTrader();
@@ -137,6 +139,12 @@ abstract contract DoppiTraderAdminView is Ownable, Pausable {
     function setUnwindGapMultiplier(uint8 _multiplier) external {
         _onlyTrader();
         unwindGapMultiplier = _multiplier;
+    }
+
+    function setMaxOrderPerRound(uint256 _maxOrderPerRoundA, uint256 _maxOrderPerRoundB) external {
+        _onlyTrader();
+        maxOrderPerRoundA = _maxOrderPerRoundA;
+        maxOrderPerRoundB = _maxOrderPerRoundB;
     }
 
     function setForwarderAddress(address forwarderAddress) external {
