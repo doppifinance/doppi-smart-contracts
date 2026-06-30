@@ -33,6 +33,7 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
     bytes4 constant OPP_SUB_SELL_SELECTOR = bytes4(keccak256("subtractOpportunitySell(uint256,uint256,uint256)"));
     bytes4 constant OPP_GET_SELECTOR = bytes4(keccak256("getOpportunityOrders(bool,uint256)"));
     bytes4 constant OPP_REDUCE_SELECTOR = bytes4(keccak256("reduceOpportunityOrder(bool,uint256,uint256)"));
+    bytes4 constant FEE_POOL_NOTIFY_SELECTOR = bytes4(keccak256("onFeeReceived(address,uint256)"));
 
     IERC20 public assetA;
     IERC20 public assetB;
@@ -1074,7 +1075,16 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
         uint256 amountFee = _amount * treasury_fee / 10000;
         uint256 amountAfterFee = _amount - amountFee;
         _asset.safeTransfer(_to, amountAfterFee);
-        if (amountFee > 0) _asset.safeTransfer(treasury, amountFee);
+        if (amountFee > 0) {
+            _asset.safeTransfer(treasury, amountFee);
+            if (treasury.code.length > 0) {
+                // Best-effort hook for DoppiFeePool immediate split; ignore failures.
+                (bool ok, ) = treasury.call(abi.encodeWithSelector(FEE_POOL_NOTIFY_SELECTOR, address(_asset), amountFee));
+                if (!ok) {
+                    // no-op
+                }
+            }
+        }
     }
 
     function selfTransferWithFee(IERC20 token, address to, uint256 amount) external {

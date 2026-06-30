@@ -56,6 +56,10 @@ interface IPrivateBot {
     function setForwarderAddress(address forwarderAddress) external;
 }
 
+interface IPrivateFeePoolAdmin {
+    function setAuthorizedCore(address core, bool allowed) external;
+}
+
 /**
  * @title PrivateDoppiTraderFactory
  * @notice Registry and coordinator for private trader bots.
@@ -81,6 +85,10 @@ contract PrivateDoppiTraderFactory is Ownable, IDoppiTraderFactory {
     address public immutable sharedDoppiPoints;
     address public immutable doppiUpKeepManager;
     address public immutable mainFactory;
+
+    // Default treasury config for newly deployed private cores
+    address public defaultPrivateTreasury;
+    uint24 public defaultPrivateTreasuryFee;
 
     /// @notice Dedicated deployers that hold the heavy deployment bytecode.
     PrivateLiquidityDeployer public immutable liquidityDeployer;
@@ -108,6 +116,7 @@ contract PrivateDoppiTraderFactory is Ownable, IDoppiTraderFactory {
         address privateRouter,
         uint32 botId
     );
+    event DefaultPrivateTreasuryUpdated(address indexed treasury, uint24 feeBps);
 
     constructor(
         IERC20  _assetA,
@@ -168,6 +177,18 @@ contract PrivateDoppiTraderFactory is Ownable, IDoppiTraderFactory {
         // Core owner is this factory; owner-only wiring must happen from factory context.
         ISetTraderFactory(privateCore).setDoppiTraderFactory(IDoppiTraderFactory(address(this)));
 
+        if (defaultPrivateTreasury != address(0)) {
+            IPrivateCoreAdmin(privateCore).setTreasury(defaultPrivateTreasury, defaultPrivateTreasuryFee);
+            if (defaultPrivateTreasury.code.length > 0) {
+                // Optional integration with DoppiFeePool-like contracts.
+                try IPrivateFeePoolAdmin(defaultPrivateTreasury).setAuthorizedCore(privateCore, true) {
+                    // no-op
+                } catch {
+                    // no-op
+                }
+            }
+        }
+
         // The deployers have already transferred ownership back to the factory, so these are safe.
         IPrivateLiquidityAdmin(privateLiquidity).setDoppiCore(privateCore);
         IPrivateRouterAdmin(privateRouter).setDoppiCore(privateCore);
@@ -215,6 +236,12 @@ contract PrivateDoppiTraderFactory is Ownable, IDoppiTraderFactory {
 
     function setLPConfig(ConfigParam calldata _lpConfig) external onlyOwner {
         lpConfig = _lpConfig;
+    }
+
+    function setDefaultPrivateTreasury(address _treasury, uint24 _treasuryFee) external onlyOwner {
+        defaultPrivateTreasury = _treasury;
+        defaultPrivateTreasuryFee = _treasuryFee;
+        emit DefaultPrivateTreasuryUpdated(_treasury, _treasuryFee);
     }
 
     /// @notice Update the forwarder on all components of a private bot in one call.
@@ -267,7 +294,16 @@ contract PrivateDoppiTraderFactory is Ownable, IDoppiTraderFactory {
 
     function setPrivateCoreTreasury(address bot, address _treasury, uint24 _treasury_fee) external onlyOwner {
         _requireRegisteredBot(bot);
-        IPrivateCoreAdmin(botPrivateCore[bot]).setTreasury(_treasury, _treasury_fee);
+        address core = botPrivateCore[bot];
+        IPrivateCoreAdmin(core).setTreasury(_treasury, _treasury_fee);
+        if (_treasury.code.length > 0) {
+            // Optional integration with DoppiFeePool-like contracts.
+            try IPrivateFeePoolAdmin(_treasury).setAuthorizedCore(core, true) {
+                // no-op
+            } catch {
+                // no-op
+            }
+        }
     }
 
     function setPrivateCoreOpportunityBot(address bot, address _opportunityBot, bool _status) external onlyOwner {

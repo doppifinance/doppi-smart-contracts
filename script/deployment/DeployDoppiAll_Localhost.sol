@@ -22,6 +22,7 @@ import {MockRegistryConsumer} from "../../src/test/MockRegistryConsumerLocalhost
 import {DoppiReferral} from "../../src/mainnet/DoppiReferral.sol";
 import {PrivateDoppiTraderFactory} from "../../src/mainnet/private/PrivateDoppiTraderFactory.sol";
 import {DoppiOpportunityStorage} from "../../src/mainnet/private/DoppiOpportunityStorage.sol";
+import {DoppiFeePool} from "../../src/mainnet/DoppiFeePool.sol";
 import "../../src/mainnet/DoppiLiquidityTypes.sol";
 import {TestParamLib} from "../../src/Library/TestParamLib.sol";
 
@@ -30,6 +31,8 @@ contract DeployDoppiAll is Script {
     uint256 minOrderA = 50 ether;
     uint256 minOrderB = 0.0005 ether;
     uint256 botVolumeMultiplier = 3;
+    uint24 privateTreasuryFeeBps = 1000;
+    uint16 privateFeeToSharedLPBps = 3000;
 
     address constant LINK = address(0x404460C6A5EdE2D891e8297795264fDe62ADBB75);
     address constant USDT = address(0x55d398326f99059fF775485246999027B3197955);
@@ -104,6 +107,14 @@ contract DeployDoppiAll is Script {
             configLP
         );
 
+        DoppiFeePool doppiFeePool = new DoppiFeePool(
+            address(doppiLP),
+            treasury,
+            privateFeeToSharedLPBps
+        );
+        doppiFeePool.setCoreAuthorizer(address(privateFactory));
+        privateFactory.setDefaultPrivateTreasury(address(doppiFeePool), privateTreasuryFeeBps);
+
         doppiUpkeepManager.addTraderFactory(address(privateFactory));
         doppiPoints.setCoreRegistrar(address(privateFactory), true);
 
@@ -134,6 +145,9 @@ contract DeployDoppiAll is Script {
         console.log("DoppiClaim:", address(doppiClaim));
         console.log("DoppiToken:", address(doppiToken));
         console.log("PrivateDoppiFactory:", address(privateFactory));
+        console.log("DoppiFeePool:", address(doppiFeePool));
+        console.log("PrivateFeeToSharedLPBps:", privateFeeToSharedLPBps);
+        console.log("PrivateTreasuryFeeBps:", privateTreasuryFeeBps);
         console.log("PrivateCoreImpl:", address(privateCoreImpl));
         console.log("PrivateTraderImpl:", address(privateTraderImpl));
         console.log("PrivateOpportunityImpl:", address(privateOpportunityImpl));

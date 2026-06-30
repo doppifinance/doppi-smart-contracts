@@ -20,6 +20,9 @@ import {DoppiOpportunity} from "../../src/mainnet/DoppiOpportunity.sol";
 import {DoppiUpkeepManager} from "../../src/mainnet/DoppiUpkeepManager.sol";
 import {MockRegistryConsumer} from "../../src/test/MockRegistryConsumer.sol";
 import {DoppiReferral} from "../../src/mainnet/DoppiReferral.sol";
+import {PrivateDoppiTraderFactory} from "../../src/mainnet/private/PrivateDoppiTraderFactory.sol";
+import {DoppiOpportunityStorage} from "../../src/mainnet/private/DoppiOpportunityStorage.sol";
+import {DoppiFeePool} from "../../src/mainnet/DoppiFeePool.sol";
 import "../../src/mainnet/DoppiLiquidityTypes.sol";
 import {TestParamLib} from "../../src/Library/TestParamLib.sol";
 
@@ -28,6 +31,8 @@ contract DeployDoppiAllMainnet is Script {
     uint256 minOrderA = 50 ether;
     uint256 minOrderB = 0.0005 ether;
     uint256 botVolumeMultiplier = 3;
+    uint24 privateTreasuryFeeBps = 1000;
+    uint16 privateFeeToSharedLPBps = 3000;
 
     address constant LINK = address(0x404460C6A5EdE2D891e8297795264fDe62ADBB75);
     address constant USDT = address(0x55d398326f99059fF775485246999027B3197955);
@@ -84,6 +89,37 @@ contract DeployDoppiAllMainnet is Script {
         _setDoppiCoreProperties(doppiCore, doppiFactory, address(doppiOpportunity));
 
         doppiPoints.setCoreTraderFactory(address(doppiCore), address(doppiFactory));
+
+        // Deploy private factory implementations first
+        DoppiCore privateCoreImpl = new DoppiCore(USDT, BTC, doppiLP, impliedVol, address(doppiPoints));
+        DoppiTrader privateTraderImpl = new DoppiTrader();
+        DoppiOpportunityStorage privateOpportunityImpl = new DoppiOpportunityStorage();
+
+        // Deploy private factory
+        PrivateDoppiTraderFactory privateFactory = new PrivateDoppiTraderFactory(
+            IERC20(USDT),
+            IERC20(BTC),
+            address(impliedVol),
+            address(doppiPoints),
+            address(doppiUpkeepManager),
+            address(doppiFactory),
+            address(privateTraderImpl),
+            address(privateCoreImpl),
+            address(privateOpportunityImpl),
+            configLP
+        );
+
+        doppiUpkeepManager.addTraderFactory(address(privateFactory));
+        doppiPoints.setCoreRegistrar(address(privateFactory), true);
+
+        // Deploy and wire private fee pool after private factory is available
+        DoppiFeePool doppiFeePool = new DoppiFeePool(
+            address(doppiLP),
+            treasury,
+            privateFeeToSharedLPBps
+        );
+        doppiFeePool.setCoreAuthorizer(address(privateFactory));
+        privateFactory.setDefaultPrivateTreasury(address(doppiFeePool), privateTreasuryFeeBps);
         
         vm.stopBroadcast();
 
@@ -101,6 +137,13 @@ contract DeployDoppiAllMainnet is Script {
         console.log("DoppiReferral:", address(doppiReferral));
         console.log("DoppiClaim:", address(doppiClaim));
         console.log("DoppiToken:", address(doppiToken));
+        console.log("PrivateDoppiFactory:", address(privateFactory));
+        console.log("PrivateCoreImpl:", address(privateCoreImpl));
+        console.log("PrivateTraderImpl:", address(privateTraderImpl));
+        console.log("PrivateOpportunityImpl:", address(privateOpportunityImpl));
+        console.log("DoppiFeePool:", address(doppiFeePool));
+        console.log("PrivateFeeToSharedLPBps:", privateFeeToSharedLPBps);
+        console.log("PrivateTreasuryFeeBps:", privateTreasuryFeeBps);
 
     }
 
