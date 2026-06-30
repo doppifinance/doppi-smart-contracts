@@ -87,8 +87,10 @@ privateRouter.setDoppiCore(address(privateCore));
 ```
 src/mainnet/private/
 ├─ PrivateDoppiTraderFactory.sol     # Factory for deploying private bots
-├─ DoppiOpportunityStorage.sol       # Isolated opportunity storage per core
 └─ README.md                         # This file
+
+Note: private deployments now use cloneable `DoppiOpportunity` as a combined
+upkeep executor and opportunity storage backend per private bot.
 ```
 
 ### Modified Files (mainnet/)

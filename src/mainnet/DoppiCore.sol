@@ -11,7 +11,7 @@ import {IDoppiTrader} from "../Interface/IDoppiTrader.sol";
 import {IDoppiPoints} from "../Interface/IDoppiPoints.sol";
 import {IDoppiOffer} from "../Interface/IDoppiOffer.sol";
 import {IDoppiOpportunity} from "../Interface/IDoppiOpportunity.sol";
-import {DoppiOpportunityStorage} from "./private/DoppiOpportunityStorage.sol";
+import {DoppiOpportunity} from "./DoppiOpportunity.sol";
 import "./DoppiCoreTypes.sol";
 import "./DoppiCoreAdmin.sol";
 import "./DoppiCoreView.sol";
@@ -88,8 +88,7 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
     constructor(address _assetA, address _assetB, IDoppiLiquidity _doppiLP, IDoppiOffer _doppiOffer, address _doppiPoints)
         Ownable(msg.sender)
     {
-        DoppiOpportunityStorage opportunityStore = new DoppiOpportunityStorage();
-        opportunityStore.initialize(address(this));
+        DoppiOpportunity opportunityStore = new DoppiOpportunity(address(this), address(_doppiLP));
         _initializeDoppiCore(
             _assetA,
             _assetB,

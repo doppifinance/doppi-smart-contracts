@@ -11,7 +11,6 @@ import {DoppiOffer} from "../src/mainnet/DoppiOffer.sol";
 import {DoppiPoints} from "../src/mainnet/DoppiPoints.sol";
 import {DoppiTraderFactory} from "../src/mainnet/DoppiTraderFactory.sol";
 import {PrivateDoppiTraderFactory} from "../src/mainnet/private/PrivateDoppiTraderFactory.sol";
-import {DoppiOpportunityStorage} from "../src/mainnet/private/DoppiOpportunityStorage.sol";
 import {IDoppiTraderFactory} from "../src/Interface/IDoppiTraderFactory.sol";
 import {IDoppiOpportunity} from "../src/Interface/IDoppiOpportunity.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
@@ -40,7 +39,7 @@ contract PrivateBotFlowTest is Test {
     // ── Implementations (used by private factory clones) ──────────────────
     DoppiCore coreImplementation;
     DoppiTrader traderImplementation;
-    DoppiOpportunityStorage opportunityStorageImplementation;
+    DoppiOpportunity opportunityStorageImplementation;
 
     // ── Shared infra ───────────────────────────────────────────────────────
     DoppiOffer impliedVol;
@@ -131,7 +130,7 @@ contract PrivateBotFlowTest is Test {
         // Deploy implementation contracts for private factory clones
         coreImplementation              = new DoppiCore(address(usdt), address(btc), sharedLP, impliedVol, address(doppiPoints));
         traderImplementation            = new DoppiTrader();
-        opportunityStorageImplementation = new DoppiOpportunityStorage();
+        opportunityStorageImplementation = new DoppiOpportunity(address(0), address(0));
 
         // Private factory
         privateFactory = new PrivateDoppiTraderFactory(
@@ -291,8 +290,37 @@ contract PrivateBotFlowTest is Test {
     function test_opportunityStorage_linkedToCorrectCore() public {
         (, address core, address opp,,) = _deployAndCapture(trader1);
 
-        DoppiOpportunityStorage oppStorage = DoppiOpportunityStorage(opp);
+        DoppiOpportunity oppStorage = DoppiOpportunity(opp);
         assertEq(address(oppStorage.doppiCore()), core, "opportunity storage core mismatch");
+    }
+
+    function test_twoPrivateOpportunities_haveIsolatedState() public {
+        (, address core1, address opp1,,) = _deployAndCapture(trader1);
+        (, address core2, address opp2,,) = _deployAndCapture(trader2);
+
+        assertTrue(opp1 != opp2, "two bots share same opportunity contract");
+
+        uint256 strike = 100_000 * 1e8;
+
+        // Simulate core1 writing opportunity state to its own opportunity contract.
+        vm.prank(core1);
+        DoppiOpportunity(opp1).setOpportunityBuy(strike, 10 ether, 2 ether, 1 ether);
+
+        OpportunityOrders memory opp1Order = DoppiOpportunity(opp1).getBuyOpportunity(strike);
+        OpportunityOrders memory opp2Order = DoppiOpportunity(opp2).getBuyOpportunity(strike);
+
+        assertEq(opp1Order.amount, 10 ether, "opp1 buy amount mismatch");
+        assertEq(opp1Order.swappedAmount, 2 ether, "opp1 swapped amount mismatch");
+        assertEq(opp1Order.outAmount, 1 ether, "opp1 out amount mismatch");
+
+        assertEq(opp2Order.amount, 0, "opp2 buy amount should remain zero");
+        assertEq(opp2Order.swappedAmount, 0, "opp2 swapped amount should remain zero");
+        assertEq(opp2Order.outAmount, 0, "opp2 out amount should remain zero");
+
+        (uint256 activeBuy1,,) = DoppiOpportunity(opp1).getActiveStrikeSnapshot(true);
+        (uint256 activeBuy2,,) = DoppiOpportunity(opp2).getActiveStrikeSnapshot(true);
+        assertEq(activeBuy1, 1, "opp1 active buy strikes should be 1");
+        assertEq(activeBuy2, 0, "opp2 active buy strikes should be 0");
     }
 
     function test_privateLP_linkedToPrivateCore() public {
@@ -354,13 +382,13 @@ contract PrivateBotFlowTest is Test {
         (, , address opp,,) = _deployAndCapture(trader1);
 
         vm.expectRevert();
-        DoppiOpportunityStorage(opp).initialize(address(0x999));
+        DoppiOpportunity(opp).initialize(address(0x999));
     }
 
     function test_setImplementations_updatesAll() public {
         address newBot  = address(new DoppiTrader());
         address newCore = address(new DoppiCore(address(usdt), address(btc), sharedLP, impliedVol, address(doppiPoints)));
-        address newOpp  = address(new DoppiOpportunityStorage());
+        address newOpp  = address(new DoppiOpportunity(address(0), address(0)));
 
         vm.prank(owner);
         privateFactory.setImplementations(newBot, newCore, newOpp);
@@ -523,25 +551,25 @@ contract PrivateBotFlowTest is Test {
     function test_opportunityStorage_onlyDoppiCoreCanWrite() public {
         (, address core, address opp,,) = _deployAndCapture(trader1);
 
-        DoppiOpportunityStorage oppStorage = DoppiOpportunityStorage(opp);
+        DoppiOpportunity oppStorage = DoppiOpportunity(opp);
 
-        vm.expectRevert("OnlyDoppiCore");
+        vm.expectRevert(DoppiOpportunity.OnlyDoppiCore.selector);
         oppStorage.setOpportunityBuy(100_000 * 1e8, 1 ether, 0, 0);
 
-        vm.expectRevert("OnlyDoppiCore");
+        vm.expectRevert(DoppiOpportunity.OnlyDoppiCore.selector);
         oppStorage.setOpportunitySell(100_000 * 1e8, 1 ether, 0, 0);
 
-        vm.expectRevert("OnlyDoppiCore");
+        vm.expectRevert(DoppiOpportunity.OnlyDoppiCore.selector);
         oppStorage.addOpportunityBuyAmount(100_000 * 1e8, 1 ether);
 
-        vm.expectRevert("OnlyDoppiCore");
+        vm.expectRevert(DoppiOpportunity.OnlyDoppiCore.selector);
         oppStorage.addOpportunitySellAmount(100_000 * 1e8, 1 ether);
     }
 
     function test_opportunityStorage_readReturnsZeroByDefault() public {
         (,, address opp,,) = _deployAndCapture(trader1);
 
-        DoppiOpportunityStorage oppStorage = DoppiOpportunityStorage(opp);
+        DoppiOpportunity oppStorage = DoppiOpportunity(opp);
         OpportunityOrders memory orders = oppStorage.getBuyOpportunity(100_000 * 1e8);
         assertEq(orders.amount, 0);
         assertEq(orders.swappedAmount, 0);
@@ -561,7 +589,7 @@ contract PrivateBotFlowTest is Test {
         assertEq(dc.minOrderA(), 123 ether, "minOrderA not updated");
         assertEq(dc.minOrderB(), 0.002 ether, "minOrderB not updated");
 
-        vm.prank(trader1);
+        vm.prank(trader1);  
         privateFactory.setPrivateCoreMaxSwap(bot, 777_777 ether);
         assertEq(dc.maxSwap(), 777_777 ether, "maxSwap not updated");
 

@@ -21,7 +21,6 @@ import {DoppiUpkeepManager} from "../../src/mainnet/DoppiUpkeepManager.sol";
 import {MockRegistryConsumer} from "../../src/test/MockRegistryConsumer.sol";
 import {DoppiReferral} from "../../src/mainnet/DoppiReferral.sol";
 import {PrivateDoppiTraderFactory} from "../../src/mainnet/private/PrivateDoppiTraderFactory.sol";
-import {DoppiOpportunityStorage} from "../../src/mainnet/private/DoppiOpportunityStorage.sol";
 import {DoppiFeePool} from "../../src/mainnet/DoppiFeePool.sol";
 import "../../src/mainnet/DoppiLiquidityTypes.sol";
 import {TestParamLib} from "../../src/Library/TestParamLib.sol";
@@ -93,7 +92,7 @@ contract DeployDoppiAllMainnet is Script {
         // Deploy private factory implementations first
         DoppiCore privateCoreImpl = new DoppiCore(USDT, BTC, doppiLP, impliedVol, address(doppiPoints));
         DoppiTrader privateTraderImpl = new DoppiTrader();
-        DoppiOpportunityStorage privateOpportunityImpl = new DoppiOpportunityStorage();
+        DoppiOpportunity privateOpportunityImpl = new DoppiOpportunity(address(0), address(0));
 
         // Deploy private factory
         PrivateDoppiTraderFactory privateFactory = new PrivateDoppiTraderFactory(

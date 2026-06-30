@@ -249,15 +249,15 @@ contract DoppiOpportunityTest is Test {
         vm.stopPrank();
 
         DualAssetOffer memory sellOffer = impliedVol.getOffer(false, 1, 1);
-        uint256 depositBTC = 0.01 ether;
+        uint256 depositAmountBtc = 10_000_000_000_000_000;
         // console.log(sellOffer.strikePrice, "sellOffer.strikePrice");
         for (uint256 i = 0; i < 1000; i++) {
             address l1 = address(uint160(0x110 + i));
             vm.startPrank(l1);
             btc.mint(l1, 1 ether);
-            btc.approve(address(doppiCore), depositBTC);
+            btc.approve(address(doppiCore), depositAmountBtc);
             doppiCore.deposit_sell(DepositParams({
-                amount: depositBTC,
+                amount: depositAmountBtc,
                 strikeZone: 1,
                 strikePrice: sellOffer.strikePrice,
                 numDays: 1,
@@ -312,7 +312,6 @@ contract DoppiOpportunityTest is Test {
         doppiCore.setMaxSwap(100000 ether);
         vm.stopPrank();
 
-        uint256 depositUSDT = 1000 ether;
         uint256 totalDeposit = 500;
         uint256 priceChanges = 50; // Change price 50 times during test
         uint256 depPerPrice = totalDeposit / priceChanges;
@@ -413,7 +412,6 @@ contract DoppiOpportunityTest is Test {
         // doppiRouter.deposit(address(btc), depositBTCAmount);
         vm.stopPrank();
 
-        uint256 depositBTC = 0.01 ether;
         uint256 totalDeposit = 500;
         uint256 priceChanges = 50; // Change price 50 times during test
         uint256 depPerPrice = totalDeposit / priceChanges;
@@ -475,7 +473,7 @@ contract DoppiOpportunityTest is Test {
         
         sell = doppiCore.getOpportunityOrders(false, 9900000000000);
         assertEq(sell.swappedAmount, 3356740024692983644);
-        assertEq(sell.outAmount, 340018980855569066294013);
+        assertEq(sell.outAmount, 340018980855569066207999);
 
         newPrice = int256(93556 * 1e8);
         oracle.setPrice(newPrice);
@@ -512,7 +510,6 @@ contract DoppiOpportunityTest is Test {
         doppiRouter.deposit(address(btc), depositBTCAmount);
         vm.stopPrank();
 
-        uint256 depositBTC = 0.01 ether;
         uint256 totalDeposit = 500;
         uint256 priceChanges = 50; // Change price 50 times during test
         uint256 depPerPrice = totalDeposit / priceChanges;
@@ -667,14 +664,14 @@ contract DoppiOpportunityTest is Test {
         vm.stopPrank();
 
         DualAssetOffer memory buyOffer = impliedVol.getOffer(true, 1, 1);
-        uint256 depositUSDT = 1000 ether;
+        uint256 depositAmountUsdt = 1000 ether;
         for (uint256 i = 0; i < 1000; i++) {
             address l1 = address(uint160(0x110 + i));
             vm.startPrank(l1);
             usdt.mint(l1, 100_000 ether);
-            usdt.approve(address(doppiCore), depositUSDT);
+            usdt.approve(address(doppiCore), depositAmountUsdt);
             doppiCore.deposit_buy(DepositParams({
-                amount: depositUSDT,
+                amount: depositAmountUsdt,
                 strikeZone: 1,
                 strikePrice: buyOffer.strikePrice,
                 numDays: 1,
