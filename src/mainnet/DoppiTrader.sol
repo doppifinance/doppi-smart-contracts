@@ -8,7 +8,6 @@ import {DALiquidityLib} from "../Library/DALiquidityLib.sol";
 import "./DoppiTraderTypes.sol";
 import "./DoppiTraderAdminView.sol";
 // import "forge-std/console.sol"; // removed: debug-only import, not for production
-import {IDoppiUpkeepManager, TopUpInfo} from "../Interface/IDoppiUpkeepManager.sol";
 
 contract DoppiTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCompatibleInterface, Initializable {
     using SafeERC20 for IERC20;
@@ -25,7 +24,6 @@ contract DoppiTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCompati
     error ExceedMaxZone();
     error NotEmergency();
     error AmountNotSpecified();
-    error AmountMustGreaterThanUpkeep();
     error ActiveOrders();
     error OnlyForwarder();
     error OnlyDoppiCore();
@@ -43,7 +41,6 @@ contract DoppiTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCompati
         address _doppiLP,
         address _doppiRouter,
         address _doppiCore,
-        address _doppiUpKeepManager,
         uint24[] memory _weights
     ) external initializer {
         
@@ -67,7 +64,6 @@ contract DoppiTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCompati
         }
         // Initialize with default weights
         _initializeOrderConfigs(_weights);
-        doppiUpkeepManager = IDoppiUpkeepManager(_doppiUpKeepManager);
         impliedVol = doppiCore.doppiOffer();
         traderDefaultDay = 1;
         maxOrder = 5;
@@ -81,14 +77,6 @@ contract DoppiTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCompati
         
         _onlyTrader();
         if(_amountA == 0 && _amountB == 0) revert AmountNotSpecified();
-
-        uint256 forUpkeep;
-        bool shouldInsertNewBot = doppiUpkeepManager.shouldInsertNew(address(this));
-        if(shouldInsertNewBot) {
-            forUpkeep = doppiUpkeepManager.getDefault_Amount();
-            if(_amountA <= forUpkeep) revert AmountMustGreaterThanUpkeep();
-            _amountA = _amountA - forUpkeep;
-        }
 
         // Unit price tracking: snapshot value BEFORE deposit, then issue proportional units.
         uint256 price = doppiLP.getPrice();
@@ -110,12 +98,6 @@ contract DoppiTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCompati
 
         _processDeposit(_amountA, _amountB);
         _placeBulk();
-        
-        if(shouldInsertNewBot && forUpkeep > 0){
-            assetA.safeTransferFrom(msg.sender, address(doppiUpkeepManager), forUpkeep);
-            doppiUpkeepManager.insertNewBot(msg.sender, address(this));
-        }
-        
     }
 
     function placeOrders() external nonReentrant {
@@ -235,10 +217,9 @@ contract DoppiTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCompati
         uint256[] memory targetPricesSell;
         uint256 totalBuyAmountInB;
         uint256 totalSellAmountInA;
-        bool toTopUp;
         
         (bool toBuy, bool toSell) = _shouldPlaceOrders(price);
-        if(toBuy || toSell) return (true, abi.encode(false, false, targetPricesBuy, targetPricesSell, 0, 0, 0, toBuy, toSell, false));
+        if(toBuy || toSell) return (true, abi.encode(false, false, targetPricesBuy, targetPricesSell, 0, 0, 0, toBuy, toSell));
 
         (targetPricesBuy, totalBuyAmountInB) =_checkUndoTrade(true, price);
         (targetPricesSell, totalSellAmountInA) =_checkUndoTrade(false, price);
@@ -246,12 +227,8 @@ contract DoppiTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCompati
         if (totalBuyAmountInB > 0 || totalSellAmountInA > 0) {
             (bool isNetBuy, uint256 netAmount) = _netoutBuySell(totalSellAmountInA, totalBuyAmountInB, price);
             if(netAmount > 0){
-                return (true, abi.encode(true, isNetBuy, targetPricesBuy, targetPricesSell, netAmount, totalSellAmountInA, totalBuyAmountInB, false, false, false));
+                return (true, abi.encode(true, isNetBuy, targetPricesBuy, targetPricesSell, netAmount, totalSellAmountInA, totalBuyAmountInB, false, false));
             }
-        }
-        (toTopUp) = _shouldTopupUpkeep();
-        if(toTopUp) {
-            return (true, abi.encode(false, false, targetPricesBuy, targetPricesSell, 0, 0, 0, false, false, true));
         }
         return (false, bytes(""));
     }
@@ -259,8 +236,8 @@ contract DoppiTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCompati
     function performUpkeep(bytes calldata performData) external override nonReentrant {
         
         _onlyForwarder();
-        (bool performUnwind, bool isNetBuy, uint256[] memory targetPricesBuy, uint256[] memory targetPricesSell, uint256 totalAmount, uint256 totalSellAmountInA, uint256 totalBuyAmountInB, bool placeBuy, bool placeSell, bool toTopUp) = 
-            abi.decode(performData, (bool, bool, uint256[], uint256[], uint256, uint256, uint256, bool, bool, bool));
+        (bool performUnwind, bool isNetBuy, uint256[] memory targetPricesBuy, uint256[] memory targetPricesSell, uint256 totalAmount, uint256 totalSellAmountInA, uint256 totalBuyAmountInB, bool placeBuy, bool placeSell) = 
+            abi.decode(performData, (bool, bool, uint256[], uint256[], uint256, uint256, uint256, bool, bool));
 
         uint256 currentPrice = doppiLP.getPrice();
         if (placeBuy || placeSell) {
@@ -273,10 +250,6 @@ contract DoppiTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCompati
             _clearUnwindMap(targetPricesBuy, true, totalBuyAmountInB);
             _clearUnwindMap(targetPricesSell, false, totalSellAmountInA);  
             emit UnwindPerformed(address(this), isNetBuy, totalAmount, amountOut);
-        }
-        if(toTopUp) {
-            _processTopUp();
-            return;
         }
     }
 
@@ -314,23 +287,6 @@ contract DoppiTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCompati
             _place_oneside(false);
         }
     }
-
-    function _shouldTopupUpkeep() internal view returns (bool topUp) {
-        uint256 upkeepId = doppiUpkeepManager.getUpkeepIdByBot(address(this));
-        if(upkeepId == 0) {
-            return false;
-        }
-        (, topUp) = doppiUpkeepManager.shouldTopUpkeep(upkeepId);
-    }
-
-    function _processTopUp() internal {
-        uint256 upkeepId = doppiUpkeepManager.getUpkeepIdByBot(address(this));
-        (TopUpInfo memory topUpInfo, ) = doppiUpkeepManager.shouldTopUpkeep(upkeepId);
-        assetA.safeTransferFrom(validTrader, address(this), topUpInfo.totalInfundToken);
-        assetA.safeTransfer(address(doppiUpkeepManager), topUpInfo.totalInfundToken);
-        doppiUpkeepManager.performTopUpkeep(upkeepId);
-    }
-
 
     function _shouldPlaceOrders(uint256 price) internal view returns (bool toBuy, bool toSell) {
         if(doppiCore.paused()) return (false, false); 

@@ -138,7 +138,6 @@ contract PrivateBotFlowTest is Test {
             IERC20(btc),
             address(impliedVol),
             address(doppiPoints),
-            address(mockUpkeepManager),
             address(sharedFactory),
             address(traderImplementation),
             address(coreImplementation),

@@ -17,10 +17,11 @@ import {DoppiPoints} from "../../src/mainnet/DoppiPoints.sol";
 import {DoppiClaim} from "../../src/mainnet/DoppiClaim.sol";
 import {DOPPI} from "../../src/test/Doppi.sol";
 import {DoppiOpportunity} from "../../src/mainnet/DoppiOpportunity.sol";
-import {DoppiUpkeepManager} from "../../src/mainnet/DoppiUpkeepManager.sol";
+// import {DoppiUpkeepManager} from "../../src/mainnet/DoppiUpkeepManager.sol";
 import {MockRegistryConsumer} from "../../src/test/MockRegistryConsumerLocalhost.sol";
 import {DoppiReferral} from "../../src/mainnet/DoppiReferral.sol";
 import {PrivateDoppiTraderFactory} from "../../src/mainnet/private/PrivateDoppiTraderFactory.sol";
+import {PrivateAutomationHub} from "../../src/mainnet/private/PrivateAutomationHub.sol";
 import {DoppiFeePool} from "../../src/mainnet/DoppiFeePool.sol";
 import "../../src/mainnet/DoppiLiquidityTypes.sol";
 import {TestParamLib} from "../../src/Library/TestParamLib.sol";
@@ -76,7 +77,7 @@ contract DeployDoppiAll is Script {
         DoppiTraderFactory doppiFactory = new DoppiTraderFactory(IERC20(USDT), IERC20(BTC), address(doppiCore), address(doppiLP), address(doppiRouter), address(impliedVol), address(doppiPoints));
         console.log("DoppiTraderFactory deployed at:", address(doppiFactory));
         
-        DoppiUpkeepManager doppiUpkeepManager = _deployDoppiUpkeepManager(doppiFactory);
+        // DoppiUpkeepManager doppiUpkeepManager = _deployDoppiUpkeepManager(doppiFactory);
         
         DOPPI doppiToken = new DOPPI("Doppi Token", "DOPPI");
         DoppiClaim doppiClaim = _deployDoppiClaim(doppiPoints, doppiReferral, doppiToken);
@@ -98,13 +99,22 @@ contract DeployDoppiAll is Script {
             IERC20(BTC),
             address(impliedVol),
             address(doppiPoints),
-            address(doppiUpkeepManager),
             address(doppiFactory),
             address(privateTraderImpl),
             address(privateCoreImpl),
             address(privateOpportunityImpl),
             configLP
         );
+
+        // Deploy PrivateAutomationHub for private bot job scheduling and billing
+        PrivateAutomationHub privateAutomationHub = new PrivateAutomationHub(
+            address(this), // owner (deployer)
+            USDT,          // fundToken for billing
+            CHAINLINK_BTC_USD, // chainlink feed for native asset pricing
+            60,          // maxOracleDelay (1 minute)
+            treasury       // treasury for fee collection
+        );
+        console.log("PrivateAutomationHub deployed at:", address(privateAutomationHub));
 
         DoppiFeePool doppiFeePool = new DoppiFeePool(
             address(doppiLP),
@@ -113,8 +123,14 @@ contract DeployDoppiAll is Script {
         );
         doppiFeePool.setCoreAuthorizer(address(privateFactory));
         privateFactory.setDefaultPrivateTreasury(address(doppiFeePool), privateTreasuryFeeBps);
+        
+        // Register private factory and deployer as registrars in the hub
+        privateAutomationHub.setRegistrar(address(privateFactory), true);
+        privateAutomationHub.setRegistrar(msg.sender, true);
 
-        doppiUpkeepManager.addTraderFactory(address(privateFactory));
+        // Authorize PrivateAutomationHub to deduct points for fees in DoppiPoints
+        doppiPoints.setAuthorizedPointsDeductor(address(privateAutomationHub), true);
+
         doppiPoints.setCoreRegistrar(address(privateFactory), true);
 
         // Deploy one initial private bot for the broadcasting EOA
@@ -139,11 +155,12 @@ contract DeployDoppiAll is Script {
         console.log("DoppiOpportunity:", address(doppiOpportunity));
         console.log("DoppiLiquidityRouter:", address(doppiRouter));
         console.log("DoppiTraderFactory:", address(doppiFactory));
-        console.log("DoppiUpkeepManager:", address(doppiUpkeepManager));
+        // console.log("DoppiUpkeepManager:", address(doppiUpkeepManager));
         console.log("DoppiReferral:", address(doppiReferral));
         console.log("DoppiClaim:", address(doppiClaim));
         console.log("DoppiToken:", address(doppiToken));
         console.log("PrivateDoppiFactory:", address(privateFactory));
+        console.log("PrivateAutomationHub:", address(privateAutomationHub));
         console.log("DoppiFeePool:", address(doppiFeePool));
         console.log("PrivateFeeToSharedLPBps:", privateFeeToSharedLPBps);
         console.log("PrivateTreasuryFeeBps:", privateTreasuryFeeBps);
@@ -270,33 +287,37 @@ contract DeployDoppiAll is Script {
         return doppiPoints;
     }
 
-    function _deployDoppiUpkeepManager(DoppiTraderFactory _doppiFactory) internal returns (DoppiUpkeepManager) {
+    // function _deployDoppiUpkeepManager(DoppiTraderFactory _doppiFactory) internal returns (DoppiUpkeepManager) {
 
-        console.log("Deploying DoppiUpkeepManager...");
-        IAutomationRegistrar registrar = IAutomationRegistrar(CHAINLINK_Registrar);
-        // IAutomationRegistryConsumer registryConsumer = IAutomationRegistryConsumer(CHAINLINK_RegistryConsumer);
-        MockRegistryConsumer registryConsumer = new MockRegistryConsumer();
+    //     console.log("Deploying DoppiUpkeepManager...");
+    //     IAutomationRegistrar registrar = IAutomationRegistrar(CHAINLINK_Registrar);
+    //     // IAutomationRegistryConsumer registryConsumer = IAutomationRegistryConsumer(CHAINLINK_RegistryConsumer);
+    //     MockRegistryConsumer registryConsumer = new MockRegistryConsumer();
 
-        DoppiUpkeepManager doppiUpkeepManager = new DoppiUpkeepManager(
-            address(registryConsumer), 
-            address(registrar), 
-            CHAINLINK_LINK_USD, 
-            address(PCSWAP_V3_ROUTER),
-            LINK_PEGGED_SWAP,
-            USDT, 
-            LINK, // erc677 link
-            BNBLINK, //bnb link
-            address(_doppiFactory),
-            treasury
-        );
+    //     DoppiUpkeepManager doppiUpkeepManager = new DoppiUpkeepManager(
+    //         address(registryConsumer), 
+    //         address(registrar), 
+    //         CHAINLINK_LINK_USD, 
+    //         address(PCSWAP_V3_ROUTER),
+    //         LINK_PEGGED_SWAP,
+    //         USDT, 
+    //         LINK, // erc677 link
+    //         BNBLINK, //bnb link
+    //         address(_doppiFactory),
+    //         treasury
+    //     );
         
-        console.log("mockRegistryConsumer deployed at:", address(registryConsumer));
-        console.log("DoppiUpkeepManager deployed at:", address(doppiUpkeepManager));
-        doppiUpkeepManager.setMaxDelay(100 days);
-        doppiUpkeepManager.setForwarderAddress(forwarder);
-        _doppiFactory.setDoppiUpKeepManager(address(doppiUpkeepManager));
-        return doppiUpkeepManager;
-    }  
+    //     console.log("mockRegistryConsumer deployed at:", address(registryConsumer));
+    //     console.log("DoppiUpkeepManager deployed at:", address(doppiUpkeepManager));
+    //     doppiUpkeepManager.setMaxDelay(100 days);
+    //     doppiUpkeepManager.setForwarderAddress(forwarder);
+        
+    //     // Note: setDoppiUpKeepManager is deprecated for shared bots
+    //     // Shared bots no longer use doppiUpkeepManager (removed in favor of PrivateAutomationHub)
+    //     // Use setPrivateAutomationHub() instead for shared bot billing in new deployments
+    //     _doppiFactory.setDoppiUpKeepManager(address(doppiUpkeepManager));
+    //     return doppiUpkeepManager;
+    // }  
 
     function _defaultPrivateWeights() internal pure returns (uint24[] memory weights) {
         weights = new uint24[](5);

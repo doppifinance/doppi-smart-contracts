@@ -28,7 +28,6 @@ contract PrivateBotDeployer {
     IERC20  public immutable assetB;
     address public immutable sharedDoppiOffer;
     address public immutable sharedDoppiPoints;
-    address public immutable doppiUpKeepManager;
     /// @dev The factory that created this deployer; only it may call deploy().
     address public immutable factory;
 
@@ -36,14 +35,12 @@ contract PrivateBotDeployer {
         IERC20  _assetA,
         IERC20  _assetB,
         address _sharedDoppiOffer,
-        address _sharedDoppiPoints,
-        address _doppiUpKeepManager
+        address _sharedDoppiPoints
     ) {
         assetA             = _assetA;
         assetB             = _assetB;
         sharedDoppiOffer   = _sharedDoppiOffer;
         sharedDoppiPoints  = _sharedDoppiPoints;
-        doppiUpKeepManager = _doppiUpKeepManager;
         factory            = msg.sender; // set to factory during factory construction
     }
 
@@ -58,6 +55,8 @@ contract PrivateBotDeployer {
         core        = Clones.clone(coreImpl);
 
         IPrivateOpportunityInit(opportunity).initialize(core);
+        // Factory must own opportunity so forwarder/admin updates are possible.
+        IOwnable(opportunity).transferOwnership(factory);
 
         IPrivateCoreInit(core).initialize(
             address(assetA),
@@ -80,7 +79,6 @@ contract PrivateBotDeployer {
             liquidity,
             router,
             core,
-            doppiUpKeepManager,
             weights
         );
 

@@ -21,6 +21,7 @@ import {DoppiUpkeepManager} from "../../src/mainnet/DoppiUpkeepManager.sol";
 import {MockRegistryConsumer} from "../../src/test/MockRegistryConsumer.sol";
 import {DoppiReferral} from "../../src/mainnet/DoppiReferral.sol";
 import {PrivateDoppiTraderFactory} from "../../src/mainnet/private/PrivateDoppiTraderFactory.sol";
+import {PrivateAutomationHub} from "../../src/mainnet/private/PrivateAutomationHub.sol";
 import {DoppiFeePool} from "../../src/mainnet/DoppiFeePool.sol";
 import "../../src/mainnet/DoppiLiquidityTypes.sol";
 import {TestParamLib} from "../../src/Library/TestParamLib.sol";
@@ -100,7 +101,6 @@ contract DeployDoppiAllMainnet is Script {
             IERC20(BTC),
             address(impliedVol),
             address(doppiPoints),
-            address(doppiUpkeepManager),
             address(doppiFactory),
             address(privateTraderImpl),
             address(privateCoreImpl),
@@ -110,6 +110,23 @@ contract DeployDoppiAllMainnet is Script {
 
         doppiUpkeepManager.addTraderFactory(address(privateFactory));
         doppiPoints.setCoreRegistrar(address(privateFactory), true);
+
+        // Deploy PrivateAutomationHub for private bot job scheduling and billing
+        PrivateAutomationHub privateAutomationHub = new PrivateAutomationHub(
+            address(this), // owner (deployer)
+            USDT,          // fundToken for billing
+            CHAINLINK_BTC_USD, // chainlink feed for native asset pricing
+            3600,          // maxOracleDelay (1 hour)
+            treasury       // treasury for fee collection
+        );
+        console.log("PrivateAutomationHub deployed at:", address(privateAutomationHub));
+
+        // Register private factory and deployer as registrars in the hub
+        privateAutomationHub.setRegistrar(address(privateFactory), true);
+        privateAutomationHub.setRegistrar(msg.sender, true);
+
+        // Authorize PrivateAutomationHub to deduct points for fees in DoppiPoints
+        doppiPoints.setAuthorizedPointsDeductor(address(privateAutomationHub), true);
 
         // Deploy and wire private fee pool after private factory is available
         DoppiFeePool doppiFeePool = new DoppiFeePool(
@@ -137,6 +154,7 @@ contract DeployDoppiAllMainnet is Script {
         console.log("DoppiClaim:", address(doppiClaim));
         console.log("DoppiToken:", address(doppiToken));
         console.log("PrivateDoppiFactory:", address(privateFactory));
+        console.log("PrivateAutomationHub:", address(privateAutomationHub));
         console.log("PrivateCoreImpl:", address(privateCoreImpl));
         console.log("PrivateTraderImpl:", address(privateTraderImpl));
         console.log("PrivateOpportunityImpl:", address(privateOpportunityImpl));
@@ -281,6 +299,10 @@ contract DeployDoppiAllMainnet is Script {
         console.log("DoppiUpkeepManager deployed at:", address(doppiUpkeepManager));
         doppiUpkeepManager.setMaxDelay(10 minutes);
         doppiUpkeepManager.setDefault_Amount(30 ether);
+        
+        // Note: setDoppiUpKeepManager is deprecated for shared bots
+        // Shared bots no longer use doppiUpkeepManager (removed in favor of PrivateAutomationHub)
+        // Use setPrivateAutomationHub() instead for shared bot billing in new deployments
         _doppiFactory.setDoppiUpKeepManager(address(doppiUpkeepManager));
         return doppiUpkeepManager;
     }  

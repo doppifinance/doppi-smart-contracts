@@ -5,7 +5,6 @@ import {Pausable} from "@openzeppelin/contracts/utils/Pausable.sol";
 import {IDoppiCore} from "../Interface/IDoppiCore.sol";
 import {IDoppiLiquidity} from "../Interface/IDoppiLiquidity.sol";
 import {IDoppiOffer} from "../Interface/IDoppiOffer.sol";
-import {IDoppiUpkeepManager} from "../Interface/IDoppiUpkeepManager.sol";
 import {IDoppiLiquidityRouter} from "../Interface/IDoppiLiquidityRouter.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "./DoppiCoreTypes.sol";
@@ -18,7 +17,6 @@ abstract contract DoppiTraderAdminView is Ownable, Pausable {
     IERC20 public assetB;
     IDoppiLiquidity public doppiLP;
     IDoppiCore public doppiCore;
-    IDoppiUpkeepManager public doppiUpkeepManager;
     IDoppiLiquidityRouter public doppiRouter;
     IDoppiOffer public impliedVol;
 
@@ -148,7 +146,7 @@ abstract contract DoppiTraderAdminView is Ownable, Pausable {
     }
 
     function setForwarderAddress(address forwarderAddress) external {
-        _onlyUpkeepOrTrader();
+        _onlyTraderOrOwner();
         s_forwarderAddress = forwarderAddress;
     }
 
@@ -318,8 +316,8 @@ abstract contract DoppiTraderAdminView is Ownable, Pausable {
         if(msg.sender != validTrader) revert NotValidTrader();
     }
 
-    function _onlyUpkeepOrTrader() internal view {
-        if(msg.sender != address(doppiUpkeepManager) && msg.sender != validTrader && msg.sender != owner()) revert NotValidTraderOrUpkeep();
+    function _onlyTraderOrOwner() internal view {
+        if(msg.sender != validTrader && msg.sender != owner()) revert NotValidTrader();
     }    
 
 }

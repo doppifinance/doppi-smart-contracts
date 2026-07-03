@@ -38,6 +38,8 @@ contract DoppiPoints is Ownable, Pausable {
     mapping(uint24 => mapping(address => uint256)) public monthlyVolume;
     mapping(address => ClaimedPoint) public claimedPoint; 
     mapping(uint24 => mapping(address => ReferralAggregates)) public monthlyReferralVolume;
+    mapping(address => uint256) public pointsUsedForFees;  // Track points deducted for fees since last claim
+    mapping(address => bool) public authorizedPointsDeductors;  // e.g., PrivateAutomationHub
     
     uint32 public constant startTimestamp = 1735689600; // Jan 1, 2025
 
@@ -48,6 +50,8 @@ contract DoppiPoints is Ownable, Pausable {
     event CoreRegistrarSet(address indexed registrar, bool allowed);
     event CoreRegistered(address indexed core, address indexed factory, address indexed registrar);
     event BotVolumeMultiplierUpdated(uint256 numerator, uint256 denominator);
+    event PointsDeductedForFee(address indexed trader, uint256 points);
+    event AuthorizedPointsDeductorSet(address indexed deductor, bool allowed);
 
     constructor()
         Ownable(msg.sender)
@@ -98,6 +102,8 @@ contract DoppiPoints is Ownable, Pausable {
         if (currentMonthId > ref.claimedMonthId + 1) {               
             ref.totalPointClaimed += readyPoint;
             ref.claimedMonthId = currentMonthId - 1; // Claim up to previous month
+            // Clear used points tracker since we've now claimed and accounted for them
+            pointsUsedForFees[trader] = 0;
         }
         emit PointsReset(trader, readyPoint);
     }
@@ -182,6 +188,21 @@ contract DoppiPoints is Ownable, Pausable {
         emit BotVolumeMultiplierUpdated(numerator, denominator);
     }
 
+    function setAuthorizedPointsDeductor(address deductor, bool allowed) external onlyOwner {
+        require(deductor != address(0), "Zero address");
+        authorizedPointsDeductors[deductor] = allowed;
+        emit AuthorizedPointsDeductorSet(deductor, allowed);
+    }
+
+    /// @notice Record points deducted for fees (e.g., by PrivateAutomationHub).
+    /// These points will be subtracted from readyPoint to prevent double-counting.
+    function deductPointsForFee(address trader, uint256 points) external onlyAuthorizedDeductor {
+        require(trader != address(0), "Zero address");
+        require(points > 0, "Points must be > 0");
+        pointsUsedForFees[trader] += points;
+        emit PointsDeductedForFee(trader, points);
+    }
+
     function setPause() external onlyOwner {
         _pause();
     }
@@ -211,6 +232,15 @@ contract DoppiPoints is Ownable, Pausable {
                 readyPoint += monthlyVolume[month][trader];
             }
         }
+        
+        // Subtract points used for fees to prevent double-counting
+        uint256 used = pointsUsedForFees[trader];
+        if (readyPoint > used) {
+            readyPoint -= used;
+        } else {
+            readyPoint = 0;
+        }
+        
         totalClaimedPoint = claimed.totalPointClaimed;
     }
 
@@ -250,6 +280,11 @@ contract DoppiPoints is Ownable, Pausable {
 
     modifier onlyOwnerOrRegistrar() {
         require(msg.sender == owner() || coreRegistrars[msg.sender], "only owner or registrar");
+        _;
+    }
+
+    modifier onlyAuthorizedDeductor() {
+        require(authorizedPointsDeductors[msg.sender], "only authorized deductor");
         _;
     }
 }

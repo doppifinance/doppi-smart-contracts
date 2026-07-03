@@ -241,11 +241,6 @@ contract Scenario2Test is Test {
         deal(BTC, address(trader), 1 ether);
         deal(USDT, address(trader), 100_000 ether);
         deal(LINK, mockRegistryConsumerAddr, 10_000 ether); //mockRegistryConsumer
-
-
-        vm.startPrank(doppiUpkeepManager.owner());
-        doppiUpkeepManager.setDefault_Amount(50 ether);
-        vm.stopPrank();
         
         // Deploy bot
         vm.startPrank(trader);
@@ -261,22 +256,9 @@ contract Scenario2Test is Test {
         traderBot.start(10000 ether, 0.1 ether);
         vm.stopPrank();
 
-        uint256 upkeepId = doppiUpkeepManager.getUpkeepIdByBot(address(traderBot));
-        assertGt(upkeepId, 0);
-
-
-        // Verify active
+        // Verify active and trading
         assertTrue(doppiCore.getBuyPositionCount(address(traderBot)) > 0);
-        
-        // Cancel Automation
-        vm.startPrank(trader);
-        uint256 balUSDTB4 = usdt.balanceOf(trader);
-        doppiUpkeepManager.cancelUpkeep(upkeepId);
-        vm.roll(block.number + 51);
-        doppiUpkeepManager.stopWithdraw(upkeepId, true);
-        uint256 balUSDTAfter = usdt.balanceOf(trader);
-        assertGt(balUSDTAfter, balUSDTB4);
-        vm.stopPrank();
+        assertTrue(traderBot.totalUnits() > 0);
 
         // settle core
         vm.warp(block.timestamp + 1 days + 1);
@@ -287,14 +269,12 @@ contract Scenario2Test is Test {
         traderBot.stop();
         vm.stopPrank();
         
-
         vm.startPrank(owner);
         _setupIV(impliedVol);
         vm.stopPrank();
 
-        upkeepId = doppiUpkeepManager.getUpkeepIdByBot(address(traderBot));
-        // console.log(upkeepId, "upkeepId");
-        assertEq(upkeepId, 0);
+        // Verify stopped - no units
+        assertEq(traderBot.totalUnits(), 0);
 
         // Restart
         vm.startPrank(trader);
@@ -304,9 +284,9 @@ contract Scenario2Test is Test {
         traderBot.start(10000 ether, 0.1 ether);
         vm.stopPrank();
 
-        upkeepId = doppiUpkeepManager.getUpkeepIdByBot(address(traderBot));
-        // console.log(upkeepId, "upkeepId");
-        assertGt(upkeepId, 0);
+        // Verify restarted successfully
+        assertTrue(traderBot.totalUnits() > 0);
+        assertTrue(doppiCore.getBuyPositionCount(address(traderBot)) > 0);
 
     }
 
@@ -316,11 +296,6 @@ contract Scenario2Test is Test {
         deal(BTC, address(trader), 1 ether);
         deal(USDT, address(trader), 100_000 ether);
         deal(LINK, mockRegistryConsumerAddr, 10_000 ether); //mockRegistryConsumer
-
-
-        vm.startPrank(doppiUpkeepManager.owner());
-        doppiUpkeepManager.setDefault_Amount(50 ether);
-        vm.stopPrank();
         
         // Deploy bot
         vm.startPrank(trader);
@@ -336,11 +311,10 @@ contract Scenario2Test is Test {
         traderBot.start(10000 ether, 0.1 ether);
         vm.stopPrank();
 
-        uint256 upkeepId = doppiUpkeepManager.getUpkeepIdByBot(address(traderBot));
-        assertGt(upkeepId, 0);
-
         // Verify active
         assertTrue(doppiCore.getBuyPositionCount(address(traderBot)) > 0);
+        uint256 initialUnits = traderBot.totalUnits();
+        assertTrue(initialUnits > 0);
         
         // settle core
         vm.warp(block.timestamp + 1 days + 1);
@@ -351,14 +325,12 @@ contract Scenario2Test is Test {
         traderBot.stop();
         vm.stopPrank();
         
-
         vm.startPrank(owner);
         _setupIV(impliedVol);
         vm.stopPrank();
 
-        upkeepId = doppiUpkeepManager.getUpkeepIdByBot(address(traderBot));
-        console.log(upkeepId, "upkeepId");
-        assertGt(upkeepId, 0, "Upkeep should still exist after stopping the bot");
+        // Verify stopped
+        assertEq(traderBot.totalUnits(), 0, "Units should be zero after stopping");
 
         // Restart
         vm.startPrank(trader);
@@ -368,10 +340,10 @@ contract Scenario2Test is Test {
         traderBot.start(10000 ether, 0.1 ether);
         vm.stopPrank();
 
-        // upkeepId
-        console.log(doppiUpkeepManager.getPaymentStatus(upkeepId).trader, "getPaymentStatus trader");
-        address traderFromUpkeep = doppiUpkeepManager.getPaymentStatus(upkeepId).trader;
-        assertEq(traderFromUpkeep, address(trader), "Upkeep should be associated with the correct trader");
+        // Verify restarted with new units
+        uint256 newUnits = traderBot.totalUnits();
+        assertTrue(newUnits > 0, "Units should be allocated after restarting");
+        assertTrue(doppiCore.getBuyPositionCount(address(traderBot)) > 0, "Bot should have positions after restart");
 
     }
 

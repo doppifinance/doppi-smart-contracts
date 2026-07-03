@@ -277,7 +277,7 @@ contract DoppiCoreEmergencyTest is Test {
         bot_usdtbal = usdt.balanceOf(address(traderBot));
         bot_btcbal = btc.balanceOf(address(traderBot));
         console.log(bot_usdtbal, bot_btcbal, "bot balances after emergency settlement");
-        assertEq(bot_usdtbal, 49975 ether); // 25 is in upkeep manager, so 49975 instead of 50000
+        assertEq(bot_usdtbal, 50000 ether); // No upkeep fee deducted
         assertEq(bot_btcbal, 0.5 ether); 
         
 
@@ -299,7 +299,7 @@ contract DoppiCoreEmergencyTest is Test {
         assertApproxEqAbs(totalAssetsInAssetA, 0, 1);
         assertApproxEqAbs(totalAssetsInAssetB, 0, 1);
 
-        assertApproxEqAbs(end_usdtbal, 100_000 ether, 30 ether); // due to the swap slippage and 25 USDT in UpkeepManager
+        assertApproxEqAbs(end_usdtbal, 100_000 ether, 50 ether); // no upkeep manager fee deduction
         assertApproxEqAbs(end_btcbal, 1 ether, 0.001 ether);
         
     }

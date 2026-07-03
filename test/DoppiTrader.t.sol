@@ -614,8 +614,8 @@ contract DoppiTraderTest is Test {
         // buy : those buy <= 99000 will trigger, sell : only those sold > 101500 will trigger
         oracle.setPrice(int256(100_100 * 1e8));
         (bool upkeepNeeded, bytes memory performData) = doppiTrader.checkUpkeep("");
-        (bool performUnwind, bool isNetBuy, uint256[] memory targetPricesBuy, uint256[] memory targetPricesSell, uint256 totalAmount, uint256 totalSellAmountInA, uint256 totalBuyAmountInB, bool placeBuy, bool placeSell, bool toTopUp) = 
-            abi.decode(performData, (bool, bool, uint256[], uint256[], uint256, uint256, uint256, bool, bool, bool));
+        (bool performUnwind, bool isNetBuy, uint256[] memory targetPricesBuy, uint256[] memory targetPricesSell, uint256 totalAmount, uint256 totalSellAmountInA, uint256 totalBuyAmountInB, bool placeBuy, bool placeSell) = 
+            abi.decode(performData, (bool, bool, uint256[], uint256[], uint256, uint256, uint256, bool, bool));
         
         console.log(targetPricesSell.length, targetPricesBuy.length, isNetBuy);
         assertTrue(performUnwind);
@@ -626,8 +626,8 @@ contract DoppiTraderTest is Test {
         // buy : those buy <= 100_000 will trigger, sell : only those sold > 102_500 will trigger
         oracle.setPrice(int256(101_100 * 1e8));
         (upkeepNeeded,  performData) = doppiTrader.checkUpkeep("");
-        (performUnwind, isNetBuy, targetPricesBuy, targetPricesSell, totalAmount, totalSellAmountInA, totalBuyAmountInB, placeBuy, placeSell, toTopUp) = 
-            abi.decode(performData, (bool, bool, uint256[], uint256[], uint256, uint256, uint256, bool, bool, bool));
+        (performUnwind, isNetBuy, targetPricesBuy, targetPricesSell, totalAmount, totalSellAmountInA, totalBuyAmountInB, placeBuy, placeSell) = 
+            abi.decode(performData, (bool, bool, uint256[], uint256[], uint256, uint256, uint256, bool, bool));
         
         console.log(targetPricesSell.length, targetPricesBuy.length, isNetBuy);
         assertTrue(performUnwind);

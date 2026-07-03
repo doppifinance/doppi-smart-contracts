@@ -11,6 +11,11 @@ import {IDoppiLiquidity} from "../Interface/IDoppiLiquidity.sol";
 import {IDoppiOffer} from "../Interface/IDoppiOffer.sol";
 import {IDoppiPoints} from "../Interface/IDoppiPoints.sol";
 import {IDoppiLiquidityRouter} from "../Interface/IDoppiLiquidityRouter.sol";
+import {IPrivateAutomationHub} from "../Interface/IPrivateAutomationHub.sol";
+
+interface ISetForwarder {
+    function setForwarderAddress(address forwarderAddress) external;
+}
 
 
 contract DoppiTraderFactory is Ownable, IDoppiTraderFactory {
@@ -37,6 +42,7 @@ contract DoppiTraderFactory is Ownable, IDoppiTraderFactory {
     address public immutable doppiRouter;
     address public immutable doppiOffer;
     address public immutable doppiPoints;
+    address public privateAutomationHub;
     
     BotRegistryLib.BotRegistry internal botRegistry;
     
@@ -76,11 +82,25 @@ contract DoppiTraderFactory is Ownable, IDoppiTraderFactory {
             doppiLP, 
             doppiRouter, 
             doppiCore, 
-            doppiUpKeepManager,
             _weights
         );
         
         uint32 id = botRegistry.deployBot(msg.sender, traderBot);
+        
+        // Register with hub if available
+        if (privateAutomationHub != address(0)) {
+            try IPrivateAutomationHub(privateAutomationHub).registerSharedBotJob(
+                msg.sender,
+                traderBot,
+                id
+            ) {
+                // Auto-set hub as the forwarder for shared bot trader job
+                ISetForwarder(traderBot).setForwarderAddress(privateAutomationHub);
+            } catch {
+                // Fail silently if hub registration fails
+            }
+        }
+        
         emit BotDeployed(msg.sender, traderBot, id);
         return id;
     }
@@ -111,7 +131,12 @@ contract DoppiTraderFactory is Ownable, IDoppiTraderFactory {
     }
 
     function setDoppiUpKeepManager(address _doppiUpKeepManager) external onlyOwner {
+        // Deprecated: use setPrivateAutomationHub instead for new deployments
         doppiUpKeepManager = _doppiUpKeepManager;
+    }
+
+    function setPrivateAutomationHub(address _hub) external onlyOwner {
+        privateAutomationHub = _hub;
     }
 
     function traderBotId(address _addr) external view returns (uint32) {

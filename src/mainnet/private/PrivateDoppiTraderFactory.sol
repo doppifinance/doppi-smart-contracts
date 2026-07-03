@@ -7,58 +7,14 @@ import {BotRegistryLib} from "../../Library/BotRegistryLib.sol";
 import {PrivateLiquidityDeployer} from "./PrivateLiquidityDeployer.sol";
 import {IDoppiPoints} from "../../Interface/IDoppiPoints.sol";
 import {IDoppiTraderFactory} from "../../Interface/IDoppiTraderFactory.sol";
+import {IPrivateAutomationHub} from "../../Interface/IPrivateAutomationHub.sol";
 import {ConfigParam} from "../DoppiLiquidityTypes.sol";
+import {RegisterPrivateBotParams, PrivateBotJobIds} from "./PrivateAutomationHubTypes.sol";
 import {PrivateBotDeployer} from "./PrivateBotDeployer.sol";
-
-interface ISetForwarder {
-    function setForwarderAddress(address forwarderAddress) external;
-}
-
-interface ISetTraderFactory {
-    function setDoppiTraderFactory(IDoppiTraderFactory _traderFactory) external;
-}
-
-interface IPrivateCoreAdmin {
-    function setEmergencyMode(bool _emergency) external;
-    function setPause() external;
-    function setUnPause() external;
-    function setUpkeeps_per_check(uint16 _percheck) external;
-    function setMinOrder(uint256 _minOrderA, uint256 _minOrderB) external;
-    function setMaxSwap(uint256 _maxSwap) external;
-    function setAPRTolerance(uint16 _toleranceBP) external;
-    function setTreasury(address _treasury, uint24 _treasury_fee) external;
-    function setOpportunityBot(address _opportunityBot, bool _status) external;
-    function setDoppiTraderFactory(IDoppiTraderFactory _traderFactory) external;
-}
-
-interface IPrivateLiquidityAdmin {
-    function setDoppiCore(address _doppiCore) external;
-    function setDoppiTraderFactory(address _traderFactory) external;
-    function setEntryPoint(address entryPoint, bool isValid) external;
-}
-
-interface IPrivateRouterAdmin {
-    function setDoppiCore(address _doppiCore) external;
-    function setPrivateMode(bool _privateMode) external;
-    function setAllowedUser(address user, bool allowed) external;
-    function setPause() external;
-    function setUnPause() external;
-    function setEmergencyMode(bool _emergency) external;
-}
-
-interface IPrivateRouterView {
-    function entryPointA() external view returns (address);
-    function entryPointB() external view returns (address);
-}
-
-interface IPrivateBot {
-    function validTrader() external view returns (address);
-    function setForwarderAddress(address forwarderAddress) external;
-}
-
-interface IPrivateFeePoolAdmin {
-    function setAuthorizedCore(address core, bool allowed) external;
-}
+import {IPrivateCoreAdmin} from "../../Interface/IPrivateCoreAdmin.sol";
+import {IPrivateLiquidityAdmin} from "../../Interface/IPrivateLiquidityAdmin.sol";
+import {IPrivateRouterAdmin, IPrivateRouterView} from "../../Interface/IPrivateRouterAdmin.sol";
+import {ISetForwarder, ISetTraderFactory, IPrivateBot, IPrivateFeePoolAdmin} from "../../Interface/IPrivateBotInterfaces.sol";
 
 /**
  * @title PrivateDoppiTraderFactory
@@ -83,12 +39,12 @@ contract PrivateDoppiTraderFactory is Ownable, IDoppiTraderFactory {
     IERC20  public immutable assetA;
     IERC20  public immutable assetB;
     address public immutable sharedDoppiPoints;
-    address public immutable doppiUpKeepManager;
     address public immutable mainFactory;
 
     // Default treasury config for newly deployed private cores
     address public defaultPrivateTreasury;
     uint24 public defaultPrivateTreasuryFee;
+    address public privateAutomationHub;
 
     /// @notice Dedicated deployers that hold the heavy deployment bytecode.
     PrivateLiquidityDeployer public immutable liquidityDeployer;
@@ -117,13 +73,22 @@ contract PrivateDoppiTraderFactory is Ownable, IDoppiTraderFactory {
         uint32 botId
     );
     event DefaultPrivateTreasuryUpdated(address indexed treasury, uint24 feeBps);
+    event PrivateAutomationHubUpdated(address indexed hub);
+    event PrivateBotJobsRegistered(
+        address indexed hub,
+        address indexed bot,
+        uint256 traderJobId,
+        uint256 coreJobId,
+        uint256 opportunityJobId,
+        uint256 liquidityJobId
+    );
+    event PrivateBotJobsRegistrationSkipped(address indexed bot, address indexed hub);
 
     constructor(
         IERC20  _assetA,
         IERC20  _assetB,
         address _sharedDoppiOffer,
         address _sharedDoppiPoints,
-        address _doppiUpKeepManager,
         address _mainFactory,
         address _traderBotImpl,
         address _coreImpl,
@@ -133,7 +98,6 @@ contract PrivateDoppiTraderFactory is Ownable, IDoppiTraderFactory {
         assetA                    = _assetA;
         assetB                    = _assetB;
         sharedDoppiPoints         = _sharedDoppiPoints;
-        doppiUpKeepManager        = _doppiUpKeepManager;
         mainFactory               = _mainFactory;
         traderBotImplementation   = _traderBotImpl;
         doppiCoreImplementation   = _coreImpl;
@@ -148,8 +112,7 @@ contract PrivateDoppiTraderFactory is Ownable, IDoppiTraderFactory {
             _assetA,
             _assetB,
             _sharedDoppiOffer,
-            _sharedDoppiPoints,
-            _doppiUpKeepManager
+            _sharedDoppiPoints
         );
     }
 
@@ -175,7 +138,7 @@ contract PrivateDoppiTraderFactory is Ownable, IDoppiTraderFactory {
             );
 
         // Core owner is this factory; owner-only wiring must happen from factory context.
-        ISetTraderFactory(privateCore).setDoppiTraderFactory(IDoppiTraderFactory(address(this)));
+        ISetTraderFactory(privateCore).setDoppiTraderFactory(address(this));
 
         if (defaultPrivateTreasury != address(0)) {
             IPrivateCoreAdmin(privateCore).setTreasury(defaultPrivateTreasury, defaultPrivateTreasuryFee);
@@ -208,6 +171,39 @@ contract PrivateDoppiTraderFactory is Ownable, IDoppiTraderFactory {
         botPrivateRouter[privateBot]      = privateRouter;
 
         uint32 botId = botRegistry.deployBot(msg.sender, privateBot);
+
+        if (privateAutomationHub != address(0)) {
+            RegisterPrivateBotParams memory registerParams = RegisterPrivateBotParams({
+                trader: msg.sender,
+                bot: privateBot,
+                core: privateCore,
+                opportunity: privateOpportunity,
+                liquidity: privateLiquidity,
+                router: privateRouter,
+                botId: botId
+            });
+
+            try IPrivateAutomationHub(privateAutomationHub).registerPrivateBotJobs(registerParams)
+                returns (PrivateBotJobIds memory jobIds)
+            {
+                emit PrivateBotJobsRegistered(
+                    privateAutomationHub,
+                    privateBot,
+                    jobIds.traderJobId,
+                    jobIds.coreJobId,
+                    jobIds.opportunityJobId,
+                    jobIds.liquidityJobId
+                );
+
+                // Auto-set hub as the forwarder for all 4 modules (no further manual wiring needed)
+                ISetForwarder(privateBot).setForwarderAddress(privateAutomationHub);
+                ISetForwarder(privateCore).setForwarderAddress(privateAutomationHub);
+                ISetForwarder(privateOpportunity).setForwarderAddress(privateAutomationHub);
+                ISetForwarder(privateLiquidity).setForwarderAddress(privateAutomationHub);
+            } catch {
+                emit PrivateBotJobsRegistrationSkipped(privateBot, privateAutomationHub);
+            }
+        }
 
         emit PrivateBotDeployed(
             msg.sender,
@@ -244,6 +240,11 @@ contract PrivateDoppiTraderFactory is Ownable, IDoppiTraderFactory {
         emit DefaultPrivateTreasuryUpdated(_treasury, _treasuryFee);
     }
 
+    function setPrivateAutomationHub(address _hub) external onlyOwner {
+        privateAutomationHub = _hub;
+        emit PrivateAutomationHubUpdated(_hub);
+    }
+
     /// @notice Update the forwarder on all components of a private bot in one call.
     /// @dev Callable by owner OR the bot's validTrader EOA.
     function setPrivateBotForwarder(address bot, address forwarderAddress) external {
@@ -251,8 +252,31 @@ contract PrivateDoppiTraderFactory is Ownable, IDoppiTraderFactory {
         if (forwarderAddress == address(0)) revert ZeroForwarder();
 
         ISetForwarder(botPrivateCore[bot]).setForwarderAddress(forwarderAddress);
+        ISetForwarder(botPrivateOpportunity[bot]).setForwarderAddress(forwarderAddress);
         ISetForwarder(botPrivateLiquidity[bot]).setForwarderAddress(forwarderAddress);
         IPrivateBot(bot).setForwarderAddress(forwarderAddress);
+    }
+
+    // ─── IDoppiTraderFactory compat ───────────────────────────────────────────
+
+    function deployTraderBot(uint24[] calldata _weights) external returns (uint32) {
+        return deployPrivateBot(_weights);
+    }
+
+    function traderBotId(address _addr) external view returns (uint32) {
+        return botRegistry.getIdByBot(_addr);
+    }
+
+    function traderBots(uint32 _id) external view returns (address) {
+        return botRegistry.getBotsById(_id);
+    }
+
+    function getTraderBotByTrader(address _owner) external view returns (address[] memory) {
+        return botRegistry.getBotsByTrader(_owner);
+    }
+
+    function isTraderBot(address _botAddr) external view returns (bool) {
+        return botRegistry.isBot(_botAddr);
     }
 
     // ─── Private Core wrappers ───────────────────────────────────────────────
@@ -296,14 +320,6 @@ contract PrivateDoppiTraderFactory is Ownable, IDoppiTraderFactory {
         _requireRegisteredBot(bot);
         address core = botPrivateCore[bot];
         IPrivateCoreAdmin(core).setTreasury(_treasury, _treasury_fee);
-        if (_treasury.code.length > 0) {
-            // Optional integration with DoppiFeePool-like contracts.
-            try IPrivateFeePoolAdmin(_treasury).setAuthorizedCore(core, true) {
-                // no-op
-            } catch {
-                // no-op
-            }
-        }
     }
 
     function setPrivateCoreOpportunityBot(address bot, address _opportunityBot, bool _status) external onlyOwner {
@@ -313,10 +329,10 @@ contract PrivateDoppiTraderFactory is Ownable, IDoppiTraderFactory {
 
     function setPrivateCoreTraderFactory(address bot, IDoppiTraderFactory _traderFactory) external onlyOwner {
         _requireRegisteredBot(bot);
-        IPrivateCoreAdmin(botPrivateCore[bot]).setDoppiTraderFactory(_traderFactory);
+        IPrivateCoreAdmin(botPrivateCore[bot]).setDoppiTraderFactory(address(_traderFactory));
     }
 
-    // ─── Private Router wrappers ─────────────────────────────────────────────
+    // ─── Private Router wrappers ───────────────────────────────────────────────
 
     function setPrivateRouterPause(address bot) external {
         _requireOwnerOrTrader(bot);
@@ -346,28 +362,6 @@ contract PrivateDoppiTraderFactory is Ownable, IDoppiTraderFactory {
     function setPrivateRouterCore(address bot, address _doppiCore) external onlyOwner {
         _requireRegisteredBot(bot);
         IPrivateRouterAdmin(botPrivateRouter[bot]).setDoppiCore(_doppiCore);
-    }
-
-    // ─── IDoppiTraderFactory compat ───────────────────────────────────────────
-
-    function deployTraderBot(uint24[] calldata _weights) external returns (uint32) {
-        return deployPrivateBot(_weights);
-    }
-
-    function traderBotId(address _addr) external view returns (uint32) {
-        return botRegistry.getIdByBot(_addr);
-    }
-
-    function traderBots(uint32 _id) external view returns (address) {
-        return botRegistry.getBotsById(_id);
-    }
-
-    function getTraderBotByTrader(address _owner) external view returns (address[] memory) {
-        return botRegistry.getBotsByTrader(_owner);
-    }
-
-    function isTraderBot(address _botAddr) external view returns (bool) {
-        return botRegistry.isBot(_botAddr);
     }
 
     // ─── View helpers ─────────────────────────────────────────────────────────

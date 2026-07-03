@@ -234,6 +234,10 @@ contract DeployDoppiAll is Script {
         console.log("DoppiUpkeepManager deployed at:", address(doppiUpkeepManager));
         doppiUpkeepManager.setMaxDelay(10 days);
         doppiUpkeepManager.setForwarderAddress(forwarder);
+        
+        // Note: setDoppiUpKeepManager is deprecated for shared bots
+        // Shared bots no longer use doppiUpkeepManager (removed in favor of PrivateAutomationHub)
+        // Use setPrivateAutomationHub() instead for shared bot billing in new deployments
         _doppiFactory.setDoppiUpKeepManager(address(doppiUpkeepManager));
         return doppiUpkeepManager;
     }  
