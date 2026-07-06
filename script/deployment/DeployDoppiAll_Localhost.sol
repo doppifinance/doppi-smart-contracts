@@ -55,6 +55,7 @@ contract DeployDoppiAll is Script {
     function run() external {
         
         uint256 deployerPrivateKey = vm.envUint("PRIVATE_KEY");
+        address deployer = vm.addr(deployerPrivateKey);
         vm.startBroadcast(deployerPrivateKey);
 
         configLP = TestParamLib.get_configLP_localhost();
@@ -102,13 +103,13 @@ contract DeployDoppiAll is Script {
             address(doppiFactory),
             address(privateTraderImpl),
             address(privateCoreImpl),
-            address(privateOpportunityImpl),
-            configLP
+            address(privateOpportunityImpl)
         );
+        privateFactory.setLPConfig(configLP);
 
         // Deploy PrivateAutomationHub for private bot job scheduling and billing
         PrivateAutomationHub privateAutomationHub = new PrivateAutomationHub(
-            address(this), // owner (deployer)
+            deployer, // owner (deployer EOA)
             USDT,          // fundToken for billing
             CHAINLINK_BTC_USD, // chainlink feed for native asset pricing
             60,          // maxOracleDelay (1 minute)
@@ -123,25 +124,36 @@ contract DeployDoppiAll is Script {
         );
         doppiFeePool.setCoreAuthorizer(address(privateFactory));
         privateFactory.setDefaultPrivateTreasury(address(doppiFeePool), privateTreasuryFeeBps);
+
+        // Wire hub to both shared and private factories for auto job registration.
+        doppiFactory.setPrivateAutomationHub(address(privateAutomationHub));
+        privateFactory.setPrivateAutomationHub(address(privateAutomationHub));
+
+        // Configure points-based billing in hub.
+        privateAutomationHub.setDoppiPointsContract(address(doppiPoints));
+        privateAutomationHub.setDoppiPointsExchangeRate(10000); // 1 point ~= 1 USDT unit (basis points)
         
-        // Register private factory and deployer as registrars in the hub
+        // Register both factories + deployer as registrars in the hub.
+        privateAutomationHub.setRegistrar(address(doppiFactory), true);
         privateAutomationHub.setRegistrar(address(privateFactory), true);
-        privateAutomationHub.setRegistrar(msg.sender, true);
+        privateAutomationHub.setRegistrar(deployer, true);
+
+        // Allow deployer to call performUpkeep in localhost testing.
+        privateAutomationHub.setExecutor(deployer, true);
 
         // Authorize PrivateAutomationHub to deduct points for fees in DoppiPoints
         doppiPoints.setAuthorizedPointsDeductor(address(privateAutomationHub), true);
 
         doppiPoints.setCoreRegistrar(address(privateFactory), true);
 
-        // Deploy one initial private bot for the broadcasting EOA
-        uint24[] memory privateWeights = _defaultPrivateWeights();
-        uint32 privateBotId = privateFactory.deployPrivateBot(privateWeights);
-        address privateBot = privateFactory.traderBots(privateBotId);
-        privateFactory.setPrivateBotForwarder(privateBot, forwarder);
-        address privateCore = privateFactory.getPrivateCore(privateBot);
-        address privateOpportunity = privateFactory.getPrivateOpportunity(privateBot);
-        address privateLP = privateFactory.getPrivateLiquidity(privateBot);
-        address privateRouter = privateFactory.getPrivateRouter(privateBot);
+        // // Deploy one initial private bot for the broadcasting EOA
+        // uint24[] memory privateWeights = _defaultPrivateWeights();
+        // uint32 privateBotId = privateFactory.deployPrivateBot(privateWeights);
+        // address privateBot = privateFactory.traderBots(privateBotId);
+        // address privateCore = privateFactory.getPrivateCore(privateBot);
+        // address privateOpportunity = privateFactory.getPrivateOpportunity(privateBot);
+        // address privateLP = privateFactory.getPrivateLiquidity(privateBot);
+        // address privateRouter = privateFactory.getPrivateRouter(privateBot);
         
         vm.stopBroadcast();
 
@@ -167,12 +179,12 @@ contract DeployDoppiAll is Script {
         console.log("PrivateCoreImpl:", address(privateCoreImpl));
         console.log("PrivateTraderImpl:", address(privateTraderImpl));
         console.log("PrivateOpportunityImpl:", address(privateOpportunityImpl));
-        console.log("InitialPrivateBotId:", privateBotId);
-        console.log("InitialPrivateBot:", privateBot);
-        console.log("InitialPrivateCore:", privateCore);
-        console.log("InitialPrivateOpportunity:", privateOpportunity);
-        console.log("InitialPrivateLP:", privateLP);
-        console.log("InitialPrivateRouter:", privateRouter);
+        // console.log("InitialPrivateBotId:", privateBotId);
+        // console.log("InitialPrivateBot:", privateBot);
+        // console.log("InitialPrivateCore:", privateCore);
+        // console.log("InitialPrivateOpportunity:", privateOpportunity);
+        // console.log("InitialPrivateLP:", privateLP);
+        // console.log("InitialPrivateRouter:", privateRouter);
 
     }
 
@@ -204,6 +216,7 @@ contract DeployDoppiAll is Script {
         _doppiLP.setEntryPoint(address(_doppiRouter.entryPointA()), true);
         _doppiLP.setEntryPoint(address(_doppiRouter.entryPointB()), true);
         _doppiLP.setDoppiTraderFactory(_doppiFactory);
+        _doppiLP.lockEntryPoints();
     }
 
     function _deployDoppiCore(DoppiLiquidity _doppiLP, DoppiOffer _impliedVol, DoppiPoints _doppiPoints) internal returns (DoppiCore) {

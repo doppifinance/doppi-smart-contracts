@@ -121,8 +121,6 @@ contract PrivateAutomationHub is IPrivateAutomationHub, Ownable, ReentrancyGuard
     uint256 public doppiPointsExchangeRateBps;  // basis points, e.g., 10000 = 1:1
     bool public useDynamicPointPrice;
     address public doppiPointsPriceFeed;
-    mapping(address => uint256) public pointsUsedBalance;  // track points spent per bot
-    mapping(address => bool) public pointsPaymentEnabled;   // opt-in per bot
 
     // ── Access ────────────────────────────────────────────────────────────
     mapping(address => bool) public registrars;
@@ -287,7 +285,7 @@ contract PrivateAutomationHub is IPrivateAutomationHub, Ownable, ReentrancyGuard
         if (billing.lowCreditPaused) {
             // Check combined value: fundToken + available points
             uint256 combinedValue = billing.creditBalance;
-            if (pointsPaymentEnabled[bot] && address(doppiPoints) != address(0)) {
+            if (billing.usePoint && address(doppiPoints) != address(0)) {
                 combinedValue += _getTotalPointsValueInFundToken(bot);
             }
             
@@ -321,8 +319,8 @@ contract PrivateAutomationHub is IPrivateAutomationHub, Ownable, ReentrancyGuard
     function enablePointsPayment(address bot) external {
         BotBillingState storage billing = botBilling[bot];
         if (msg.sender != billing.trader) revert NotBotTrader();
-        if (pointsPaymentEnabled[bot]) return; // already enabled
-        pointsPaymentEnabled[bot] = true;
+        if (billing.usePoint) return; // already enabled
+        billing.usePoint = true;
         emit PointsPaymentEnabled(bot, msg.sender);
     }
 
@@ -330,8 +328,8 @@ contract PrivateAutomationHub is IPrivateAutomationHub, Ownable, ReentrancyGuard
     function disablePointsPayment(address bot) external {
         BotBillingState storage billing = botBilling[bot];
         if (msg.sender != billing.trader) revert NotBotTrader();
-        if (!pointsPaymentEnabled[bot]) return; // already disabled
-        pointsPaymentEnabled[bot] = false;
+        if (!billing.usePoint) return; // already disabled
+        billing.usePoint = false;
         emit PointsPaymentDisabled(bot, msg.sender);
     }
 
@@ -341,8 +339,7 @@ contract PrivateAutomationHub is IPrivateAutomationHub, Ownable, ReentrancyGuard
         BotBillingState memory billing = botBilling[bot];
         if (billing.trader == address(0)) return 0;
         (, uint256 readyPoints, ) = doppiPoints.getAllPointData(billing.trader);
-        uint256 spent = pointsUsedBalance[bot];
-        return readyPoints > spent ? readyPoints - spent : 0;
+        return readyPoints;
     }
 
     /// @notice Get the fundToken value of DoppiPoints based on current exchange rate.
@@ -572,7 +569,7 @@ contract PrivateAutomationHub is IPrivateAutomationHub, Ownable, ReentrancyGuard
         uint256 fundTokenFee = totalFee;
         uint256 pointsDeducted = 0;
         
-        if (pointsPaymentEnabled[bot] && address(doppiPoints) != address(0)) {
+        if (billing.usePoint && address(doppiPoints) != address(0)) {
             pointsDeducted = _deductPointsForFee(bot, totalFee);
             if (pointsDeducted > 0) {
                 uint256 pointValueInToken = _getPointValueInFundToken(pointsDeducted);
@@ -596,7 +593,7 @@ contract PrivateAutomationHub is IPrivateAutomationHub, Ownable, ReentrancyGuard
         // Check low credit threshold considering BOTH fundToken and available points value
         if (!billing.lowCreditPaused) {
             uint256 combinedValue = billing.creditBalance;
-            if (pointsPaymentEnabled[bot] && address(doppiPoints) != address(0)) {
+            if (billing.usePoint && address(doppiPoints) != address(0)) {
                 combinedValue += _getTotalPointsValueInFundToken(bot);
             }
             if (combinedValue < minCreditThreshold) {
@@ -613,8 +610,7 @@ contract PrivateAutomationHub is IPrivateAutomationHub, Ownable, ReentrancyGuard
         if (billing.trader == address(0)) return 0;
 
         (, uint256 readyPoints, ) = doppiPoints.getAllPointData(billing.trader);
-        uint256 availablePoints = readyPoints > pointsUsedBalance[bot] ? readyPoints - pointsUsedBalance[bot] : 0;
-        if (availablePoints == 0) return 0;
+        if (readyPoints == 0) return 0;
 
         // Calculate points needed: feeInFundToken * 10000 / exchangeRate
         uint256 pointsNeeded;
@@ -629,8 +625,7 @@ contract PrivateAutomationHub is IPrivateAutomationHub, Ownable, ReentrancyGuard
             pointsNeeded = (feeInFundToken * 10000) / doppiPointsExchangeRateBps;
         }
 
-        pointsDeducted = availablePoints < pointsNeeded ? availablePoints : pointsNeeded;
-        pointsUsedBalance[bot] += pointsDeducted;
+        pointsDeducted = readyPoints < pointsNeeded ? readyPoints : pointsNeeded;
         
         // Record the deduction in DoppiPoints to prevent double-counting
         if (pointsDeducted > 0 && address(doppiPoints) != address(0)) {
@@ -656,8 +651,7 @@ contract PrivateAutomationHub is IPrivateAutomationHub, Ownable, ReentrancyGuard
         if (billing.trader == address(0)) return 0;
         
         (, uint256 readyPoints, ) = doppiPoints.getAllPointData(billing.trader);
-        uint256 availablePoints = readyPoints > pointsUsedBalance[bot] ? readyPoints - pointsUsedBalance[bot] : 0;
-        return _getPointValueInFundToken(availablePoints);
+        return _getPointValueInFundToken(readyPoints);
     }
 
     function _pauseAllJobsForBot(address bot) internal {

@@ -29,6 +29,7 @@ contract PrivateDoppiTraderFactory is Ownable, IDoppiTraderFactory {
     error NotRegisteredBot();
     error ZeroForwarder();
     error NotAuthorized();
+    error PrivateAutomationHubNotSet();
 
     // Implementation contracts (cloned per bot)
     address public traderBotImplementation;
@@ -92,8 +93,7 @@ contract PrivateDoppiTraderFactory is Ownable, IDoppiTraderFactory {
         address _mainFactory,
         address _traderBotImpl,
         address _coreImpl,
-        address _opportunityImpl,
-        ConfigParam memory _lpConfig
+        address _opportunityImpl
     ) Ownable(msg.sender) {
         assetA                    = _assetA;
         assetB                    = _assetB;
@@ -102,7 +102,6 @@ contract PrivateDoppiTraderFactory is Ownable, IDoppiTraderFactory {
         traderBotImplementation   = _traderBotImpl;
         doppiCoreImplementation   = _coreImpl;
         doppiOpportunityImplementation = _opportunityImpl;
-        lpConfig                  = _lpConfig;
         botRegistry.nextBotId     = 1;
 
         liquidityDeployer = new PrivateLiquidityDeployer(_assetA, _assetB);
@@ -142,14 +141,7 @@ contract PrivateDoppiTraderFactory is Ownable, IDoppiTraderFactory {
 
         if (defaultPrivateTreasury != address(0)) {
             IPrivateCoreAdmin(privateCore).setTreasury(defaultPrivateTreasury, defaultPrivateTreasuryFee);
-            if (defaultPrivateTreasury.code.length > 0) {
-                // Optional integration with DoppiFeePool-like contracts.
-                try IPrivateFeePoolAdmin(defaultPrivateTreasury).setAuthorizedCore(privateCore, true) {
-                    // no-op
-                } catch {
-                    // no-op
-                }
-            }
+            IPrivateFeePoolAdmin(defaultPrivateTreasury).setAuthorizedCore(privateCore, true);
         }
 
         // The deployers have already transferred ownership back to the factory, so these are safe.
@@ -245,6 +237,45 @@ contract PrivateDoppiTraderFactory is Ownable, IDoppiTraderFactory {
         emit PrivateAutomationHubUpdated(_hub);
     }
 
+    /// @notice Manually register private bot jobs in the hub if deployment-time registration was skipped.
+    /// @dev Callable by owner OR the bot's validTrader EOA.
+    function registerPrivateBotJobsExternal(address bot) external returns (PrivateBotJobIds memory jobIds) {
+        _requireOwnerOrTrader(bot);
+        if (privateAutomationHub == address(0)) revert PrivateAutomationHubNotSet();
+
+        address privateCore = botPrivateCore[bot];
+        address privateOpportunity = botPrivateOpportunity[bot];
+        address privateLiquidity = botPrivateLiquidity[bot];
+        address privateRouter = botPrivateRouter[bot];
+
+        RegisterPrivateBotParams memory registerParams = RegisterPrivateBotParams({
+            trader: IPrivateBot(bot).validTrader(),
+            bot: bot,
+            core: privateCore,
+            opportunity: privateOpportunity,
+            liquidity: privateLiquidity,
+            router: privateRouter,
+            botId: botRegistry.getIdByBot(bot)
+        });
+
+        jobIds = IPrivateAutomationHub(privateAutomationHub).registerPrivateBotJobs(registerParams);
+
+        emit PrivateBotJobsRegistered(
+            privateAutomationHub,
+            bot,
+            jobIds.traderJobId,
+            jobIds.coreJobId,
+            jobIds.opportunityJobId,
+            jobIds.liquidityJobId
+        );
+
+        // Keep parity with deploy flow: set hub as forwarder for all 4 modules.
+        ISetForwarder(bot).setForwarderAddress(privateAutomationHub);
+        ISetForwarder(privateCore).setForwarderAddress(privateAutomationHub);
+        ISetForwarder(privateOpportunity).setForwarderAddress(privateAutomationHub);
+        ISetForwarder(privateLiquidity).setForwarderAddress(privateAutomationHub);
+    }
+
     /// @notice Update the forwarder on all components of a private bot in one call.
     /// @dev Callable by owner OR the bot's validTrader EOA.
     function setPrivateBotForwarder(address bot, address forwarderAddress) external {
@@ -301,19 +332,9 @@ contract PrivateDoppiTraderFactory is Ownable, IDoppiTraderFactory {
         IPrivateCoreAdmin(botPrivateCore[bot]).setUpkeeps_per_check(_percheck);
     }
 
-    function setPrivateCoreMinOrder(address bot, uint256 _minOrderA, uint256 _minOrderB) external {
-        _requireOwnerOrTrader(bot);
-        IPrivateCoreAdmin(botPrivateCore[bot]).setMinOrder(_minOrderA, _minOrderB);
-    }
-
     function setPrivateCoreMaxSwap(address bot, uint256 _maxSwap) external {
         _requireOwnerOrTrader(bot);
         IPrivateCoreAdmin(botPrivateCore[bot]).setMaxSwap(_maxSwap);
-    }
-
-    function setPrivateCoreAPRTolerance(address bot, uint16 _toleranceBP) external {
-        _requireOwnerOrTrader(bot);
-        IPrivateCoreAdmin(botPrivateCore[bot]).setAPRTolerance(_toleranceBP);
     }
 
     function setPrivateCoreTreasury(address bot, address _treasury, uint24 _treasury_fee) external onlyOwner {

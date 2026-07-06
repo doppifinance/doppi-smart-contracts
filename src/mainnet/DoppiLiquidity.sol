@@ -36,6 +36,7 @@ contract DoppiLiquidity is SoladyERC20, SoladyOwnable, Pausable, IDoppiLiquidity
     address public doppiTraderFactory;
     address public doppiLiquidityRouter;
     mapping(address => bool) public validEntryPoints;
+    bool public entryPointsLocked;
     address public s_forwarderAddress;
     string private _tokenName;
     string private _tokenSymbol;
@@ -54,6 +55,8 @@ contract DoppiLiquidity is SoladyERC20, SoladyOwnable, Pausable, IDoppiLiquidity
 
     event Swapped(address indexed trader, address assetIn, address assetOut, uint256 amountIn, uint256 amountOut, uint256 price);
     event UnwindPerformed(bool isNetBuy, uint256 totalAmount, uint256 totalAmountOut);
+    event EntryPointSet(address indexed entryPoint, bool isValid);
+    event EntryPointsLocked();
 
     modifier onlyDoppiCore() {
         require(msg.sender == doppiCore || IDoppiTraderFactory(doppiTraderFactory).isTraderBot(msg.sender), "only doppicore or trader bot");
@@ -237,6 +240,7 @@ contract DoppiLiquidity is SoladyERC20, SoladyOwnable, Pausable, IDoppiLiquidity
     }
 
     function setEntryPoint(address entryPoint, bool isValid) external onlyOwner {
+        require(!entryPointsLocked, "entry points locked");
         validEntryPoints[entryPoint] = isValid;
         if (isValid) {
             assetA.safeApprove(entryPoint, type(uint256).max);
@@ -245,6 +249,13 @@ contract DoppiLiquidity is SoladyERC20, SoladyOwnable, Pausable, IDoppiLiquidity
             assetA.safeApprove(entryPoint, 0);  // revoke stale approval
             assetB.safeApprove(entryPoint, 0);
         }
+        emit EntryPointSet(entryPoint, isValid);
+    }
+
+    function lockEntryPoints() external onlyOwner {
+        require(!entryPointsLocked, "already locked");
+        entryPointsLocked = true;
+        emit EntryPointsLocked();
     }
 
     function setPause() external onlyOwner {

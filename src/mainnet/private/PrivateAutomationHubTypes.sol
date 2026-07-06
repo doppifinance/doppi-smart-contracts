@@ -58,4 +58,5 @@ struct BotBillingState {
     uint256 creditBalance;    // remaining pre-paid balance in fundToken
     uint256 totalGasFeePaid;  // lifetime fees charged
     bool    lowCreditPaused;  // true when hub paused jobs due to low credit
+    bool usePoint; // use point to pay for gas fee, if false, use fundToken to pay for gas fee
 }

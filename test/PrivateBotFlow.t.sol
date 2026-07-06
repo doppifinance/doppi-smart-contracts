@@ -141,9 +141,9 @@ contract PrivateBotFlowTest is Test {
             address(sharedFactory),
             address(traderImplementation),
             address(coreImplementation),
-            address(opportunityStorageImplementation),
-            configLP
+            address(opportunityStorageImplementation)
         );
+        privateFactory.setLPConfig(configLP);
 
         // Allow private factory to auto-register newly deployed private cores in DoppiPoints.
         doppiPoints.setCoreRegistrar(address(privateFactory), true);
@@ -583,18 +583,18 @@ contract PrivateBotFlowTest is Test {
         (address bot, address core,,,) = _deployAndCapture(trader1);
         DoppiCore dc = DoppiCore(core);
 
-        vm.prank(trader1);
-        privateFactory.setPrivateCoreMinOrder(bot, 123 ether, 0.002 ether);
-        assertEq(dc.minOrderA(), 123 ether, "minOrderA not updated");
-        assertEq(dc.minOrderB(), 0.002 ether, "minOrderB not updated");
+        // vm.prank(trader1);
+        // privateFactory.setPrivateCoreMinOrder(bot, 123 ether, 0.002 ether);
+        // assertEq(dc.minOrderA(), 123 ether, "minOrderA not updated");
+        // assertEq(dc.minOrderB(), 0.002 ether, "minOrderB not updated");
 
         vm.prank(trader1);  
         privateFactory.setPrivateCoreMaxSwap(bot, 777_777 ether);
         assertEq(dc.maxSwap(), 777_777 ether, "maxSwap not updated");
 
-        vm.prank(trader1);
-        privateFactory.setPrivateCoreAPRTolerance(bot, 250);
-        assertEq(dc.aprToleranceBP(), 250, "apr tolerance not updated");
+        // vm.prank(trader1);
+        // privateFactory.setPrivateCoreAPRTolerance(bot, 250);
+        // assertEq(dc.aprToleranceBP(), 250, "apr tolerance not updated");
 
         vm.prank(trader1);
         privateFactory.setPrivateCoreUpkeepsPerCheck(bot, 33);

@@ -300,7 +300,8 @@ contract PrivateAutomationHubTest is Test {
         // Trader can enable
         vm.prank(trader);
         hub.enablePointsPayment(bot);
-        assertTrue(hub.pointsPaymentEnabled(bot));
+        BotBillingState memory billing = hub.getBotBilling(bot);
+        assertTrue(billing.usePoint);
     }
 
     function test_disablePointsPayment_onlyBotTrader() public {
@@ -322,7 +323,8 @@ contract PrivateAutomationHubTest is Test {
         // Trader can disable
         vm.prank(trader);
         hub.disablePointsPayment(bot);
-        assertFalse(hub.pointsPaymentEnabled(bot));
+        BotBillingState memory billing = hub.getBotBilling(bot);
+        assertFalse(billing.usePoint);
     }
 
     function test_enablePointsPayment_idempotent() public {
@@ -337,7 +339,8 @@ contract PrivateAutomationHubTest is Test {
 
         vm.prank(trader);
         hub.enablePointsPayment(bot); // Second call should be no-op
-        assertTrue(hub.pointsPaymentEnabled(bot));
+        BotBillingState memory billing = hub.getBotBilling(bot);
+        assertTrue(billing.usePoint);
     }
 
     function test_getAvailablePoints_withoutContract() public {
@@ -410,7 +413,8 @@ contract PrivateAutomationHubTest is Test {
         address bot = p.bot;
 
         // If points payment disabled, should use fundToken only
-        assertFalse(hub.pointsPaymentEnabled(bot));
+        BotBillingState memory billing = hub.getBotBilling(bot);
+        assertFalse(billing.usePoint);
 
         // Verify initial state
         BotBillingState memory initial = hub.getBotBilling(bot);
@@ -434,7 +438,8 @@ contract PrivateAutomationHubTest is Test {
         hub.enablePointsPayment(bot);
 
         // Verify setup
-        assertTrue(hub.pointsPaymentEnabled(bot));
+        BotBillingState memory billing = hub.getBotBilling(bot);
+        assertTrue(billing.usePoint);
         uint256 available = hub.getAvailablePoints(bot);
         assertGt(available, 0); // Should have some points from mock
     }
@@ -459,7 +464,8 @@ contract PrivateAutomationHubTest is Test {
 
         // Verify that low credit check considers combined value 
         // (fundToken + available points value)
-        assertTrue(hub.pointsPaymentEnabled(bot));
+        BotBillingState memory billing = hub.getBotBilling(bot);
+        assertTrue(billing.usePoint);
         uint256 combinedValue = hub.getAvailablePoints(bot);
         assertGt(combinedValue, 0); // Points provide value
     }
@@ -487,7 +493,8 @@ contract PrivateAutomationHubTest is Test {
         assertGt(pointsValue, 0);
         
         // Verify combined value is recognized
-        assertTrue(hub.pointsPaymentEnabled(bot));
+        BotBillingState memory billing = hub.getBotBilling(bot);
+        assertTrue(billing.usePoint);
     }
 
     function test_checkUpkeep_returnsFalseWhenNoDueJobs() public {

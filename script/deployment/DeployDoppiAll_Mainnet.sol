@@ -55,8 +55,8 @@ contract DeployDoppiAllMainnet is Script {
     function run() external {
         
         uint256 deployerPrivateKey = vm.envUint("PRIVATE_KEY_MAINNET");
-        vm.startBroadcast(deployerPrivateKey);
         address deployer = vm.addr(deployerPrivateKey);
+        vm.startBroadcast(deployerPrivateKey);
         console.log(deployer, "deployer");
 
         configLP = TestParamLib.get_configLPMainnet();
@@ -104,16 +104,16 @@ contract DeployDoppiAllMainnet is Script {
             address(doppiFactory),
             address(privateTraderImpl),
             address(privateCoreImpl),
-            address(privateOpportunityImpl),
-            configLP
+            address(privateOpportunityImpl)
         );
+        privateFactory.setLPConfig(configLP);
 
         doppiUpkeepManager.addTraderFactory(address(privateFactory));
         doppiPoints.setCoreRegistrar(address(privateFactory), true);
 
         // Deploy PrivateAutomationHub for private bot job scheduling and billing
         PrivateAutomationHub privateAutomationHub = new PrivateAutomationHub(
-            address(this), // owner (deployer)
+            deployer, // owner (deployer EOA)
             USDT,          // fundToken for billing
             CHAINLINK_BTC_USD, // chainlink feed for native asset pricing
             3600,          // maxOracleDelay (1 hour)
@@ -121,9 +121,21 @@ contract DeployDoppiAllMainnet is Script {
         );
         console.log("PrivateAutomationHub deployed at:", address(privateAutomationHub));
 
-        // Register private factory and deployer as registrars in the hub
+        // Wire hub to both shared and private factories for auto job registration.
+        doppiFactory.setPrivateAutomationHub(address(privateAutomationHub));
+        privateFactory.setPrivateAutomationHub(address(privateAutomationHub));
+
+        // Configure points-based billing in hub.
+        privateAutomationHub.setDoppiPointsContract(address(doppiPoints));
+        privateAutomationHub.setDoppiPointsExchangeRate(10000); // 1 point ~= 1 USDT unit (basis points)
+
+        // Register both factories + deployer as registrars in the hub.
+        privateAutomationHub.setRegistrar(address(doppiFactory), true);
         privateAutomationHub.setRegistrar(address(privateFactory), true);
-        privateAutomationHub.setRegistrar(msg.sender, true);
+        privateAutomationHub.setRegistrar(deployer, true);
+
+        // Allow deployer to call performUpkeep.
+        privateAutomationHub.setExecutor(deployer, true);
 
         // Authorize PrivateAutomationHub to deduct points for fees in DoppiPoints
         doppiPoints.setAuthorizedPointsDeductor(address(privateAutomationHub), true);
@@ -192,6 +204,7 @@ contract DeployDoppiAllMainnet is Script {
         _doppiLP.setEntryPoint(address(_doppiRouter.entryPointA()), true);
         _doppiLP.setEntryPoint(address(_doppiRouter.entryPointB()), true);
         _doppiLP.setDoppiTraderFactory(_doppiFactory);
+        _doppiLP.lockEntryPoints();
     }
 
     function _deployDoppiCore(DoppiLiquidity _doppiLP, DoppiOffer _impliedVol, DoppiPoints _doppiPoints) internal returns (DoppiCore) {

@@ -356,6 +356,7 @@ contract DoppiCoreEmergencyTest is Test {
         _doppiLP.setEntryPoint(address(_doppiRouter.entryPointA()), true);
         _doppiLP.setEntryPoint(address(_doppiRouter.entryPointB()), true);
         _doppiLP.setDoppiTraderFactory(_doppiFactory);
+        _doppiLP.lockEntryPoints();
     }
 
     function _deployDoppiCore(DoppiLiquidity _doppiLP, DoppiOffer _impliedVol, DoppiPoints _doppiPoints) internal returns (DoppiCore) {
