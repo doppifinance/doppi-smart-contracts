@@ -194,18 +194,19 @@ contract DoppiCoreTest is Test {
 
     function test_deposit_buy_invalidAPR() public {
         DualAssetOffer memory buyOffer = impliedVol.getOffer(true, 1, 0);
+        uint32 invalidApr = uint32(buyOffer.apr + ((buyOffer.apr * 20) / 100)); // exceeds default 10% tolerance
         DepositParams memory params = DepositParams({
             amount: 50_000 ether,
             strikeZone: 0,
             strikePrice: buyOffer.strikePrice,
             numDays: 1,
-            apr: buyOffer.apr + 1, // Invalid APR
+            apr: invalidApr,
             expiry: buyOffer.expiry
         });
 
         vm.startPrank(user1);
         usdt.approve(address(doppiCore), params.amount);
-        vm.expectRevert("InvalidAPR()");
+        vm.expectRevert(DoppiCore.InvalidAPR.selector);
         doppiCore.deposit_buy(params);
         vm.stopPrank();
     }

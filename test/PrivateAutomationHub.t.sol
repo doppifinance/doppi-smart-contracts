@@ -512,6 +512,13 @@ contract PrivateAutomationHubTest is Test {
         vm.prank(registrar);
         hub.registerPrivateBotJobs(p);
 
+        // Strict billing mode requires available credit/points before execution.
+        fundToken.mint(trader, 100 ether);
+        vm.startPrank(trader);
+        fundToken.approve(address(hub), 100 ether);
+        hub.deposit(p.bot, 100 ether);
+        vm.stopPrank();
+
         botTarget.setCheckResponse(true, abi.encode("bot"));
         coreTarget.setCheckResponse(true, abi.encode("core"));
         opportunityTarget.setCheckResponse(true, abi.encode("opp"));
@@ -533,6 +540,12 @@ contract PrivateAutomationHubTest is Test {
         RegisterPrivateBotParams memory p = _params();
         vm.prank(registrar);
         hub.registerPrivateBotJobs(p);
+
+        fundToken.mint(trader, 100 ether);
+        vm.startPrank(trader);
+        fundToken.approve(address(hub), 100 ether);
+        hub.deposit(p.bot, 100 ether);
+        vm.stopPrank();
 
         botTarget.setCheckResponse(true, abi.encode("bot"));
         (bool upkeepNeeded, bytes memory performData) = hub.checkUpkeep("");
@@ -564,7 +577,6 @@ contract PrivateAutomationHubTest is Test {
         PrivateJobConfig memory cfg = PrivateJobConfig({
             active: true,
             minInterval: 60,
-            maxStaleness: 120,
             gasLimitHint: 500_000,
             maxConsecutiveFails: 2
         });
@@ -589,10 +601,16 @@ contract PrivateAutomationHubTest is Test {
         vm.prank(registrar);
         PrivateBotJobIds memory ids = hub.registerPrivateBotJobs(p);
 
+        // Strict billing mode requires available credit/points before execution.
+        fundToken.mint(trader, 100 ether);
+        vm.startPrank(trader);
+        fundToken.approve(address(hub), 100 ether);
+        hub.deposit(p.bot, 100 ether);
+        vm.stopPrank();
+
         PrivateJobConfig memory cfg = PrivateJobConfig({
             active: true,
             minInterval: 1,
-            maxStaleness: 3600,
             gasLimitHint: 500_000,
             maxConsecutiveFails: 2
         });
@@ -626,6 +644,13 @@ contract PrivateAutomationHubTest is Test {
         RegisterPrivateBotParams memory p = _params();
         vm.prank(registrar);
         hub.registerPrivateBotJobs(p);
+
+        // Strict billing mode requires available credit/points before execution.
+        fundToken.mint(trader, 100 ether);
+        vm.startPrank(trader);
+        fundToken.approve(address(hub), 100 ether);
+        hub.deposit(p.bot, 100 ether);
+        vm.stopPrank();
 
         vm.prank(owner);
         hub.setGlobalLimits(2, 16);

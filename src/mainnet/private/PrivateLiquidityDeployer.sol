@@ -65,6 +65,8 @@ contract PrivateLiquidityDeployer {
         );
 
         privateLiquidity.setConfig(config);
+        // Ensure LP can swap through configured router during settlement.
+        privateLiquidity.approveRouter();
         privateLiquidity.setDoppiLiquidityRouter(address(privateRouter));
         privateLiquidity.setForwarderAddress(factory);
 

@@ -16,6 +16,8 @@ import {
     PrivateJobView,
     BotBillingState
 } from "./PrivateAutomationHubTypes.sol";
+// import "forge-std/console.sol";
+
 
 interface IDoppiPoints {
     function getAllPointData(address trader) external view returns (uint256 totalClaimed, uint256 readyPoints, uint256 currentMonth);
@@ -41,13 +43,13 @@ contract PrivateAutomationHub is IPrivateAutomationHub, Ownable, ReentrancyGuard
     event RegistrarUpdated(address indexed account, bool allowed);
     event ExecutorUpdated(address indexed account, bool allowed);
     event GlobalLimitsUpdated(uint16 maxJobsPerUpkeep, uint32 scanLimit);
-    event DefaultJobConfigUpdated(uint32 minInterval, uint32 maxStaleness, uint32 gasLimitHint, uint16 maxConsecutiveFails);
+    event DefaultJobConfigUpdated(uint32 minInterval, uint32 gasLimitHint, uint16 maxConsecutiveFails);
 
     // ── Jobs ──────────────────────────────────────────────────────────────
     event JobRegistered(uint256 indexed jobId, address indexed bot, PrivateAutomationModule module, address target);
     event JobUpdated(uint256 indexed jobId, address indexed bot, PrivateAutomationModule module, address target);
     event JobDisabled(uint256 indexed jobId, address indexed bot, PrivateAutomationModule module);
-    event JobConfigUpdated(uint256 indexed jobId, bool active, uint32 minInterval, uint32 maxStaleness, uint32 gasLimitHint, uint16 maxConsecutiveFails);
+    event JobConfigUpdated(uint256 indexed jobId, bool active, uint32 minInterval, uint32 gasLimitHint, uint16 maxConsecutiveFails);
     event JobExecutionSucceeded(uint256 indexed jobId, address indexed bot, PrivateAutomationModule module);
     event JobExecutionFailed(uint256 indexed jobId, address indexed bot, PrivateAutomationModule module);
     event JobAutoPaused(uint256 indexed jobId, address indexed bot, PrivateAutomationModule module, uint32 failCount);
@@ -83,7 +85,6 @@ contract PrivateAutomationHub is IPrivateAutomationHub, Ownable, ReentrancyGuard
         bool active;
         bool lowCreditDisabled;         // set true only when auto-paused by low-credit
         uint32 minInterval;
-        uint32 maxStaleness;
         uint32 gasLimitHint;
         uint16 maxConsecutiveFails;
         uint32 failCount;
@@ -99,8 +100,7 @@ contract PrivateAutomationHub is IPrivateAutomationHub, Ownable, ReentrancyGuard
     uint32 public checkScanLimit   = 64;
 
     uint32 public defaultMinInterval         = 30;
-    uint32 public defaultMaxStaleness        = 3600;
-    uint32 public defaultGasLimitHint        = 700_000;
+    uint32 public defaultGasLimitHint        = 4_000_000;
     uint16 public defaultMaxConsecutiveFails = 5;
 
     // ── Billing config ────────────────────────────────────────────────────
@@ -118,7 +118,7 @@ contract PrivateAutomationHub is IPrivateAutomationHub, Ownable, ReentrancyGuard
 
     // ── DoppiPoints Integration ────────────────────────────────────────────
     IDoppiPoints public doppiPoints;
-    uint256 public doppiPointsExchangeRateBps;  // basis points, e.g., 10000 = 1:1
+    uint256 public doppiPointsExchangeRateBps = 10;  // basis points, e.g., 10 = 1 : 0.001 USDT
     bool public useDynamicPointPrice;
     address public doppiPointsPriceFeed;
 
@@ -191,16 +191,14 @@ contract PrivateAutomationHub is IPrivateAutomationHub, Ownable, ReentrancyGuard
 
     function setDefaultJobConfig(
         uint32 _minInterval,
-        uint32 _maxStaleness,
         uint32 _gasLimitHint,
         uint16 _maxConsecutiveFails
     ) external onlyOwner {
         if (_gasLimitHint == 0 || _maxConsecutiveFails == 0) revert InvalidJob();
         defaultMinInterval         = _minInterval;
-        defaultMaxStaleness        = _maxStaleness;
         defaultGasLimitHint        = _gasLimitHint;
         defaultMaxConsecutiveFails = _maxConsecutiveFails;
-        emit DefaultJobConfigUpdated(_minInterval, _maxStaleness, _gasLimitHint, _maxConsecutiveFails);
+        emit DefaultJobConfigUpdated(_minInterval, _gasLimitHint, _maxConsecutiveFails);
     }
 
     // ── Billing admin ─────────────────────────────────────────────────────
@@ -274,8 +272,7 @@ contract PrivateAutomationHub is IPrivateAutomationHub, Ownable, ReentrancyGuard
     function deposit(address bot, uint256 amount) external nonReentrant {
         if (bot == address(0)) revert InvalidAddress();
         if (amount == 0) revert ZeroAmount();
-        if (address(fundToken) == address(0)) revert InvalidAddress();
-
+        
         fundToken.safeTransferFrom(msg.sender, address(this), amount);
         BotBillingState storage billing = botBilling[bot];
         billing.creditBalance += amount;
@@ -431,7 +428,6 @@ contract PrivateAutomationHub is IPrivateAutomationHub, Ownable, ReentrancyGuard
             target:         j.target,
             active:         j.active,
             minInterval:    j.minInterval,
-            maxStaleness:   j.maxStaleness,
             gasLimitHint:   j.gasLimitHint,
             failCount:      j.failCount,
             lastRunAt:      j.lastRunAt,
@@ -444,10 +440,9 @@ contract PrivateAutomationHub is IPrivateAutomationHub, Ownable, ReentrancyGuard
         if (j.bot == address(0)) revert InvalidJob();
         j.active              = config.active;
         j.minInterval         = config.minInterval;
-        j.maxStaleness        = config.maxStaleness;
         j.gasLimitHint        = config.gasLimitHint;
         j.maxConsecutiveFails = config.maxConsecutiveFails;
-        emit JobConfigUpdated(jobId, config.active, config.minInterval, config.maxStaleness, config.gasLimitHint, config.maxConsecutiveFails);
+        emit JobConfigUpdated(jobId, config.active, config.minInterval, config.gasLimitHint, config.maxConsecutiveFails);
     }
 
     function setJobActive(uint256 jobId, bool active) external onlyOwner {
@@ -455,7 +450,7 @@ contract PrivateAutomationHub is IPrivateAutomationHub, Ownable, ReentrancyGuard
         if (j.bot == address(0)) revert InvalidJob();
         j.active = active;
         if (active && j.nextEligibleAt == 0) j.nextEligibleAt = uint64(block.timestamp);
-        emit JobConfigUpdated(jobId, j.active, j.minInterval, j.maxStaleness, j.gasLimitHint, j.maxConsecutiveFails);
+        emit JobConfigUpdated(jobId, j.active, j.minInterval, j.gasLimitHint, j.maxConsecutiveFails);
     }
 
     // ── Automation ────────────────────────────────────────────────────────
@@ -468,6 +463,7 @@ contract PrivateAutomationHub is IPrivateAutomationHub, Ownable, ReentrancyGuard
     {
         uint256 upperBound = nextJobId;
         if (upperBound <= 1) return (false, bytes(""));
+        uint256 totalJobs = upperBound - 1;
 
         uint16  maxJobs              = maxJobsPerUpkeep;
         uint256[] memory candidateJobIds      = new uint256[](maxJobs);
@@ -476,11 +472,13 @@ contract PrivateAutomationHub is IPrivateAutomationHub, Ownable, ReentrancyGuard
         uint256 cursor  = _normalizedCursor(scanCursor, upperBound);
         uint256 scanned;
         uint256 selected;
+        uint256 scanBudget = checkScanLimit;
+        if (scanBudget > totalJobs) scanBudget = totalJobs;
 
-        while (scanned < checkScanLimit && selected < maxJobs) {
+        while (scanned < scanBudget && selected < maxJobs) {
             if (cursor >= upperBound) cursor = 1;
             JobState storage j = jobs[cursor];
-            if (_isDue(j)) {
+            if (_isDue(j) && _canExecuteWithBilling(j.bot)) {
                 (bool ok, bytes memory out) = j.target.staticcall(
                     abi.encodeWithSelector(CHECK_UPKEEP_SELECTOR, bytes(""))
                 );
@@ -522,6 +520,13 @@ contract PrivateAutomationHub is IPrivateAutomationHub, Ownable, ReentrancyGuard
             JobState storage j = jobs[jobId];
 
             if (_isDue(j)) {
+                // Strict mode: do not run jobs when billing prerequisites/funds are unavailable.
+                if (!_canExecuteWithBilling(j.bot)) {
+                    _pauseBotForBilling(j.bot);
+                    unchecked { ++i; }
+                    continue;
+                }
+
                 uint256 gasStart = gasleft();
 
                 (bool success, ) = j.target.call{gas: j.gasLimitHint}(
@@ -550,9 +555,6 @@ contract PrivateAutomationHub is IPrivateAutomationHub, Ownable, ReentrancyGuard
 
     /// @dev Silently skips if billing is not fully configured or oracle is stale / gasprice is 0.
     function _chargeGasFee(address bot, uint256 jobId, uint256 gasUsed) internal {
-        if (address(fundToken)     == address(0)) return;
-        if (address(chainlinkFeed) == address(0)) return;
-        if (treasury               == address(0)) return;
 
         uint256 price = DALiquidityLib.getPrice(chainlinkFeed, maxOracleDelay);
         if (price == 0) return;
@@ -654,6 +656,27 @@ contract PrivateAutomationHub is IPrivateAutomationHub, Ownable, ReentrancyGuard
         return _getPointValueInFundToken(readyPoints);
     }
 
+    function _canExecuteWithBilling(address bot) internal view returns (bool) {
+        if (DALiquidityLib.getPrice(chainlinkFeed, maxOracleDelay) == 0) return false;
+
+        BotBillingState memory billing = botBilling[bot];
+        uint256 combinedValue = billing.creditBalance;
+        if (billing.usePoint && address(doppiPoints) != address(0)) {
+            combinedValue += _getTotalPointsValueInFundToken(bot);
+        }
+
+        return combinedValue > 0;
+    }
+
+    function _pauseBotForBilling(address bot) internal {
+        BotBillingState storage billing = botBilling[bot];
+        if (!billing.lowCreditPaused) {
+            billing.lowCreditPaused = true;
+            _pauseAllJobsForBot(bot);
+            emit BotLowCreditPaused(bot, billing.creditBalance);
+        }
+    }
+
     function _pauseAllJobsForBot(address bot) internal {
         for (uint8 m = 0; m < 4; ) {
             uint256 jid = jobIdByBotModule[bot][m];
@@ -703,7 +726,6 @@ contract PrivateAutomationHub is IPrivateAutomationHub, Ownable, ReentrancyGuard
             created.module              = module;
             created.active              = true;
             created.minInterval         = defaultMinInterval;
-            created.maxStaleness        = defaultMaxStaleness;
             created.gasLimitHint        = defaultGasLimitHint;
             created.maxConsecutiveFails = defaultMaxConsecutiveFails;
             created.nextEligibleAt      = uint64(block.timestamp);

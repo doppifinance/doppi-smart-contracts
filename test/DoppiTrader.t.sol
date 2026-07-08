@@ -127,6 +127,8 @@ contract DoppiTraderTest is Test {
         doppiTrader = DoppiTrader(doppiFactory.traderBots(id));
         vm.prank(trader);
         doppiTrader.setForwarderAddress(mockForwarder);
+        vm.prank(trader);
+        doppiTrader.setMaxOrderPerRound(type(uint256).max, type(uint256).max);
         vm.stopPrank();
         
         usdt.mint(trader, 10_000_000 ether);
@@ -800,6 +802,58 @@ contract DoppiTraderTest is Test {
         assertEq(totalPlaced, 475 ether);
     }
 
+    function test_placeOrders_autoRoundBudget_fallbackFrom5To4() public {
+        // cap == 0 -> auto mode.
+        // available=1000, min=50, equal 5 zones:
+        // split 5 => budget 200 => 40/zone (invalid)
+        // split 4 => budget 250 => 50/zone (valid)
+        doppiCore.setMinOrder(50 ether, 0.001 ether);
+
+        vm.startPrank(trader);
+        doppiTrader.setMaxOrderPerRound(0, 0);
+        _setEqualOrderConfig5();
+        usdt.transfer(address(doppiTrader), 1000 ether);
+        doppiTrader.placeOrders();
+        vm.stopPrank();
+
+        DualAssetPosition[] memory buyPositions = doppiCore.get_positions_buy(address(doppiTrader));
+        assertEq(buyPositions.length, 5);
+
+        uint256 totalPlaced;
+        for (uint256 i = 0; i < buyPositions.length; ) {
+            assertEq(buyPositions[i].amount, 50 ether);
+            totalPlaced += buyPositions[i].amount;
+            unchecked { ++i; }
+        }
+        assertEq(totalPlaced, 250 ether);
+    }
+
+    function test_placeOrders_autoRoundBudget_fallbackFrom5To2() public {
+        // cap == 0 -> auto mode.
+        // available=1000, min=90, equal 5 zones:
+        // split 5 => 40/zone invalid, split 4 => 50 invalid, split 3 => 66 invalid,
+        // split 2 => 100 valid.
+        doppiCore.setMinOrder(90 ether, 0.001 ether);
+
+        vm.startPrank(trader);
+        doppiTrader.setMaxOrderPerRound(0, 0);
+        _setEqualOrderConfig5();
+        usdt.transfer(address(doppiTrader), 1000 ether);
+        doppiTrader.placeOrders();
+        vm.stopPrank();
+
+        DualAssetPosition[] memory buyPositions = doppiCore.get_positions_buy(address(doppiTrader));
+        assertEq(buyPositions.length, 5);
+
+        uint256 totalPlaced;
+        for (uint256 i = 0; i < buyPositions.length; ) {
+            assertEq(buyPositions[i].amount, 100 ether);
+            totalPlaced += buyPositions[i].amount;
+            unchecked { ++i; }
+        }
+        assertEq(totalPlaced, 500 ether);
+    }
+
     function test_placeOrders_scenario1_zone3_zone4_50_50_with_205usdt() public {
         vm.startPrank(trader);
 
@@ -1204,6 +1258,17 @@ contract DoppiTraderTest is Test {
         weights[3] = 2500;
         strikeZones[4] = 4;
         weights[4] = 4000;
+        doppiTrader.setMultipleOrderConfigs(strikeZones, weights);
+    }
+
+    function _setEqualOrderConfig5() internal {
+        uint8[] memory strikeZones = new uint8[](5);
+        uint24[] memory weights = new uint24[](5);
+        for (uint8 i = 0; i < 5; ) {
+            strikeZones[i] = i;
+            weights[i] = 2000;
+            unchecked { ++i; }
+        }
         doppiTrader.setMultipleOrderConfigs(strikeZones, weights);
     }
 }

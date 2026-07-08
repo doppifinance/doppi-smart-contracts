@@ -38,6 +38,7 @@ contract DeployDoppiAll is Script {
     address constant USDT = address(0x55d398326f99059fF775485246999027B3197955);
     address constant BTC = address(0x7130d2A12B9BCbFAe4f2634d864A1Ee1Ce3Ead9c);
     address constant BNBLINK = address(0xF8A0BF9cF54Bb92F17374d9e9A321E6a111a51bD);
+    address constant CHAINLINK_BNB_USD = address(0x0567F2323251f0Aab15c8dFb1967E4e8A7D42aeE);
     address constant CHAINLINK_BTC_USD = address(0x264990fbd0A4796A3E3d8E37C4d5F87a3aCa5Ebf);
     // address constant CHAINLINK_BTC_USD = address(0x8ECF7dE377F788A813F5215668E282556b35f300); // SVR
     address constant CHAINLINK_LINK_USD = address(0xca236E327F629f9Fc2c30A4E95775EbF0B89fac8);
@@ -111,8 +112,8 @@ contract DeployDoppiAll is Script {
         PrivateAutomationHub privateAutomationHub = new PrivateAutomationHub(
             deployer, // owner (deployer EOA)
             USDT,          // fundToken for billing
-            CHAINLINK_BTC_USD, // chainlink feed for native asset pricing
-            60,          // maxOracleDelay (1 minute)
+            CHAINLINK_BNB_USD, // chainlink feed for native asset pricing
+            3 days,          // maxOracleDelay (1 minute)
             treasury       // treasury for fee collection
         );
         console.log("PrivateAutomationHub deployed at:", address(privateAutomationHub));
@@ -145,6 +146,9 @@ contract DeployDoppiAll is Script {
         doppiPoints.setAuthorizedPointsDeductor(address(privateAutomationHub), true);
 
         doppiPoints.setCoreRegistrar(address(privateFactory), true);
+
+
+        // privateAutomationHub.registerPrivateBotJobs(params);
 
         // // Deploy one initial private bot for the broadcasting EOA
         // uint24[] memory privateWeights = _defaultPrivateWeights();

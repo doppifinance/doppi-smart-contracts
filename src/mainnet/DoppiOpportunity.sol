@@ -48,6 +48,8 @@ contract DoppiOpportunity is Ownable, Pausable, AutomationCompatibleInterface, I
         if (_doppiCore == address(0)) revert InvalidCore();
         doppiCore = DoppiCore(_doppiCore);
         doppiLP = doppiCore.doppiLP();
+        opportunityBufferCutBps = 2000;
+        opportunityMinBufferBps = 100;
         _transferOwnership(msg.sender);
     }
 

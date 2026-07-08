@@ -138,6 +138,12 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
         supportDays.push(1);
         nextProcessId[1] = 1;
         nextPositionId[1] = 1;
+
+        minOrderA = 50 ether; 
+        minOrderB = 0.0005 ether; 
+        UPKEEPS_PER_CHECK = 10; 
+        aprToleranceBP = 1000; 
+        maxSwap = 100000 ether;
         
         _transferOwnership(_owner);
     }

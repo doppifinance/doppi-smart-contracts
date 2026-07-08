@@ -305,12 +305,19 @@ contract DoppiTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCompati
 
         bool hasValidBuyOrder = false;
         bool hasValidSellOrder = false;
+        uint256 configLength = orderConfigs.length;
         
         if (buyPosCount == 0 && availableA > 0 && offerBuy.apr > 0) {
-            hasValidBuyOrder = _hasValidOrderConfig(true, _getRoundBudget(true, availableA));
+            hasValidBuyOrder = _hasValidOrderConfig(
+                true,
+                _getRoundBudget(true, availableA, doppiCore.minOrderA(), configLength)
+            );
         }
         if (sellPosCount == 0 && availableB > 0 && offerSell.apr > 0) {
-            hasValidSellOrder = _hasValidOrderConfig(false, _getRoundBudget(false, availableB));
+            hasValidSellOrder = _hasValidOrderConfig(
+                false,
+                _getRoundBudget(false, availableB, doppiCore.minOrderB(), configLength)
+            );
         }
         return (hasValidBuyOrder, hasValidSellOrder);
     }
@@ -369,10 +376,10 @@ contract DoppiTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCompati
         uint256 availableBalance = _availableBalance(isBuy);
         if (availableBalance == 0) return (params, 0);
 
-        availableAsset = _getRoundBudget(isBuy, availableBalance);
+        uint256 min = isBuy ? doppiCore.minOrderA() : doppiCore.minOrderB();
+        availableAsset = _getRoundBudget(isBuy, availableBalance, min, length);
         if (availableAsset == 0) return (params, 0);
 
-        uint256 min = isBuy ? doppiCore.minOrderA() : doppiCore.minOrderB();
         uint256 validCount = 0;
 
         for (uint256 i = 0; i < length; ) {
@@ -402,14 +409,48 @@ contract DoppiTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCompati
         return (params, availableAsset);
     }
 
-    function _getRoundBudget(bool isBuy, uint256 availableBalance) internal view returns (uint256 budget) {
+    function _getRoundBudget(bool isBuy, uint256 availableBalance, uint256 minOrder, uint256 length)
+        internal
+        view
+        returns (uint256 budget)
+    {
         if (availableBalance == 0) return 0;
 
         uint256 cap = isBuy ? maxOrderPerRoundA : maxOrderPerRoundB;
-        if (cap == 0) {
-            return availableBalance;
+        if (cap > 0) {
+            return availableBalance < cap ? availableBalance : cap;
         }
-        return availableBalance < cap ? availableBalance : cap;
+
+        return _getAutoRoundBudget(availableBalance, minOrder, length);
+    }
+
+    function _getAutoRoundBudget(uint256 availableBalance, uint256 minOrder, uint256 length)
+        internal
+        view
+        returns (uint256 budget)
+    {
+        if (length == 0) return 0;
+
+        uint256 maxSplit = length < 5 ? length : 5;
+        for (uint256 split = maxSplit; split > 0; ) {
+            uint256 candidateBudget = availableBalance / split;
+            if (candidateBudget > 0) {
+                uint256 validCount = 0;
+                for (uint256 i = 0; i < length; ) {
+                    uint256 depositAmount = (candidateBudget * orderConfigs[i].weight) / 10000;
+                    if (depositAmount >= minOrder) {
+                        unchecked { ++validCount; }
+                    }
+                    unchecked { ++i; }
+                }
+                if (validCount >= split) {
+                    return candidateBudget;
+                }
+            }
+            unchecked { --split; }
+        }
+
+        return 0;
     }
 
     function _prepareOrder(uint256 depositAmount, OrderConfig memory _orderConfig) internal view returns (BulkDepositParam memory param) {

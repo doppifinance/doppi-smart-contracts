@@ -226,10 +226,10 @@ contract PrivateBotFlowTest is Test {
         (address bot, address core, address opp, address privLP, address privRouter) =
             _deployAndCapture(trader1);
 
-        assertEq(privateFactory.getPrivateCore(bot),        core,      "core mismatch");
-        assertEq(privateFactory.getPrivateOpportunity(bot), opp,       "opportunity mismatch");
-        assertEq(privateFactory.getPrivateLiquidity(bot),   privLP,    "LP mismatch");
-        assertEq(privateFactory.getPrivateRouter(bot),      privRouter,"router mismatch");
+        assertEq(privateFactory.botPrivateCore(bot),        core,      "core mismatch");
+        assertEq(privateFactory.botPrivateOpportunity(bot), opp,       "opportunity mismatch");
+        assertEq(privateFactory.botPrivateLiquidity(bot),   privLP,    "LP mismatch");
+        assertEq(privateFactory.botPrivateRouter(bot),      privRouter,"router mismatch");
     }
 
     function test_deployPrivateBot_autoGeneratesUniqueLpNameAndSymbol() public {
@@ -668,27 +668,12 @@ contract PrivateBotFlowTest is Test {
         DoppiLiquidityRouter router = DoppiLiquidityRouter(privRouter);
 
         vm.prank(owner);
-        privateFactory.setPrivateRouterAllowedUser(bot, trader2, true);
-        assertTrue(router.allowedUsers(trader2), "allowed user not updated");
-
-        vm.prank(owner);
-        privateFactory.setPrivateRouterMode(bot, false);
-        assertFalse(router.privateMode(), "private mode not updated");
-
-        vm.prank(owner);
         privateFactory.setPrivateRouterCore(bot, address(sharedCore));
         assertEq(router.doppiCore(), address(sharedCore), "router core not updated");
     }
 
     function test_privateRouter_traderCannotUpdateOwnerOnlyControls() public {
         (address bot,,,,) = _deployAndCapture(trader1);
-
-        vm.startPrank(trader1);
-        vm.expectRevert();
-        privateFactory.setPrivateRouterAllowedUser(bot, trader2, true);
-
-        vm.expectRevert();
-        privateFactory.setPrivateRouterMode(bot, false);
 
         vm.expectRevert();
         privateFactory.setPrivateRouterCore(bot, address(sharedCore));

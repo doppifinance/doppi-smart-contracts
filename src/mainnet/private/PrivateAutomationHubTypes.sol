@@ -32,7 +32,6 @@ struct PrivateBotJobIds {
 struct PrivateJobConfig {
     bool active;
     uint32 minInterval;
-    uint32 maxStaleness;
     uint32 gasLimitHint;
     uint16 maxConsecutiveFails;
 }
@@ -45,7 +44,6 @@ struct PrivateJobView {
     address target;
     bool active;
     uint32 minInterval;
-    uint32 maxStaleness;
     uint32 gasLimitHint;
     uint32 failCount;
     uint64 lastRunAt;
