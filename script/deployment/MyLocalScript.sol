@@ -29,6 +29,7 @@ interface IPrivateAutomationHubDebug is IPrivateAutomationHubBilling {
     function getJob(uint256 jobId) external view returns (PrivateJobView memory job);
     function doppiPointsExchangeRateBps() external view returns (uint256);
     function setDoppiPointsExchangeRate(uint256 _rateBps) external;
+    function minCreditThreshold() external view returns (uint256);
 }
 
 
@@ -41,16 +42,16 @@ contract MyLocalScript is Script {
         uint256 price = DALiquidityLib.getPrice(chainLinkFeed, 3 days);
         console.log("Price from DALiquidityLib:", block.timestamp, price);
 
-
+        PrivateDoppiTraderFactory factory = PrivateDoppiTraderFactory(address(0x61423bdE0b347e619b27faBd25a0cfAE50155A22)); 
+        IPrivateAutomationHubDebug hub = IPrivateAutomationHubDebug(address(factory.privateAutomationHub()));
+        console.log(hub.minCreditThreshold(), "minCreditThreshold");
         // address bot2 = address(0xca7219123f3d60aBF14DB1B61F37AF030C114d16);
-        address bot1 = address(0x07e0dFdBF31CCaEBE690e341ce048dd1CFDFa335); // private
-        PrivateDoppiTraderFactory factory = PrivateDoppiTraderFactory(address(0x7a61928D108Fcb91045364be58aC184Dc1a12580)); 
+        address bot1 = address(0x41DAfaBbAa45C6f35aCE79E901FF0534B0fEd317); // private
         // _traderBotInfo(bot);
         _privateBotInfo(factory, bot1);
         _runPrivateAutomationHubUpkeep(factory);
         _getBotBilling(factory, bot1);
 
-        IPrivateAutomationHubDebug hub = IPrivateAutomationHubDebug(address(factory.privateAutomationHub()));
         
         PrivateBotJobIds memory jobId = hub.getJobIdsByBot(bot1);
         console.log("Doppi Points Exchange Rate Bps:", hub.doppiPointsExchangeRateBps());
@@ -64,11 +65,6 @@ contract MyLocalScript is Script {
         console.log(job.failCount, "failCount trader job");
         console.log(job.gasLimitHint, "gasLimitHint trader job");
 
-        // uint256 deployerPrivateKey = vm.envUint("PRIVATE_KEY");
-        // vm.startBroadcast(deployerPrivateKey);
-        // hub.setDoppiPointsExchangeRate(10); // Set to 1:1 exchange rate
-        // vm.stopBroadcast();
-        // console.log("Doppi Points Exchange Rate Bps after update:", hub.doppiPointsExchangeRateBps());
         
     }
 

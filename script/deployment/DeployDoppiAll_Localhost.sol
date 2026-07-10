@@ -30,7 +30,7 @@ contract DeployDoppiAll is Script {
     
     uint256 minOrderA = 50 ether;
     uint256 minOrderB = 0.0005 ether;
-    uint256 botVolumeMultiplier = 3;
+    uint256 botVolumeMultiplier = 1;
     uint24 privateTreasuryFeeBps = 1000;
     uint16 privateFeeToSharedLPBps = 3000;
 
@@ -113,11 +113,11 @@ contract DeployDoppiAll is Script {
             deployer, // owner (deployer EOA)
             USDT,          // fundToken for billing
             CHAINLINK_BNB_USD, // chainlink feed for native asset pricing
-            3 days,          // maxOracleDelay (1 minute)
+            100 days,          // maxOracleDelay (1 minute)
             treasury       // treasury for fee collection
         );
         console.log("PrivateAutomationHub deployed at:", address(privateAutomationHub));
-
+        
         DoppiFeePool doppiFeePool = new DoppiFeePool(
             address(doppiLP),
             treasury,
@@ -132,8 +132,9 @@ contract DeployDoppiAll is Script {
 
         // Configure points-based billing in hub.
         privateAutomationHub.setDoppiPointsContract(address(doppiPoints));
-        privateAutomationHub.setDoppiPointsExchangeRate(10000); // 1 point ~= 1 USDT unit (basis points)
-        
+        privateAutomationHub.setDoppiPointsExchangeRate(7); // 100000 point ~= 0.7 USDT unit (basis points)
+        privateAutomationHub.setMinCreditThreshold(1 ether);
+
         // Register both factories + deployer as registrars in the hub.
         privateAutomationHub.setRegistrar(address(doppiFactory), true);
         privateAutomationHub.setRegistrar(address(privateFactory), true);

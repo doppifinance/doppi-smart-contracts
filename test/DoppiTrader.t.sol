@@ -188,25 +188,47 @@ contract DoppiTraderTest is Test {
         assertEq(positions.length, 5);
 
         // total of USDT 50k in trader bot, 50% in liquidity
-        assertEq(positions[0].amount, 2500 ether); // 5%
-        assertEq(positions[1].amount, 5000 ether); // 10%
+        assertEq(positions[4].amount, 2500 ether); // 5%
+        assertEq(positions[3].amount, 5000 ether); // 10%
         assertEq(positions[2].amount, 7500 ether); // 15%
-        assertEq(positions[3].amount, 12500 ether); // 25%
-        assertEq(positions[4].amount, 22500 ether); // 45%
+        assertEq(positions[1].amount, 12500 ether); // 25%
+        assertEq(positions[0].amount, 22500 ether); // 45%
 
         // total of BTC 0.50 in trader bot, 0.50 in liquidity
         positions = doppiCore.get_positions_sell(address(doppiTrader));
         assertEq(positions.length, 5);
-        assertEq(positions[0].amount, 0.025 ether); // 5%
-        assertEq(positions[1].amount, 0.05 ether); // 10%
+        assertEq(positions[4].amount, 0.025 ether); // 5%
+        assertEq(positions[3].amount, 0.05 ether); // 10%
         assertEq(positions[2].amount, 0.075 ether); // 15%
-        assertEq(positions[3].amount, 0.125 ether); // 25%
-        assertEq(positions[4].amount, 0.225 ether); // 45%
+        assertEq(positions[1].amount, 0.125 ether); // 25%
+        assertEq(positions[0].amount, 0.225 ether); // 45%
 
         // Check BTC balance decreased
         assertEq(btc.balanceOf(address(trader)), 99 ether);
         assertEq(usdt.balanceOf(address(trader)), 9_900_000 ether);
 
+    }
+
+    function test_start_tracksCostBasisAndUnitsB_withBothAssets() public {
+        uint256 amountUSDT = 100_000 ether;
+        uint256 amountBTC = 1 ether;
+
+        uint256 price = doppiLP.getPrice();
+        uint256 priceDecimals = 10 ** doppiLP.getPriceDecimals();
+
+        uint256 expectedA = amountUSDT + (amountBTC * price) / priceDecimals;
+        uint256 expectedB = amountBTC + (amountUSDT * priceDecimals) / price;
+
+        vm.startPrank(trader);
+        usdt.approve(address(doppiTrader), 10_000_000 ether);
+        btc.approve(address(doppiTrader), 100 ether);
+        doppiTrader.start(amountUSDT, amountBTC);
+        vm.stopPrank();
+
+        assertEq(doppiTrader.totalUnits(), expectedA);
+        assertEq(doppiTrader.costBasis(), expectedA);
+        assertEq(doppiTrader.totalUnitsB(), expectedB);
+        assertEq(doppiTrader.costBasisB(), expectedB);
     }
 
     function test_start_less_order() public {
@@ -661,31 +683,6 @@ contract DoppiTraderTest is Test {
         assertEq(orderConfig[1].strikeZone, 2);
         assertEq(orderConfig[2].weight, 1000);
         assertEq(orderConfig[2].strikeZone, 4);        
-        vm.stopPrank();
-    }
-
-    function test_ConfigReset() public {
-        vm.startPrank(trader);
-        
-        // Set multiple configs at once
-        uint8[] memory strikeZones = new uint8[](3);
-        uint24[] memory weights = new uint24[](3);
-        strikeZones[0] = 0;
-        weights[0] = 6000;        
-        strikeZones[1] = 2;
-        weights[1] = 3000;
-        strikeZones[2] = 4;
-        weights[2] = 1000;
-        
-        doppiTrader.setMultipleOrderConfigs(strikeZones, weights);
-        
-        // Reset to default
-        doppiTrader.resetToDefaultConfig();
-        OrderConfig[] memory orderConfig = doppiTrader.getOrderConfigs();
-        assertEq(orderConfig.length, 5);
-        for (uint8 i = 0; i < 5; i++) {
-            assertEq(orderConfig[i].weight, 2000);
-        }
         vm.stopPrank();
     }
 

@@ -81,20 +81,18 @@ contract DoppiTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCompati
         // Unit price tracking: snapshot value BEFORE deposit, then issue proportional units.
         uint256 price = doppiLP.getPrice();
         uint256 depositValueInA = _amountA;
+        uint256 depositValueInB = _amountB;
+        if (_amountA > 0 && price > 0) {
+            depositValueInB += _amountA * priceDecimals / price;
+        }
         if (_amountB > 0 && price > 0) {
             depositValueInA += _amountB * price / priceDecimals;
         }
-        if (depositValueInA > 0) {
-            if (totalUnits == 0) {
-                totalUnits = depositValueInA;
-            } else {
-                uint256 currentValueInA = _getTotalValueInA(price);
-                if (currentValueInA > 0) {
-                    totalUnits += depositValueInA * totalUnits / currentValueInA;
-                }
-            }
-            costBasis += depositValueInA;
-        }
+        uint256 currentValueInA = totalUnits == 0 ? 0 : _getTotalValueInA(price);
+        _updateUnitAndCostBasis(depositValueInA, currentValueInA, true);
+
+        uint256 currentValueInB = totalUnitsB == 0 ? 0 : _getTotalValueInB(price);
+        _updateUnitAndCostBasis(depositValueInB, currentValueInB, false);
 
         _processDeposit(_amountA, _amountB);
         _placeBulk();
@@ -129,6 +127,8 @@ contract DoppiTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCompati
         undoStat.undo_assetA = 0;
         totalUnits = 0;
         costBasis = 0;
+        totalUnitsB = 0;
+        costBasisB = 0;
         _removeMapping();
     }
 
@@ -150,6 +150,8 @@ contract DoppiTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCompati
         undoStat.undo_assetA = 0;
         totalUnits = 0;
         costBasis = 0;
+        totalUnitsB = 0;
+        costBasisB = 0;
         _removeMapping();
     }
 
@@ -175,21 +177,6 @@ contract DoppiTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCompati
 
     function getOrderConfigs() external view returns (OrderConfig[] memory) {
         return orderConfigs;
-    }
-
-    function resetToDefaultConfig() external {
-        _onlyTrader();
-        delete orderConfigs;
-        uint24[] memory defaultWeights = new uint24[](maxOrder);
-        uint24 equalWeight = uint24(10000 / maxOrder);
-        uint24 total = 0;
-        
-        for (uint8 i = 0; i < maxOrder - 1; i++) {
-            defaultWeights[i] = equalWeight;
-            total += equalWeight;
-        }
-        defaultWeights[maxOrder - 1] = 10000 - total;
-        _initializeOrderConfigs(defaultWeights);
     }
 
     function createUnwindPosition(uint256 _payout, uint256 _strikePrice, bool _isBuyUndo) external nonReentrant {
@@ -379,7 +366,7 @@ contract DoppiTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCompati
         uint256 min = isBuy ? doppiCore.minOrderA() : doppiCore.minOrderB();
         availableAsset = _getRoundBudget(isBuy, availableBalance, min, length);
         if (availableAsset == 0) return (params, 0);
-
+        
         uint256 validCount = 0;
 
         for (uint256 i = 0; i < length; ) {
@@ -563,9 +550,31 @@ contract DoppiTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCompati
 
     function _initializeOrderConfigs(uint24[] memory _weights) internal {
         uint256 length = _weights.length;
-        for (uint8 i = 0; i < length; ) {
-            orderConfigs.push(OrderConfig(i, _weights[i]));
-            unchecked { ++i; }
+
+        for (uint256 i = length; i > 0; ) {
+            unchecked { --i; }
+            if(_weights[i] > 0) {
+                orderConfigs.push(OrderConfig(uint8(i), _weights[i]));
+            }
+        }
+    }
+
+    function _updateUnitAndCostBasis(uint256 depositValue, uint256 currentValue, bool isAssetA) internal {
+        if (depositValue == 0) return;
+
+        uint256 units = isAssetA ? totalUnits : totalUnitsB;
+        if (units == 0) {
+            units = depositValue;
+        } else if (currentValue > 0) {
+            units += depositValue * units / currentValue;
+        }
+
+        if (isAssetA) {
+            totalUnits = units;
+            costBasis += depositValue;
+        } else {
+            totalUnitsB = units;
+            costBasisB += depositValue;
         }
     }
 

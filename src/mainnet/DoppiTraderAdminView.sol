@@ -31,7 +31,9 @@ abstract contract DoppiTraderAdminView is Ownable, Pausable {
     uint24 public maxOrder;
     uint32 public ratioLP;
     uint256 public totalUnits;   // scaled 1e18; cumulative units issued across all start() calls
+    uint256 public totalUnitsB;   // scaled 1e18; cumulative units issued across all start() calls
     uint256 public costBasis;    // lifetime deposits converted to assetA terms
+    uint256 public costBasisB;    // lifetime deposits converted to assetB terms
     uint256 internal buyHead;
     uint256 internal buyTail;
     uint256 internal sellHead;
@@ -62,6 +64,13 @@ abstract contract DoppiTraderAdminView is Ownable, Pausable {
         return getTotalValueInA() * 1e18 / totalUnits;
     }
 
+    function getUnitPriceInB() external view returns (uint256) {
+        if (totalUnitsB == 0) return 1e18;
+        uint256 price = doppiLP.getPrice();
+        uint256 totalInB = _getTotalValueInB(price);
+        return totalInB * 1e18 / totalUnitsB;
+    }
+
     function getTotalBalances() public view returns (uint256 totalAssetA, uint256 totalAssetB, uint256 price) {
         
         price = doppiLP.getPrice();
@@ -90,6 +99,16 @@ abstract contract DoppiTraderAdminView is Ownable, Pausable {
         uint256 totalB = balB + lpB;
         if (price > 0) {
             totalInA += totalB * price / priceDecimals;
+        }
+    }
+
+    function _getTotalValueInB(uint256 price) internal view returns (uint256 totalInB) {
+        (uint256 balA, uint256 balB, ) = getTotalBalances();
+        (uint256 lpA, uint256 lpB) = doppiLP.getBalances(address(this));
+        totalInB = balB + lpB;
+        uint256 totalA = balA + lpA;
+        if (price > 0) {
+            totalInB += totalA * priceDecimals / price;
         }
     }
 

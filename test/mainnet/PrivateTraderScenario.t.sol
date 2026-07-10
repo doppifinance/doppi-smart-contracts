@@ -90,7 +90,7 @@ contract PrivateTraderScenarioTest is Test {
     function setUp() public {
         
         // Fork Mainnet at a specific block
-        uint256 mainnetFork = vm.createFork("mainnet", 108526088); // Do not change the block number for the unit test
+        uint256 mainnetFork = vm.createFork("mainnet", 109080478); // Do not change the block number for the unit test
         vm.selectFork(mainnetFork);
         
         // Start prank as owner
@@ -144,7 +144,7 @@ contract PrivateTraderScenarioTest is Test {
             owner, // owner (deployer EOA)
             USDT,          // fundToken for billing
             CHAINLINK_BNB_USD, // chainlink feed for native asset pricing
-            3 days,      // maxOracleDelay (scenario warps 1+ day before upkeep)
+            100 days,      // maxOracleDelay (scenario warps 1+ day before upkeep)
             treasury       // treasury for fee collection
         );
         console.log("PrivateAutomationHub deployed at:", address(privateAutomationHub));
@@ -241,12 +241,17 @@ contract PrivateTraderScenarioTest is Test {
         vm.startPrank(owner);
         _setupIV(impliedVol);
         vm.stopPrank();
+
+        // Allow the private hub's default minInterval to elapse before the next upkeep run.
+        vm.warp(block.timestamp + 31);
         
 
+        
         // place new round of orders
         _doppiPrivateAutomationHubCheckUpkeep_performUpkeep();
         buyCount = privateCore.getBuyPositionCount(address(traderBot));
         sellCount = privateCore.getSellPositionCount(address(traderBot));
+
         assertEq(buyCount, 5, "Expected 5 buy position after second upkeep");
         assertEq(sellCount, 5, "Expected 5 sell position after second upkeep");
 
@@ -263,6 +268,7 @@ contract PrivateTraderScenarioTest is Test {
     function _getBotBilling(address bot) internal view {
         
         BotBillingState memory billingState = privateAutomationHub.getBotBilling(bot);
+        // console.log(privateAutomationHub.minCreditThreshold(), "minCreditThreshold");
         // console.log("Trader:", billingState.trader);
         // console.log(billingState.creditBalance, "Credit Balance");
         // console.log(billingState.totalGasFeePaid, "Total Gas Fee Paid");

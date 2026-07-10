@@ -16,7 +16,7 @@ import {
     PrivateJobView,
     BotBillingState
 } from "./PrivateAutomationHubTypes.sol";
-// import "forge-std/console.sol";
+// import "forge-std/console2.sol";
 
 
 interface IDoppiPoints {
@@ -100,7 +100,7 @@ contract PrivateAutomationHub is IPrivateAutomationHub, Ownable, ReentrancyGuard
     uint32 public checkScanLimit   = 64;
 
     uint32 public defaultMinInterval         = 30;
-    uint32 public defaultGasLimitHint        = 4_000_000;
+    uint32 public defaultGasLimitHint        = 5_000_000;
     uint16 public defaultMaxConsecutiveFails = 5;
 
     // ── Billing config ────────────────────────────────────────────────────
@@ -624,7 +624,7 @@ contract PrivateAutomationHub is IPrivateAutomationHub, Ownable, ReentrancyGuard
         } else {
             // Fixed rate: pointsNeeded = (feeInFundToken * 10000) / doppiPointsExchangeRateBps
             if (doppiPointsExchangeRateBps == 0) return 0;
-            pointsNeeded = (feeInFundToken * 10000) / doppiPointsExchangeRateBps;
+            pointsNeeded = (feeInFundToken * 100000) / doppiPointsExchangeRateBps;
         }
 
         pointsDeducted = readyPoints < pointsNeeded ? readyPoints : pointsNeeded;
@@ -665,7 +665,7 @@ contract PrivateAutomationHub is IPrivateAutomationHub, Ownable, ReentrancyGuard
             combinedValue += _getTotalPointsValueInFundToken(bot);
         }
 
-        return combinedValue > 0;
+        return combinedValue >= minCreditThreshold;
     }
 
     function _pauseBotForBilling(address bot) internal {

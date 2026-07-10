@@ -742,11 +742,11 @@ contract PrivateAutomationHubTest is Test {
         hub.setPlatformMarkup(2000);
         vm.stopPrank();
 
-        // Deposit just below threshold
-        fundToken.mint(trader, 10 ether);
+        // Deposit exactly at threshold so upkeep can execute once, then drop below and auto-pause.
+        fundToken.mint(trader, 500 ether);
         vm.startPrank(trader);
-        fundToken.approve(address(hub), 10 ether);
-        hub.deposit(p.bot, 10 ether);
+        fundToken.approve(address(hub), 500 ether);
+        hub.deposit(p.bot, 500 ether);
         vm.stopPrank();
 
         botTarget.setCheckResponse(true, abi.encode("bot"));

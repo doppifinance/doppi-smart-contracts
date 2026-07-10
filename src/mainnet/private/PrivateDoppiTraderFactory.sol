@@ -12,6 +12,7 @@ import {ConfigParam} from "../DoppiLiquidityTypes.sol";
 import {RegisterPrivateBotParams, PrivateBotJobIds} from "./PrivateAutomationHubTypes.sol";
 import {PrivateBotDeployer} from "./PrivateBotDeployer.sol";
 import {IPrivateCoreAdmin} from "../../Interface/IPrivateCoreAdmin.sol";
+import {IPrivateOpportunityAdmin} from "../../Interface/IPrivateOpportunityAdmin.sol";
 import {IPrivateLiquidityAdmin} from "../../Interface/IPrivateLiquidityAdmin.sol";
 import {IPrivateRouterAdmin, IPrivateRouterView} from "../../Interface/IPrivateRouterAdmin.sol";
 import {ISetForwarder, ISetTraderFactory, IPrivateBot, IPrivateFeePoolAdmin} from "../../Interface/IPrivateBotInterfaces.sol";
@@ -288,9 +289,16 @@ contract PrivateDoppiTraderFactory is Ownable, IDoppiTraderFactory {
         IPrivateCoreAdmin(botPrivateCore[bot]).setDoppiTraderFactory(address(_traderFactory));
     }
 
-    function setPrivateLiquidityConfig(address bot, bool _emergency) external onlyOwner {
+    function setPrivateLiquidityConfig(address bot) external onlyOwner {
         _requireRegisteredBot(bot);
         IPrivateLiquidityAdmin(botPrivateLiquidity[bot]).setConfig(lpConfig);
+    }
+
+    // ─── Private Opportunity wrappers ───────────────────────────────────────────────
+
+    function setOpportunityBufferParams(address bot, uint16 _bufferCutBps, uint16 _minBufferBps) external {
+        _requireOwnerOrTrader(bot);
+        IPrivateOpportunityAdmin(botPrivateOpportunity[bot]).setOpportunityBufferParams(_bufferCutBps, _minBufferBps);
     }
 
     // ─── Private Router wrappers ───────────────────────────────────────────────
