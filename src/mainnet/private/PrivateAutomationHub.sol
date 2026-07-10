@@ -43,13 +43,13 @@ contract PrivateAutomationHub is IPrivateAutomationHub, Ownable, ReentrancyGuard
     event RegistrarUpdated(address indexed account, bool allowed);
     event ExecutorUpdated(address indexed account, bool allowed);
     event GlobalLimitsUpdated(uint16 maxJobsPerUpkeep, uint32 scanLimit);
-    event DefaultJobConfigUpdated(uint32 minInterval, uint32 gasLimitHint, uint16 maxConsecutiveFails);
+    event DefaultJobConfigUpdated(uint32 minInterval, uint32 gasLimitHint);
 
     // ── Jobs ──────────────────────────────────────────────────────────────
     event JobRegistered(uint256 indexed jobId, address indexed bot, PrivateAutomationModule module, address target);
     event JobUpdated(uint256 indexed jobId, address indexed bot, PrivateAutomationModule module, address target);
     event JobDisabled(uint256 indexed jobId, address indexed bot, PrivateAutomationModule module);
-    event JobConfigUpdated(uint256 indexed jobId, bool active, uint32 minInterval, uint32 gasLimitHint, uint16 maxConsecutiveFails);
+    event JobConfigUpdated(uint256 indexed jobId, bool active, uint32 minInterval, uint32 gasLimitHint);
     event JobExecutionSucceeded(uint256 indexed jobId, address indexed bot, PrivateAutomationModule module);
     event JobExecutionFailed(uint256 indexed jobId, address indexed bot, PrivateAutomationModule module);
     event JobAutoPaused(uint256 indexed jobId, address indexed bot, PrivateAutomationModule module, uint32 failCount);
@@ -86,7 +86,6 @@ contract PrivateAutomationHub is IPrivateAutomationHub, Ownable, ReentrancyGuard
         bool lowCreditDisabled;         // set true only when auto-paused by low-credit
         uint32 minInterval;
         uint32 gasLimitHint;
-        uint16 maxConsecutiveFails;
         uint32 failCount;
         uint64 lastRunAt;
         uint64 nextEligibleAt;
@@ -101,7 +100,6 @@ contract PrivateAutomationHub is IPrivateAutomationHub, Ownable, ReentrancyGuard
 
     uint32 public defaultMinInterval         = 30;
     uint32 public defaultGasLimitHint        = 5_000_000;
-    uint16 public defaultMaxConsecutiveFails = 5;
 
     // ── Billing config ────────────────────────────────────────────────────
     IERC20                public fundToken;
@@ -191,14 +189,12 @@ contract PrivateAutomationHub is IPrivateAutomationHub, Ownable, ReentrancyGuard
 
     function setDefaultJobConfig(
         uint32 _minInterval,
-        uint32 _gasLimitHint,
-        uint16 _maxConsecutiveFails
+        uint32 _gasLimitHint
     ) external onlyOwner {
-        if (_gasLimitHint == 0 || _maxConsecutiveFails == 0) revert InvalidJob();
+        if (_gasLimitHint == 0) revert InvalidJob();
         defaultMinInterval         = _minInterval;
         defaultGasLimitHint        = _gasLimitHint;
-        defaultMaxConsecutiveFails = _maxConsecutiveFails;
-        emit DefaultJobConfigUpdated(_minInterval, _gasLimitHint, _maxConsecutiveFails);
+        emit DefaultJobConfigUpdated(_minInterval, _gasLimitHint);
     }
 
     // ── Billing admin ─────────────────────────────────────────────────────
@@ -441,8 +437,7 @@ contract PrivateAutomationHub is IPrivateAutomationHub, Ownable, ReentrancyGuard
         j.active              = config.active;
         j.minInterval         = config.minInterval;
         j.gasLimitHint        = config.gasLimitHint;
-        j.maxConsecutiveFails = config.maxConsecutiveFails;
-        emit JobConfigUpdated(jobId, config.active, config.minInterval, config.gasLimitHint, config.maxConsecutiveFails);
+        emit JobConfigUpdated(jobId, config.active, config.minInterval, config.gasLimitHint);
     }
 
     function setJobActive(uint256 jobId, bool active) external onlyOwner {
@@ -450,7 +445,7 @@ contract PrivateAutomationHub is IPrivateAutomationHub, Ownable, ReentrancyGuard
         if (j.bot == address(0)) revert InvalidJob();
         j.active = active;
         if (active && j.nextEligibleAt == 0) j.nextEligibleAt = uint64(block.timestamp);
-        emit JobConfigUpdated(jobId, j.active, j.minInterval, j.gasLimitHint, j.maxConsecutiveFails);
+        emit JobConfigUpdated(jobId, j.active, j.minInterval, j.gasLimitHint);
     }
 
     // ── Automation ────────────────────────────────────────────────────────
@@ -727,7 +722,6 @@ contract PrivateAutomationHub is IPrivateAutomationHub, Ownable, ReentrancyGuard
             created.active              = true;
             created.minInterval         = defaultMinInterval;
             created.gasLimitHint        = defaultGasLimitHint;
-            created.maxConsecutiveFails = defaultMaxConsecutiveFails;
             created.nextEligibleAt      = uint64(block.timestamp);
 
             emit JobRegistered(jobId, bot, module, target);
@@ -738,7 +732,6 @@ contract PrivateAutomationHub is IPrivateAutomationHub, Ownable, ReentrancyGuard
         existing.target = target;
         existing.active = true;
         if (existing.gasLimitHint        == 0) existing.gasLimitHint        = defaultGasLimitHint;
-        if (existing.maxConsecutiveFails == 0) existing.maxConsecutiveFails = defaultMaxConsecutiveFails;
         if (existing.nextEligibleAt      == 0) existing.nextEligibleAt      = uint64(block.timestamp);
 
         emit JobUpdated(jobId, bot, module, target);
@@ -761,12 +754,7 @@ contract PrivateAutomationHub is IPrivateAutomationHub, Ownable, ReentrancyGuard
     function _recordFailure(uint256 jobId, JobState storage j) internal {
         unchecked { ++j.failCount; }
         emit JobExecutionFailed(jobId, j.bot, j.module);
-        if (j.failCount >= j.maxConsecutiveFails) {
-            j.active = false;
-            emit JobAutoPaused(jobId, j.bot, j.module, j.failCount);
-        } else {
-            j.nextEligibleAt = uint64(block.timestamp + j.minInterval);
-        }
+        j.nextEligibleAt = uint64(block.timestamp + j.minInterval);
     }
 
     function _normalizedCursor(uint256 cursor, uint256 upperBound) internal pure returns (uint256) {

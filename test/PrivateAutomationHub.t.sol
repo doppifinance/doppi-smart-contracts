@@ -577,8 +577,7 @@ contract PrivateAutomationHubTest is Test {
         PrivateJobConfig memory cfg = PrivateJobConfig({
             active: true,
             minInterval: 60,
-            gasLimitHint: 500_000,
-            maxConsecutiveFails: 2
+            gasLimitHint: 500_000
         });
 
         vm.prank(owner);
@@ -594,50 +593,6 @@ contract PrivateAutomationHubTest is Test {
         hub.setJobActive(ids.traderJobId, true);
         traderJob = hub.getJob(ids.traderJobId);
         assertTrue(traderJob.active);
-    }
-
-    function test_failures_autopause_after_threshold() public {
-        RegisterPrivateBotParams memory p = _params();
-        vm.prank(registrar);
-        PrivateBotJobIds memory ids = hub.registerPrivateBotJobs(p);
-
-        // Strict billing mode requires available credit/points before execution.
-        fundToken.mint(trader, 100 ether);
-        vm.startPrank(trader);
-        fundToken.approve(address(hub), 100 ether);
-        hub.deposit(p.bot, 100 ether);
-        vm.stopPrank();
-
-        PrivateJobConfig memory cfg = PrivateJobConfig({
-            active: true,
-            minInterval: 1,
-            gasLimitHint: 500_000,
-            maxConsecutiveFails: 2
-        });
-
-        vm.prank(owner);
-        hub.setJobConfig(ids.traderJobId, cfg);
-
-        botTarget.setCheckResponse(true, abi.encode("bot"));
-        botTarget.setPerformRevert(true);
-
-        // First fail
-        (bool needed, bytes memory pd) = hub.checkUpkeep("");
-        assertTrue(needed);
-        vm.prank(executor);
-        hub.performUpkeep(pd);
-
-        vm.warp(block.timestamp + 2);
-
-        // Second fail -> auto pause
-        (needed, pd) = hub.checkUpkeep("");
-        assertTrue(needed);
-        vm.prank(executor);
-        hub.performUpkeep(pd);
-
-        PrivateJobView memory traderJob = hub.getJob(ids.traderJobId);
-        assertFalse(traderJob.active);
-        assertEq(traderJob.failCount, 2);
     }
 
     function test_global_limits_bound_batch_size() public {

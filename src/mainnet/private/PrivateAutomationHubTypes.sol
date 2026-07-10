@@ -33,7 +33,6 @@ struct PrivateJobConfig {
     bool active;
     uint32 minInterval;
     uint32 gasLimitHint;
-    uint16 maxConsecutiveFails;
 }
 
 /// @notice View shape for external indexing and operator tooling.
