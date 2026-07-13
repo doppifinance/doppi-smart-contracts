@@ -17,8 +17,8 @@ contract DoppiFeePool is Ownable, ReentrancyGuard {
     address public sharedLiquidity;
     address public feeReceiver;
     uint16 public sharedLPSplitBps;
-    address public coreAuthorizer;
-
+    
+    mapping(address => bool) public coreAuthorizers;
     mapping(address => bool) public authorizedCore;
 
     event FeeTargetsUpdated(address indexed sharedLiquidity, address indexed feeReceiver);
@@ -41,12 +41,12 @@ contract DoppiFeePool is Ownable, ReentrancyGuard {
     }
 
     function setCoreAuthorizer(address _coreAuthorizer) external onlyOwner {
-        coreAuthorizer = _coreAuthorizer;
+        coreAuthorizers[_coreAuthorizer] = true;
         emit CoreAuthorizerUpdated(_coreAuthorizer);
     }
 
     function setAuthorizedCore(address core, bool allowed) external {
-        if (msg.sender != owner() && msg.sender != coreAuthorizer) revert NotOwnerOrAuthorizer();
+        if (msg.sender != owner() && !coreAuthorizers[msg.sender]) revert NotOwnerOrAuthorizer();
         authorizedCore[core] = allowed;
         emit AuthorizedCoreUpdated(core, allowed);
     }

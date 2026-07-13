@@ -33,7 +33,10 @@ contract DoppiLiquidity is SoladyERC20, SoladyOwnable, Pausable, IDoppiLiquidity
     address public assetA;
     address public assetB;
     address public doppiCore;
-    address public doppiTraderFactory;
+    
+    mapping(address => bool) public allowedTraderFactories;
+    mapping(address => bool) private traderFactoryListed;
+    address[] private traderFactoryList;
     address public doppiLiquidityRouter;
     mapping(address => bool) public validEntryPoints;
     bool public entryPointsLocked;
@@ -57,9 +60,15 @@ contract DoppiLiquidity is SoladyERC20, SoladyOwnable, Pausable, IDoppiLiquidity
     event UnwindPerformed(bool isNetBuy, uint256 totalAmount, uint256 totalAmountOut);
     event EntryPointSet(address indexed entryPoint, bool isValid);
     event EntryPointsLocked();
+    event TraderFactoryAllowed(address indexed traderFactory, bool allowed);
 
     modifier onlyDoppiCore() {
-        require(msg.sender == doppiCore || IDoppiTraderFactory(doppiTraderFactory).isTraderBot(msg.sender), "only doppicore or trader bot");
+        require(msg.sender == doppiCore, "only doppicore");
+        _;
+    }
+
+    modifier onlySwapCaller() {
+        require(msg.sender == doppiCore || _isTraderBotCaller(msg.sender), "only doppicore or trader bot");
         _;
     }
 
@@ -148,9 +157,32 @@ contract DoppiLiquidity is SoladyERC20, SoladyOwnable, Pausable, IDoppiLiquidity
         return _payout;
     }
 
-    function swap(uint256 _amountIn, uint256 _price, bool _isBuy) external nonReentrant onlyDoppiCore returns (uint256) {
+    function swap(uint256 _amountIn, uint256 _price, bool _isBuy) external nonReentrant onlySwapCaller returns (uint256) {
         uint256 fee = _amountIn * config.liquidityFee / 1_000_000;
         return _swap(_amountIn, _price, _isBuy, fee, false);
+    }
+
+    function _isTraderBotCaller(address caller) internal view returns (bool) {
+        uint256 length = traderFactoryList.length;
+        for (uint256 i = 0; i < length; ) {
+            address factory = traderFactoryList[i];
+            if (allowedTraderFactories[factory] && _isBotFromFactory(factory, caller)) {
+                return true;
+            }
+            unchecked {
+                ++i;
+            }
+        }
+        return false;
+    }
+
+    function _isBotFromFactory(address factory, address caller) internal view returns (bool) {
+        if (factory == address(0) || factory.code.length == 0) return false;
+        try IDoppiTraderFactory(factory).isTraderBot(caller) returns (bool ok) {
+            return ok;
+        } catch {
+            return false;
+        }
     }
 
     function assetRatio() external view returns (uint256 ratioA, uint256 ratioB) {
@@ -236,7 +268,21 @@ contract DoppiLiquidity is SoladyERC20, SoladyOwnable, Pausable, IDoppiLiquidity
     }
 
     function setDoppiTraderFactory(address _traderFactory) external onlyOwner {
-        doppiTraderFactory = _traderFactory;
+        _setTraderFactoryAllowed(_traderFactory, true);
+    }
+
+    function setTraderFactoryAllowed(address _traderFactory, bool _allowed) external onlyOwner {
+        _setTraderFactoryAllowed(_traderFactory, _allowed);
+    }
+
+    function _setTraderFactoryAllowed(address _traderFactory, bool _allowed) internal {
+        if (_traderFactory == address(0)) return;
+        if (!traderFactoryListed[_traderFactory]) {
+            traderFactoryList.push(_traderFactory);
+            traderFactoryListed[_traderFactory] = true;
+        }
+        allowedTraderFactories[_traderFactory] = _allowed;
+        emit TraderFactoryAllowed(_traderFactory, _allowed);
     }
 
     function setEntryPoint(address entryPoint, bool isValid) external onlyOwner {

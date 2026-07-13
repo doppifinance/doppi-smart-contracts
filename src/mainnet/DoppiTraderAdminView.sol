@@ -78,18 +78,21 @@ abstract contract DoppiTraderAdminView is Ownable, Pausable {
         totalAssetA = assetA.balanceOf(address(this));
         totalAssetB = assetB.balanceOf(address(this));
         
-        DualAssetPosition[] memory buyPositions = doppiCore.get_positions_buy(address(this));
-        uint256 length = buyPositions.length;
-        for (uint256 i = 0; i < length; ) {
-            totalAssetA += buyPositions[i].amount;
-            unchecked { ++i; }
+        if(address(doppiCore) != address(0)) {
+            DualAssetPosition[] memory buyPositions = doppiCore.get_positions_buy(address(this));
+            uint256 length = buyPositions.length;
+            for (uint256 i = 0; i < length; ) {
+                totalAssetA += buyPositions[i].amount;
+                unchecked { ++i; }
+            }
+            DualAssetPosition[] memory sellPositions = doppiCore.get_positions_sell(address(this));
+            length = sellPositions.length;
+            for (uint256 i = 0; i < length; ) {
+                totalAssetB += sellPositions[i].amount;
+                unchecked { ++i; }
+            }
         }
-        DualAssetPosition[] memory sellPositions = doppiCore.get_positions_sell(address(this));
-        length = sellPositions.length;
-        for (uint256 i = 0; i < length; ) {
-            totalAssetB += sellPositions[i].amount;
-            unchecked { ++i; }
-        }
+        
     }
 
     function _getTotalValueInA(uint256 price) internal view returns (uint256 totalInA) {

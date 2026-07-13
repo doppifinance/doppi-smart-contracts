@@ -13,11 +13,26 @@ contract DoppiFeePoolTest is Test {
     address sharedLP = address(0x11);
     address receiver = address(0x22);
     address privateCore = address(0x33);
+    address privateGridFactory = address(0x44);
 
     function setUp() public {
         token = new MockToken("USDT", "USDT");
         feePool = new DoppiFeePool(sharedLP, receiver, 3000); // 30%
         feePool.setAuthorizedCore(privateCore, true);
+    }
+
+    function test_setAuthorizedCore_allowsMultipleAuthorizers() public {
+        feePool.setCoreAuthorizer(privateCore);
+        feePool.setCoreAuthorizer(privateGridFactory);
+
+        vm.prank(privateCore);
+        feePool.setAuthorizedCore(address(0x55), true);
+
+        vm.prank(privateGridFactory);
+        feePool.setAuthorizedCore(address(0x66), true);
+
+        assertTrue(feePool.authorizedCore(address(0x55)));
+        assertTrue(feePool.authorizedCore(address(0x66)));
     }
 
     function test_onFeeReceived_splitsImmediately() public {
