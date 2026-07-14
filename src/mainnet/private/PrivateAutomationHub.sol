@@ -570,7 +570,11 @@ contract PrivateAutomationHub is IPrivateAutomationHub, Ownable, ReentrancyGuard
             pointsDeducted = _deductPointsForFee(bot, totalFee);
             if (pointsDeducted > 0) {
                 uint256 pointValueInToken = _getPointValueInFundToken(pointsDeducted);
-                fundTokenFee -= pointValueInToken;
+                if (pointValueInToken >= fundTokenFee) {
+                    fundTokenFee = 0;
+                } else {
+                    fundTokenFee -= pointValueInToken;
+                }
                 emit PointsUsedForFee(jobId, bot, pointsDeducted, pointValueInToken);
             }
         }

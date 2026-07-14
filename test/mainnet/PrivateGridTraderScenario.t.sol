@@ -130,8 +130,10 @@ contract PrivateGridTraderScenarioTest is Test {
             IERC20(BTC),
             address(doppiLP),
             address(impliedVol),
+            address(doppiPoints),
             address(privateTraderImpl)
         );
+        doppiPoints.setCoreRegistrar(address(privateFactory), true);
 
         doppiLP.setDoppiTraderFactory(address(privateFactory));
         

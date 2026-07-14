@@ -9,6 +9,7 @@ import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {AutomationCompatibleInterface} from "../../Interface/AutomationCompatibleInterface.sol";
 import {IDoppiLiquidity} from "../../Interface/IDoppiLiquidity.sol";
 import {IDoppiOffer} from "../../Interface/IDoppiOffer.sol";
+import {IDoppiPoints} from "../../Interface/IDoppiPoints.sol";
 import {DALiquidityLib} from "../../Library/DALiquidityLib.sol";
 import {OrderConfig, UndoStat} from "../DoppiTraderTypes.sol";
 import {DoppiTraderAdminView} from "../DoppiTraderAdminView.sol";
@@ -18,6 +19,7 @@ contract DoppiGridTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCom
     using SafeERC20 for IERC20;
 
     uint16 private constant BPS = 10000;
+    bytes4 private constant RECORD_SELECTOR = bytes4(keccak256("recordTrade(address,uint256)"));
     bytes4 private constant FEE_POOL_NOTIFY_SELECTOR = bytes4(keccak256("onFeeReceived(address,uint256)"));
     OrderConfig[] public orderConfigs;
     UndoStat public undoStat;
@@ -47,6 +49,7 @@ contract DoppiGridTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCom
     uint256 public minOrderA;
     uint256 public minOrderB;
     address public feePool;
+    IDoppiPoints public doppiPoints;
 
     mapping(uint8 => uint256) public epochOriginalBuyByZone;
     mapping(uint8 => uint256) public epochOriginalSellByZone;
@@ -80,6 +83,7 @@ contract DoppiGridTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCom
     error OnlyForwarder();
     error InvalidBps();
     error NoEnoughBalance();
+    error RecordTradeFailed();
 
     constructor() Ownable(msg.sender) {}
 
@@ -89,12 +93,14 @@ contract DoppiGridTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCom
         IERC20 _assetB,
         address _doppiLP,
         address _doppiOffer,
+        address _doppiPoints,
         uint24[] memory _weights
     ) external initializer {
         assetA = _assetA;
         assetB = _assetB;
         doppiLP = IDoppiLiquidity(_doppiLP);
         impliedVol = IDoppiOffer(_doppiOffer);
+        doppiPoints = IDoppiPoints(_doppiPoints);
         validTrader = _trader;
         _transferOwnership(msg.sender);
 
@@ -180,22 +186,29 @@ contract DoppiGridTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCom
         bool needPlace = _needPlaceOrders();
 
         upkeepNeeded = needUnwind || needOpportunity || needPlace;
-        performData = bytes("");
+        return (upkeepNeeded, abi.encode(needUnwind, needOpportunity, needPlace));
     }
 
-    function performUpkeep(bytes calldata) external override nonReentrant {
+    function performUpkeep(bytes calldata performData) external override nonReentrant {
         _onlyForwarder();
         if (!engineStarted || paused()) return;
 
         uint256 price = doppiLP.getPrice();
         if (price == 0) return;
 
-        _performUnwindBuyBuckets(price);
-        _performUnwindSellBuckets(price);
-        _performOpportunityBuy(price);
-        _performOpportunitySell(price);
+        (bool needUnwind, bool needOpportunity, bool needPlace) = 
+            abi.decode(performData, (bool, bool, bool));
 
-        if (_needPlaceOrders()) {
+        if(needUnwind){
+            _performUnwindBuyBuckets(price);
+            _performUnwindSellBuckets(price);
+        }
+        if(needOpportunity){
+            _performOpportunityBuy(price);
+            _performOpportunitySell(price);            
+        }
+
+        if (needPlace && _needPlaceOrders()) {
             _resetAndPlace(price);
         }
     }
@@ -308,6 +321,7 @@ contract DoppiGridTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCom
                 if (remaining == 0) break;
                 uint256 toSwap = amount > remaining ? remaining : amount;
                 uint256 amountOut = doppiLP.swap(toSwap, price, true);
+                _recordTradeVolumeInA(toSwap);
                 opportunityBuy[strike] = amount - toSwap;
                 totalIn += toSwap;
 
@@ -346,6 +360,7 @@ contract DoppiGridTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCom
                 if (remaining == 0) break;
                 uint256 toSwap = amount > remaining ? remaining : amount;
                 uint256 amountOut = doppiLP.swap(toSwap, price, false);
+                _recordTradeVolumeInA((toSwap * price) / priceDecimals);
                 opportunitySell[strike] = amount - toSwap;
                 totalIn += toSwap;
                 uint8 zone = sellStrikeZone[strike];
@@ -399,6 +414,7 @@ contract DoppiGridTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCom
 
         if (totalIn == 0) return;
         uint256 totalOut = doppiLP.swap(totalIn, price, false);
+        _recordTradeVolumeInA((totalIn * price) / priceDecimals);
 
         uint256 outRemaining = totalOut;
         for (uint256 i = 0; i < strikesCount; ) {
@@ -445,6 +461,7 @@ contract DoppiGridTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCom
 
         if (totalIn == 0) return;
         uint256 totalOut = doppiLP.swap(totalIn, price, true);
+        _recordTradeVolumeInA(totalIn);
 
         uint256 outRemaining = totalOut;
         for (uint256 i = 0; i < strikesCount; ) {
@@ -719,6 +736,12 @@ contract DoppiGridTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCom
     function _processDeposit(uint256 _amountA, uint256 _amountB) internal {
         if (_amountA > 0) _transferAndDeposit(assetA, _amountA);
         if (_amountB > 0) _transferAndDeposit(assetB, _amountB);
+    }
+
+    function _recordTradeVolumeInA(uint256 volumeInA) internal {
+        if (volumeInA == 0 || address(doppiPoints) == address(0) || doppiPoints.paused()) return;
+        (bool ok, ) = address(doppiPoints).call(abi.encodeWithSelector(RECORD_SELECTOR, validTrader, volumeInA));
+        if (!ok) revert RecordTradeFailed();
     }
 
     function _transferAndDeposit(IERC20 token, uint256 amount) internal {

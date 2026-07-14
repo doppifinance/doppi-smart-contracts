@@ -27,6 +27,7 @@ import {DoppiGridTrader} from "../../src/mainnet/private/DoppiGridTrader.sol";
 import {DoppiFeePool} from "../../src/mainnet/DoppiFeePool.sol";
 import "../../src/mainnet/DoppiLiquidityTypes.sol";
 import {TestParamLib} from "../../src/Library/TestParamLib.sol";
+import {MockOracle} from "../../src/test/MockOracle.sol";
 
 
 contract DeployDoppiAll is Script {
@@ -55,6 +56,7 @@ contract DeployDoppiAll is Script {
     address constant admin = address(0x6Abb788569C3658b4C4798dEb914e6151D7aFc1C);
     address constant forwarder = address(0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266);
     ConfigParam configLP;
+    MockOracle oracle;
 
     function run() external {
         
@@ -105,9 +107,11 @@ contract DeployDoppiAll is Script {
             IERC20(BTC),
             address(doppiLP),
             address(impliedVol),
+            address(doppiPoints),
             address(privateGridTraderImpl)
         );
         console.log("PrivateDoppiGridTraderFactory deployed at:", address(privateGridFactory));
+        doppiLP.setDoppiTraderFactory(address(privateGridFactory));
         
 
         // Deploy private factory
@@ -168,7 +172,10 @@ contract DeployDoppiAll is Script {
         doppiPoints.setAuthorizedPointsDeductor(address(privateAutomationHub), true);
 
         doppiPoints.setCoreRegistrar(address(privateFactory), true);
+        doppiPoints.setCoreRegistrar(address(privateGridFactory), true);
 
+
+        oracle = new MockOracle(int256(64300 * 1e8), 8);
 
         // privateAutomationHub.registerPrivateBotJobs(params);
 
@@ -206,6 +213,7 @@ contract DeployDoppiAll is Script {
         console.log("PrivateTraderImpl:", address(privateTraderImpl));
         console.log("PrivateOpportunityImpl:", address(privateOpportunityImpl));
         console.log("PrivateGridTraderImpl:", address(privateGridTraderImpl));
+        console.log("MockOracle:", address(oracle));
         // console.log("InitialPrivateBotId:", privateBotId);
         // console.log("InitialPrivateBot:", privateBot);
         // console.log("InitialPrivateCore:", privateCore);

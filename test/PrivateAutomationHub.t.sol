@@ -42,6 +42,7 @@ contract MockAutomationTarget {
 
 contract MockDoppiPoints {
     mapping(address => uint256) public readyPoints;
+    mapping(address => uint256) public spentPoints;
 
     constructor() {
         // Give all users 1000 ready points for testing
@@ -51,8 +52,14 @@ contract MockDoppiPoints {
         readyPoints[trader] = amount;
     }
 
+    function deductPointsForFee(address trader, uint256 points) external {
+        spentPoints[trader] += points;
+    }
+
     function getAllPointData(address trader) external view returns (uint256 totalClaimed, uint256 readyPointsVal, uint256 currentMonth) {
-        readyPointsVal = readyPoints[trader];
+        uint256 available = readyPoints[trader];
+        uint256 spent = spentPoints[trader];
+        readyPointsVal = available > spent ? available - spent : 0;
         // Return default values for totalClaimed and currentMonth
         return (0, readyPointsVal, 0);
     }
@@ -798,6 +805,45 @@ contract PrivateAutomationHubTest is Test {
 
         assertEq(fundToken.balanceOf(treasury), 0);
         assertEq(hub.getBotBilling(p.bot).creditBalance, 100 ether);
+    }
+
+    function test_billing_points_can_cover_fee_without_underflow() public {
+        vm.prank(owner);
+        hub.setDoppiPointsContract(address(mockDoppiPoints));
+        vm.prank(owner);
+        hub.setDoppiPointsExchangeRate(10000); // 1 point ~= 1 USDT unit
+
+        RegisterPrivateBotParams memory p = _params();
+        vm.prank(registrar);
+        hub.registerPrivateBotJobs(p);
+
+        address bot = p.bot;
+
+        // Make sure the bot has enough points that point value can exceed the fee.
+        mockDoppiPoints.setReadyPoints(trader, 10_000 ether);
+        vm.prank(trader);
+        hub.enablePointsPayment(bot);
+
+        fundToken.mint(trader, 100 ether);
+        vm.startPrank(trader);
+        fundToken.approve(address(hub), 100 ether);
+        hub.deposit(bot, 100 ether);
+        vm.stopPrank();
+
+        botTarget.setCheckResponse(true, abi.encode("bot"));
+
+        (bool needed, bytes memory pd) = hub.checkUpkeep("");
+        assertTrue(needed);
+
+        vm.txGasPrice(TEST_GAS_PRICE);
+        vm.prank(executor);
+        hub.performUpkeep(pd);
+
+        BotBillingState memory billing = hub.getBotBilling(bot);
+        assertEq(fundToken.balanceOf(treasury), 0);
+        assertEq(billing.creditBalance, 100 ether);
+        assertGt(mockDoppiPoints.spentPoints(trader), 0);
+        assertGt(billing.totalGasFeePaid, 0);
     }
 
     function test_billing_markup_too_high_reverts() public {

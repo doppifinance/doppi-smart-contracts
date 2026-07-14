@@ -19,6 +19,7 @@ contract DoppiPoints is Ownable, Pausable {
     IDoppiReferral public doppiReferral;
     mapping(address => bool) public doppiCore;
     uint256 public totalVolume;
+    uint256 public totalTradeVolumeUSDT;
     uint256 public botVolumeMultiplierNum = 1;
     uint256 public botVolumeMultiplierDen = 1;
 
@@ -73,6 +74,7 @@ contract DoppiPoints is Ownable, Pausable {
 
         monthlyVolume[monthId][actualTrader] += effectiveVolume;
         totalVolume += effectiveVolume;
+        totalTradeVolumeUSDT += volumeInUSDT;
         _ensureMonthId(monthId);
 
         // cache referral volume per level from the current active referral chain

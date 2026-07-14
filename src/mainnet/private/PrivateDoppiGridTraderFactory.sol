@@ -5,6 +5,7 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {Clones} from "@openzeppelin/contracts/proxy/Clones.sol";
 import {IDoppiTraderFactory} from "../../Interface/IDoppiTraderFactory.sol";
+import {IDoppiPoints} from "../../Interface/IDoppiPoints.sol";
 import {IPrivateAutomationHub} from "../../Interface/IPrivateAutomationHub.sol";
 import {ISetForwarder} from "../../Interface/IPrivateBotInterfaces.sol";
 import {BotRegistryLib} from "../../Library/BotRegistryLib.sol";
@@ -18,6 +19,7 @@ contract PrivateDoppiGridTraderFactory is Ownable, IDoppiTraderFactory {
     IERC20 public immutable assetB;
     address public immutable doppiLP;
     address public immutable doppiOffer;
+    address public immutable doppiPoints;
     address public traderBotImplementation;
     address public privateAutomationHub;
     address public defaultPrivateTreasury;
@@ -36,6 +38,7 @@ contract PrivateDoppiGridTraderFactory is Ownable, IDoppiTraderFactory {
         IERC20 _assetB,
         address _doppiLP,
         address _doppiOffer,
+        address _doppiPoints,
         address _traderBotImpl
     )
         Ownable(msg.sender)
@@ -44,15 +47,18 @@ contract PrivateDoppiGridTraderFactory is Ownable, IDoppiTraderFactory {
         assetB = _assetB;
         doppiLP = _doppiLP;
         doppiOffer = _doppiOffer;
+        doppiPoints = _doppiPoints;
         traderBotImplementation = _traderBotImpl;
         botRegistry.nextBotId = 1;
     }
 
     function deployPrivateBot(uint24[] calldata _weights) external returns (uint32) {
         address traderBot = traderBotImplementation.clone();
-        DoppiGridTrader(traderBot).initialize(msg.sender, assetA, assetB, doppiLP, doppiOffer, _weights);
+        DoppiGridTrader(traderBot).initialize(msg.sender, assetA, assetB, doppiLP, doppiOffer, doppiPoints, _weights);
 
         uint32 id = botRegistry.deployBot(msg.sender, traderBot);
+
+        IDoppiPoints(doppiPoints).registerCore(traderBot, address(this));
 
         if (privateAutomationHub != address(0)) {
             IPrivateAutomationHub(privateAutomationHub).registerSharedBotJob(msg.sender, traderBot, id);

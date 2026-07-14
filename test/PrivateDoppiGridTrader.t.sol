@@ -174,8 +174,10 @@ contract PrivateDoppiGridTraderTest is Test {
             IERC20(btc),
             address(sharedLP),
             address(impliedVol),
+            address(doppiPoints),
             address(traderImplementation)
         );
+        doppiPoints.setCoreRegistrar(address(privateFactory), true);
         privateFactory.setDefaultPrivateTreasury(feePoolReceiver, 2000);
 
         mockHub = new MockPrivateAutomationHubForGrid();
@@ -237,8 +239,11 @@ contract PrivateDoppiGridTraderTest is Test {
         vm.prank(owner);
         oracle.setPrice(int256(99_900 * 1e8));
 
-        vm.prank(forwarder);
-        bot.performUpkeep("");
+        (bool upkeepNeeded, bytes memory performData) = bot.checkUpkeep("");
+        if(upkeepNeeded){
+            vm.prank(forwarder);
+            bot.performUpkeep(performData);
+        }
 
         // Opportunity should move to unwind bucket near rounded+gap.
         assertEq(bot.getOpportunityInfo(true, 100_000 * p), 0);
@@ -264,17 +269,24 @@ contract PrivateDoppiGridTraderTest is Test {
         // Buy trigger at lower price.
         vm.prank(owner);
         oracle.setPrice(int256(99_900 * 1e8));
-        vm.prank(forwarder);
-        bot.performUpkeep("");
-
+        
+        (bool upkeepNeeded, bytes memory performData) = bot.checkUpkeep("");
+        if(upkeepNeeded){
+            vm.prank(forwarder);
+            bot.performUpkeep(performData);
+        }
+        
         uint256 receiverBefore = usdt.balanceOf(feePoolReceiver);
         uint256 sharedLpBefore = usdt.balanceOf(address(sharedLP));
 
         // Unwind trigger at higher price (profit realized in assetA/usdt).
         vm.prank(owner);
         oracle.setPrice(int256(130_000 * 1e8));
-        vm.prank(forwarder);
-        bot.performUpkeep("");
+        (upkeepNeeded, performData) = bot.checkUpkeep("");
+        if(upkeepNeeded){
+            vm.prank(forwarder);
+            bot.performUpkeep(performData);
+        }
 
         uint256 receiverAfter = usdt.balanceOf(feePoolReceiver);
         uint256 sharedLpAfter = usdt.balanceOf(address(sharedLP));
@@ -301,8 +313,11 @@ contract PrivateDoppiGridTraderTest is Test {
         vm.prank(owner);
         oracle.setPrice(int256(98_200 * 1e8));
 
-        vm.prank(forwarder);
-        bot.performUpkeep("");
+        (bool upkeepNeeded, bytes memory performData) = bot.checkUpkeep("");
+        if(upkeepNeeded){
+            vm.prank(forwarder);
+            bot.performUpkeep(performData);
+        }
 
         (, uint64 expiryAfter, uint256 anchorAfter) = bot.getEpochInfo();
         assertGt(expiryAfter, expiryBefore);
@@ -332,10 +347,13 @@ contract PrivateDoppiGridTraderTest is Test {
         assertEq(beforeExec[0].originalBuyAmount, 4_000 ether);
         assertEq(beforeExec[0].pendingBuyUnwind, 0);
 
-        vm.prank(owner);
-        oracle.setPrice(int256(99_900 * 1e8));
-        vm.prank(forwarder);
-        bot.performUpkeep("");
+        (bool upkeepNeeded, bytes memory performData) = bot.checkUpkeep("");
+        if(upkeepNeeded){
+            vm.prank(owner);
+            oracle.setPrice(int256(99_900 * 1e8));
+            vm.prank(forwarder);
+            bot.performUpkeep(performData);
+        }
 
         (bool okAfter, bytes memory dataAfter) = address(bot).call(abi.encodeWithSignature("getEpochZoneInfo()"));
         assertTrue(okAfter);
@@ -356,6 +374,73 @@ contract PrivateDoppiGridTraderTest is Test {
         assertEq(mockHub.lastTrader(), trader);
         assertEq(mockHub.lastBot(), botAddr);
         assertEq(bot.s_forwarderAddress(), address(mockHub));
+    }
+
+    function test_pointsRecordedOnOpportunityAndUnwindSwaps() public {
+        (address botAddr,,,,) = _deployAndCapture(trader);
+        DoppiGridTrader bot = DoppiGridTrader(botAddr);
+
+        vm.startPrank(trader);
+        bot.setForwarderAddress(forwarder);
+        bot.setOpportunityBufferParams(10000, 0);
+        usdt.approve(address(bot), type(uint256).max);
+        btc.approve(address(bot), type(uint256).max);
+        bot.start(100_000 ether, 0);
+        vm.stopPrank();
+
+        uint24 monthId = doppiPoints.getCurrentMonthId();
+        uint256 volumeBefore = doppiPoints.getMonthlyVolume(trader, monthId);
+
+        vm.prank(owner);
+        oracle.setPrice(int256(99_900 * 1e8));
+        (bool upkeepNeeded, bytes memory performData) = bot.checkUpkeep("");
+        if (upkeepNeeded) {
+            vm.prank(forwarder);
+            bot.performUpkeep(performData);
+        }
+
+        uint256 volumeAfterOpportunity = doppiPoints.getMonthlyVolume(trader, monthId);
+        assertGt(volumeAfterOpportunity, volumeBefore);
+
+        vm.prank(owner);
+        oracle.setPrice(int256(130_000 * 1e8));
+        (upkeepNeeded, performData) = bot.checkUpkeep("");
+        if (upkeepNeeded) {
+            vm.prank(forwarder);
+            bot.performUpkeep(performData);
+        }
+
+        uint256 volumeAfterUnwind = doppiPoints.getMonthlyVolume(trader, monthId);
+        assertGt(volumeAfterUnwind, volumeAfterOpportunity);
+    }
+
+    function test_pointsNotRecordedWhenDoppiPointsPaused() public {
+        (address botAddr,,,,) = _deployAndCapture(trader);
+        DoppiGridTrader bot = DoppiGridTrader(botAddr);
+
+        vm.startPrank(trader);
+        bot.setForwarderAddress(forwarder);
+        bot.setOpportunityBufferParams(10000, 0);
+        usdt.approve(address(bot), type(uint256).max);
+        bot.start(100_000 ether, 0);
+        vm.stopPrank();
+
+        uint24 monthId = doppiPoints.getCurrentMonthId();
+        uint256 volumeBefore = doppiPoints.getMonthlyVolume(trader, monthId);
+
+        vm.prank(owner);
+        doppiPoints.setPause();
+
+        vm.prank(owner);
+        oracle.setPrice(int256(99_900 * 1e8));
+        (bool upkeepNeeded, bytes memory performData) = bot.checkUpkeep("");
+        if (upkeepNeeded) {
+            vm.prank(forwarder);
+            bot.performUpkeep(performData);
+        }
+
+        uint256 volumeAfter = doppiPoints.getMonthlyVolume(trader, monthId);
+        assertEq(volumeAfter, volumeBefore);
     }
 
     function _deployAndCapture(address _trader) internal returns (

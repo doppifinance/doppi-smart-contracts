@@ -35,36 +35,66 @@ interface IPrivateAutomationHubDebug is IPrivateAutomationHubBilling {
 
 contract MyLocalScript is Script {
 
+    MockOracle oracle;
+
     function run() external {
         
-        
+        // oracle = new MockOracle(int256(64300 * 1e8), 8);
         AggregatorV3Interface chainLinkFeed = AggregatorV3Interface(address(0x0567F2323251f0Aab15c8dFb1967E4e8A7D42aeE));
         uint256 price = DALiquidityLib.getPrice(chainLinkFeed, 3 days);
         console.log("Price from DALiquidityLib:", block.timestamp, price);
 
-        PrivateDoppiTraderFactory factory = PrivateDoppiTraderFactory(address(0x61423bdE0b347e619b27faBd25a0cfAE50155A22)); 
-        IPrivateAutomationHubDebug hub = IPrivateAutomationHubDebug(address(factory.privateAutomationHub()));
-        console.log(hub.minCreditThreshold(), "minCreditThreshold");
+        // PrivateDoppiGridTraderFactory gridFactory = PrivateDoppiGridTraderFactory(address(0x02860A23214811C26aabaAEC3Ff4605b135C05A5)); 
+        
+        address doppiLP = address(0x6B0456B5552b5B3F2561923C4b33e5E766da594E);
+        _manipulateRealChainlink(doppiLP, int256(63_500 * 1e8));
+        DoppiLiquidity lp = DoppiLiquidity(doppiLP);
+        console.log("Current Price from DoppiLiquidity:", lp.getPrice(), "Decimals:", lp.getPriceDecimals());
+
+        // gridFactory.setConfigParam(TestParamLib.getDefaultConfigParam());
+        // PrivateDoppiTraderFactory factory = PrivateDoppiTraderFactory(address(0x61423bdE0b347e619b27faBd25a0cfAE50155A22)); 
+        // IPrivateAutomationHubDebug hub = IPrivateAutomationHubDebug(address(factory.privateAutomationHub()));
+        // console.log(hub.minCreditThreshold(), "minCreditThreshold");
         // address bot2 = address(0xca7219123f3d60aBF14DB1B61F37AF030C114d16);
-        address bot1 = address(0x41DAfaBbAa45C6f35aCE79E901FF0534B0fEd317); // private
+        // address bot1 = address(0x41DAfaBbAa45C6f35aCE79E901FF0534B0fEd317); // private
+
         // _traderBotInfo(bot);
-        _privateBotInfo(factory, bot1);
-        _runPrivateAutomationHubUpkeep(factory);
-        _getBotBilling(factory, bot1);
+        // _privateBotInfo(factory, bot1);
+        // _runPrivateAutomationHubUpkeep(factory);
+        // _getBotBilling(factory, bot1);
 
         
-        PrivateBotJobIds memory jobId = hub.getJobIdsByBot(bot1);
-        console.log("Doppi Points Exchange Rate Bps:", hub.doppiPointsExchangeRateBps());
+        // PrivateBotJobIds memory jobId = hub.getJobIdsByBot(bot1);
+        // console.log("Doppi Points Exchange Rate Bps:", hub.doppiPointsExchangeRateBps());
 
-        console.log("jobId:", jobId.coreJobId);
-        PrivateJobView memory job = hub.getJob(jobId.coreJobId);
-        console.log(job.failCount, "failCount core job");
-        console.log(job.gasLimitHint, "gasLimitHint core job");
+        // console.log("jobId:", jobId.coreJobId);
+        // PrivateJobView memory job = hub.getJob(jobId.coreJobId);
+        // console.log(job.failCount, "failCount core job");
+        // console.log(job.gasLimitHint, "gasLimitHint core job");
         
-        job = hub.getJob(jobId.traderJobId);
-        console.log(job.failCount, "failCount trader job");
-        console.log(job.gasLimitHint, "gasLimitHint trader job");
+        // job = hub.getJob(jobId.traderJobId);
+        // console.log(job.failCount, "failCount trader job");
+        // console.log(job.gasLimitHint, "gasLimitHint trader job");
 
+        
+    }
+
+    function _manipulateRealChainlink(address _doppiLP, int256 newPrice) internal {
+        
+        MockOracle _oracle = MockOracle(address(0xa9bc57aE55EC7Ca436AA6632B6853EE75062C80E));
+        _oracle.setPrice(newPrice);
+        DoppiLiquidity lp = DoppiLiquidity(_doppiLP);
+
+        ConfigParam memory configLP = TestParamLib.get_configLP_localhost();
+        configLP.chainLinkFeed = address(_oracle);
+
+        uint256 deployerPrivateKey = vm.envUint("PRIVATE_KEY");
+        vm.startBroadcast(deployerPrivateKey);
+        lp.setConfig(configLP); 
+        vm.stopBroadcast();
+        console.log("Updated Price:", lp.getPrice());
+
+        console.log("Chainlink feed updated to MockOracle with price:", newPrice);
         
     }
 
