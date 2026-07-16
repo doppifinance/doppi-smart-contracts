@@ -22,8 +22,10 @@ import {MockRegistryConsumer} from "../../src/test/MockRegistryConsumerLocalhost
 import {DoppiReferral} from "../../src/mainnet/DoppiReferral.sol";
 import {PrivateDoppiTraderFactory} from "../../src/mainnet/private/PrivateDoppiTraderFactory.sol";
 import {PrivateDoppiGridTraderFactory} from "../../src/mainnet/private/PrivateDoppiGridTraderFactory.sol";
+import {PrivateDoppiSimpleTraderFactory} from "../../src/mainnet/private/PrivateDoppiSimpleTraderFactory.sol";
 import {PrivateAutomationHub} from "../../src/mainnet/private/PrivateAutomationHub.sol";
 import {DoppiGridTrader} from "../../src/mainnet/private/DoppiGridTrader.sol";
+import {DoppiSimpleTrader} from "../../src/mainnet/private/DoppiSimpleTrader.sol";
 import {DoppiFeePool} from "../../src/mainnet/DoppiFeePool.sol";
 import "../../src/mainnet/DoppiLiquidityTypes.sol";
 import {TestParamLib} from "../../src/Library/TestParamLib.sol";
@@ -112,6 +114,18 @@ contract DeployDoppiAll is Script {
         );
         console.log("PrivateDoppiGridTraderFactory deployed at:", address(privateGridFactory));
         doppiLP.setDoppiTraderFactory(address(privateGridFactory));
+
+        DoppiSimpleTrader privateSimpleTraderImpl = new DoppiSimpleTrader();
+        PrivateDoppiSimpleTraderFactory privateSimpleFactory = new PrivateDoppiSimpleTraderFactory(
+            IERC20(USDT),
+            IERC20(BTC),
+            address(doppiLP),
+            address(impliedVol),
+            address(doppiPoints),
+            address(privateSimpleTraderImpl)
+        );
+        console.log("PrivateDoppiSimpleTraderFactory deployed at:", address(privateSimpleFactory));
+        doppiLP.setDoppiTraderFactory(address(privateSimpleFactory));
         
 
         // Deploy private factory
@@ -149,10 +163,14 @@ contract DeployDoppiAll is Script {
         doppiFeePool.setCoreAuthorizer(address(privateGridFactory));
         privateGridFactory.setDefaultPrivateTreasury(address(doppiFeePool), privateTreasuryFeeBps);
 
+        doppiFeePool.setCoreAuthorizer(address(privateSimpleFactory));
+        privateSimpleFactory.setDefaultPrivateTreasury(address(doppiFeePool), privateTreasuryFeeBps);
+
         // Wire hub to both shared and private factories for auto job registration.
         doppiFactory.setPrivateAutomationHub(address(privateAutomationHub));
         privateFactory.setPrivateAutomationHub(address(privateAutomationHub));
         privateGridFactory.setPrivateAutomationHub(address(privateAutomationHub));
+        privateSimpleFactory.setPrivateAutomationHub(address(privateAutomationHub));
 
         // Configure points-based billing in hub.
         privateAutomationHub.setDoppiPointsContract(address(doppiPoints));
@@ -163,6 +181,7 @@ contract DeployDoppiAll is Script {
         privateAutomationHub.setRegistrar(address(doppiFactory), true);
         privateAutomationHub.setRegistrar(address(privateFactory), true);
         privateAutomationHub.setRegistrar(address(privateGridFactory), true);
+        privateAutomationHub.setRegistrar(address(privateSimpleFactory), true);
         privateAutomationHub.setRegistrar(deployer, true);
 
         // Allow deployer to call performUpkeep in localhost testing.
@@ -173,6 +192,7 @@ contract DeployDoppiAll is Script {
 
         doppiPoints.setCoreRegistrar(address(privateFactory), true);
         doppiPoints.setCoreRegistrar(address(privateGridFactory), true);
+        doppiPoints.setCoreRegistrar(address(privateSimpleFactory), true);
 
 
         oracle = new MockOracle(int256(64300 * 1e8), 8);
@@ -207,12 +227,14 @@ contract DeployDoppiAll is Script {
         console.log("PrivateAutomationHub:", address(privateAutomationHub));
         console.log("DoppiFeePool:", address(doppiFeePool));
         console.log("PrivateGridFactory:", address(privateGridFactory));
+        console.log("PrivateSimpleFactory:", address(privateSimpleFactory));
         console.log("PrivateFeeToSharedLPBps:", privateFeeToSharedLPBps);
         console.log("PrivateTreasuryFeeBps:", privateTreasuryFeeBps);
         console.log("PrivateCoreImpl:", address(privateCoreImpl));
         console.log("PrivateTraderImpl:", address(privateTraderImpl));
         console.log("PrivateOpportunityImpl:", address(privateOpportunityImpl));
         console.log("PrivateGridTraderImpl:", address(privateGridTraderImpl));
+        console.log("PrivateSimpleTraderImpl:", address(privateSimpleTraderImpl));
         console.log("MockOracle:", address(oracle));
         // console.log("InitialPrivateBotId:", privateBotId);
         // console.log("InitialPrivateBot:", privateBot);

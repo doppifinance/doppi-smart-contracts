@@ -72,7 +72,7 @@ contract DoppiGridTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCom
 
     event OrdersPlaced(uint64 indexed epochStart, uint64 indexed epochExpiry, uint256 anchorPrice, uint256 buyBudget, uint256 sellBudget);
     event OpportunityExecuted(bool indexed isBuy, uint256 indexed strikePrice, uint256 amountIn, uint256 amountOut, uint256 unwindStrike);
-    event UnwindExecuted(bool indexed fromBuyBucket, uint256 amountIn, uint256 amountOut);
+    event UnwindExecuted(bool indexed fromBuyBucket, uint256 amountIn, uint256 amountOut, uint256 profit);
     event FeePaid(address indexed token, uint256 amount);
 
     error ArrayMismatch();
@@ -417,6 +417,7 @@ contract DoppiGridTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCom
         _recordTradeVolumeInA((totalIn * price) / priceDecimals);
 
         uint256 outRemaining = totalOut;
+        uint256 totalProfitA;
         for (uint256 i = 0; i < strikesCount; ) {
             uint256 s = strikes[i];
             uint256 used = usedAmounts[i];
@@ -424,13 +425,13 @@ contract DoppiGridTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCom
             if (outShare > outRemaining) outShare = outRemaining;
             outRemaining -= outShare;
 
-            _consumeUnwindBuyBucket(s, used, outShare);
+            totalProfitA += _consumeUnwindBuyBucket(s, used, outShare);
             unchecked {
                 ++i;
             }
         }
 
-        emit UnwindExecuted(true, totalIn, totalOut);
+        emit UnwindExecuted(true, totalIn, totalOut, totalProfitA);
     }
 
     function _performUnwindSellBuckets(uint256 price) internal {
@@ -464,6 +465,7 @@ contract DoppiGridTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCom
         _recordTradeVolumeInA(totalIn);
 
         uint256 outRemaining = totalOut;
+        uint256 totalProfitB;
         for (uint256 i = 0; i < strikesCount; ) {
             uint256 s = strikes[i];
             uint256 used = usedAmounts[i];
@@ -471,19 +473,19 @@ contract DoppiGridTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCom
             if (outShare > outRemaining) outShare = outRemaining;
             outRemaining -= outShare;
 
-            _consumeUnwindSellBucket(s, used, outShare);
+            totalProfitB += _consumeUnwindSellBucket(s, used, outShare);
             unchecked {
                 ++i;
             }
         }
 
-        emit UnwindExecuted(false, totalIn, totalOut);
+        emit UnwindExecuted(false, totalIn, totalOut, totalProfitB);
     }
 
-    function _consumeUnwindBuyBucket(uint256 strike, uint256 amountInB, uint256 amountOutA) internal {
+    function _consumeUnwindBuyBucket(uint256 strike, uint256 amountInB, uint256 amountOutA) internal returns (uint256 profitA) {
         uint256 bucketAmount = unWindBuy[strike];
         uint256 bucketCostA = unWindBuyCostA[strike];
-        if (bucketAmount == 0) return;
+        if (bucketAmount == 0) return 0;
 
         uint256 costConsumedA = (bucketCostA * amountInB) / bucketAmount;
         unWindBuy[strike] = bucketAmount - amountInB;
@@ -493,15 +495,15 @@ contract DoppiGridTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCom
         _syncStrikeState(strike, true);
 
         if (amountOutA > costConsumedA) {
-            uint256 profitA = amountOutA - costConsumedA;
+            profitA = amountOutA - costConsumedA;
             _payFee(address(assetA), profitA);
         }
     }
 
-    function _consumeUnwindSellBucket(uint256 strike, uint256 amountInA, uint256 amountOutB) internal {
+    function _consumeUnwindSellBucket(uint256 strike, uint256 amountInA, uint256 amountOutB) internal returns (uint256 profitB) {
         uint256 bucketAmount = unWindSell[strike];
         uint256 bucketCostB = unWindSellCostB[strike];
-        if (bucketAmount == 0) return;
+        if (bucketAmount == 0) return 0;
 
         uint256 costConsumedB = (bucketCostB * amountInA) / bucketAmount;
         unWindSell[strike] = bucketAmount - amountInA;
@@ -511,7 +513,7 @@ contract DoppiGridTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCom
         _syncStrikeState(strike, false);
 
         if (amountOutB > costConsumedB) {
-            uint256 profitB = amountOutB - costConsumedB;
+            profitB = amountOutB - costConsumedB;
             _payFee(address(assetB), profitB);
         }
     }

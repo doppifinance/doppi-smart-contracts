@@ -12,6 +12,14 @@ import "./DoppiCoreTypes.sol";
 
 
 abstract contract DoppiTraderAdminView is Ownable, Pausable {
+
+    struct StrikePnLView {
+        uint256 strikePrice;
+        uint256 unwindAmount;
+        uint256 currentValue;
+        uint256 entryValue;
+        int256 pnl;
+    }
     
     IERC20 public assetA;
     IERC20 public assetB;
@@ -122,6 +130,23 @@ abstract contract DoppiTraderAdminView is Ownable, Pausable {
         pnl = pnlprofit + pnlloss;  
     }
 
+    function getStrikePnL(bool isBuy)
+        external
+        view
+        returns (StrikePnLView[] memory items, int256 totalPnl, uint256 currentPrice)
+    {
+        currentPrice = doppiLP.getPrice();
+        return _buildStrikePnLView(isBuy, currentPrice);
+    }
+
+    function getStrikePnLAtPrice(bool isBuy, uint256 price)
+        external
+        view
+        returns (StrikePnLView[] memory items, int256 totalPnl)
+    {
+        (items, totalPnl, ) = _buildStrikePnLView(isBuy, price);
+    }
+
     function setPause() external {
         _onlyTrader();
         _pause();
@@ -210,6 +235,52 @@ abstract contract DoppiTraderAdminView is Ownable, Pausable {
                     pnl += int256(currentValueInB) - int256(origValueInB);
             }
             strikePrice = nextStrike;
+        }
+    }
+
+    function _buildStrikePnLView(bool isBuy, uint256 price)
+        internal
+        view
+        returns (StrikePnLView[] memory items, int256 totalPnl, uint256 usedPrice)
+    {
+        mapping(uint256 => StrikeNode) storage strikeNodes = isBuy ? buyStrikeNodes : sellStrikeNodes;
+        uint256 strikePrice = isBuy ? buyHead : sellHead;
+        usedPrice = price;
+
+        uint256 count;
+        while (strikePrice != 0) {
+            unchecked { ++count; }
+            strikePrice = strikeNodes[strikePrice].next;
+        }
+
+        items = new StrikePnLView[](count);
+        strikePrice = isBuy ? buyHead : sellHead;
+        for (uint256 i = 0; i < count; ) {
+            uint256 nextStrike = strikeNodes[strikePrice].next;
+            uint256 unwindAmount = isBuy ? unWindBuy[strikePrice] : unWindSell[strikePrice];
+            uint256 currentValue;
+            uint256 entryValue;
+
+            if (isBuy) {
+                currentValue = unwindAmount * price / priceDecimals;
+                entryValue = unwindAmount * strikePrice / priceDecimals;
+            } else {
+                currentValue = unwindAmount * priceDecimals / price;
+                entryValue = unwindAmount * priceDecimals / strikePrice;
+            }
+
+            int256 pnl = int256(currentValue) - int256(entryValue);
+            totalPnl += pnl;
+            items[i] = StrikePnLView({
+                strikePrice: strikePrice,
+                unwindAmount: unwindAmount,
+                currentValue: currentValue,
+                entryValue: entryValue,
+                pnl: pnl
+            });
+
+            strikePrice = nextStrike;
+            unchecked { ++i; }
         }
     }
 

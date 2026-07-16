@@ -79,7 +79,7 @@ contract Scenario2Test is Test {
     function setUp() public {
         
         // Fork Mainnet at a specific block
-        uint256 mainnetFork = vm.createFork("mainnet", 69703761); // Do not change the block number for the unit test
+        uint256 mainnetFork = vm.createFork("mainnet", 100250748); // Do not change the block number for the unit test
         vm.selectFork(mainnetFork);
         
         // Start prank as owner
@@ -215,7 +215,7 @@ contract Scenario2Test is Test {
         assertEq(interestLiabilitiesB, 0);
 
         uint256 avail = doppiRouter.getWithdrawableAmount(trader);
-        assertEq(avail, 91084405834040272619260);
+        assertEq(avail, 75909563927387960720357);
         
         maxDeposit = doppiCore.acceptedDeposit(false);
         
@@ -441,8 +441,8 @@ contract Scenario2Test is Test {
 
         uint256 maxBuy = doppiCore.acceptedDeposit(true);
         uint256 maxSell = doppiCore.acceptedDeposit(false);
-        assertEq(maxBuy, 1895574564912403796940);
-        assertEq(maxSell, 20922447767849268);
+        assertEq(maxBuy, 1743859376148934048868);
+        assertEq(maxSell, 22852633804873458);
         
         // trader 2 deposit and occupied pool liquidity before bot
         _depositUSDT(1600 ether, trader2);
@@ -455,8 +455,8 @@ contract Scenario2Test is Test {
         console.log(maxBuy, maxSell, "maxBuy, maxSell");
         
         liabilityB = liabilityA * 1e8 / doppiLP.getPrice();
-        assertEq(maxBuy + liabilityA, 295574564912403796940); // confirm max sell already includes all liability
-        assertEq(maxSell + liabilityB, 3262411044310628); // confirm max buy already includes all liability
+        assertEq(maxBuy + liabilityA, 143859376148934048868); // confirm max sell already includes all liability
+        assertEq(maxSell + liabilityB, 1885224053896626); // confirm max buy already includes all liability
         
 
         // place second round

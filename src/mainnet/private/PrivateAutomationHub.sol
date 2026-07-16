@@ -623,7 +623,7 @@ contract PrivateAutomationHub is IPrivateAutomationHub, Ownable, ReentrancyGuard
         } else {
             // Fixed rate: pointsNeeded = (feeInFundToken * 10000) / doppiPointsExchangeRateBps
             if (doppiPointsExchangeRateBps == 0) return 0;
-            pointsNeeded = (feeInFundToken * 100000) / doppiPointsExchangeRateBps;
+            pointsNeeded = (feeInFundToken * 10000) / doppiPointsExchangeRateBps;
         }
 
         pointsDeducted = readyPoints < pointsNeeded ? readyPoints : pointsNeeded;

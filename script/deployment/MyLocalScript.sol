@@ -8,6 +8,7 @@ import "../../src/mainnet/DoppiCore.sol";
 import "../../src/mainnet/DoppiOpportunity.sol";
 import "../../src/mainnet/DoppiUpkeepManager.sol";
 import "../../src/mainnet/DoppiTrader.sol";
+import "../../src/mainnet/private/DoppiSimpleTrader.sol";
 import "../../src/mainnet/DoppiPoints.sol";
 import "../../src/mainnet/DoppiReferral.sol";
 import "../../src/mainnet/private/PrivateDoppiTraderFactory.sol";
@@ -40,16 +41,18 @@ contract MyLocalScript is Script {
     function run() external {
         
         // oracle = new MockOracle(int256(64300 * 1e8), 8);
-        AggregatorV3Interface chainLinkFeed = AggregatorV3Interface(address(0x0567F2323251f0Aab15c8dFb1967E4e8A7D42aeE));
-        uint256 price = DALiquidityLib.getPrice(chainLinkFeed, 3 days);
-        console.log("Price from DALiquidityLib:", block.timestamp, price);
+        // AggregatorV3Interface chainLinkFeed = AggregatorV3Interface(address(0x0567F2323251f0Aab15c8dFb1967E4e8A7D42aeE));
+        // uint256 price = DALiquidityLib.getPrice(chainLinkFeed, 3 days);
+        // console.log("Price from DALiquidityLib:", block.timestamp, price);
 
         // PrivateDoppiGridTraderFactory gridFactory = PrivateDoppiGridTraderFactory(address(0x02860A23214811C26aabaAEC3Ff4605b135C05A5)); 
         
-        address doppiLP = address(0x6B0456B5552b5B3F2561923C4b33e5E766da594E);
-        _manipulateRealChainlink(doppiLP, int256(63_500 * 1e8));
+        address doppiLP = address(0xa0d688F46B46C55aF06318f0167369296f7f4D6B);
+        _manipulateRealChainlink(doppiLP, int256(66_500 * 1e8));
         DoppiLiquidity lp = DoppiLiquidity(doppiLP);
         console.log("Current Price from DoppiLiquidity:", lp.getPrice(), "Decimals:", lp.getPriceDecimals());
+
+        
 
         // gridFactory.setConfigParam(TestParamLib.getDefaultConfigParam());
         // PrivateDoppiTraderFactory factory = PrivateDoppiTraderFactory(address(0x61423bdE0b347e619b27faBd25a0cfAE50155A22)); 
@@ -57,6 +60,18 @@ contract MyLocalScript is Script {
         // console.log(hub.minCreditThreshold(), "minCreditThreshold");
         // address bot2 = address(0xca7219123f3d60aBF14DB1B61F37AF030C114d16);
         // address bot1 = address(0x41DAfaBbAa45C6f35aCE79E901FF0534B0fEd317); // private
+
+        DoppiSimpleTrader traderBot = DoppiSimpleTrader(address(0x0B5b8EFED0c1D314882465dc3A72AFeC8A4e7B96));
+        console.log(uint256(traderBot.get_unrealized_PNL()), "PnL");
+        (DoppiSimpleTrader.StrikePnLView[] memory items, int256 totalPnl, uint256 currentPrice) = traderBot.getStrikePnL(false);
+        console.log("Current Price:", currentPrice);
+        console.log("Total PnL:", totalPnl);
+        for (uint256 i = 0; i < items.length; i++) {
+            console.log("Strike:", items[i].strikePrice, "PnL:", uint256(items[i].pnl));
+            console.log("currentValue:", items[i].currentValue, "entryValue:", items[i].entryValue);
+            console.log("unwindAmount:", items[i].unwindAmount);
+        }
+
 
         // _traderBotInfo(bot);
         // _privateBotInfo(factory, bot1);
@@ -81,8 +96,7 @@ contract MyLocalScript is Script {
 
     function _manipulateRealChainlink(address _doppiLP, int256 newPrice) internal {
         
-        MockOracle _oracle = MockOracle(address(0xa9bc57aE55EC7Ca436AA6632B6853EE75062C80E));
-        _oracle.setPrice(newPrice);
+        MockOracle _oracle = MockOracle(address(0xD7CE1c508dF1ef09a5A679ABfF64AaA69Cc45fE3));
         DoppiLiquidity lp = DoppiLiquidity(_doppiLP);
 
         ConfigParam memory configLP = TestParamLib.get_configLP_localhost();
@@ -90,8 +104,10 @@ contract MyLocalScript is Script {
 
         uint256 deployerPrivateKey = vm.envUint("PRIVATE_KEY");
         vm.startBroadcast(deployerPrivateKey);
+        _oracle.setPrice(newPrice);
         lp.setConfig(configLP); 
         vm.stopBroadcast();
+        console.log("MockOracle latestAnswer:", uint256(_oracle.latestAnswer()));
         console.log("Updated Price:", lp.getPrice());
 
         console.log("Chainlink feed updated to MockOracle with price:", newPrice);
