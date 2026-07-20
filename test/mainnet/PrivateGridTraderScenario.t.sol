@@ -270,8 +270,6 @@ contract PrivateGridTraderScenarioTest is Test {
         console.log(zones[0].originalSellAmount, "originalSellAmount");
         console.log(zones[0].remainingBuyOpportunity, "remainingBuyOpportunity");
         console.log(zones[0].remainingSellOpportunity, "remainingSellOpportunity");
-        console.log(zones[0].pendingBuyUnwind, "pendingBuyUnwind");
-        console.log(zones[0].pendingSellUnwind, "pendingSellUnwind");
     }
 
     function _getBotBilling(address bot) internal view {

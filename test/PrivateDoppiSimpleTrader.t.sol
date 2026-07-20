@@ -15,56 +15,8 @@ import {DoppiLiquidity} from "../src/mainnet/DoppiLiquidity.sol";
 import {ConfigParam} from "../src/mainnet/DoppiLiquidityTypes.sol";
 import {PrivateDoppiSimpleTraderFactory} from "../src/mainnet/private/PrivateDoppiSimpleTraderFactory.sol";
 import {DoppiSimpleTrader} from "../src/mainnet/private/DoppiSimpleTrader.sol";
-import {IPrivateAutomationHub} from "../src/Interface/IPrivateAutomationHub.sol";
-import {
-    RegisterPrivateBotParams,
-    PrivateBotJobIds,
-    PrivateAutomationModule,
-    PrivateJobConfig,
-    PrivateJobView
-} from "../src/mainnet/private/PrivateAutomationHubTypes.sol";
 import {TestParamLib} from "../src/Library/TestParamLib.sol";
-
-contract MockPrivateAutomationHubForSimple is IPrivateAutomationHub {
-    uint256 public sharedRegisterCount;
-
-    function registerPrivateBotJobs(RegisterPrivateBotParams calldata)
-        external
-        pure
-        returns (PrivateBotJobIds memory jobIds)
-    {
-        return jobIds;
-    }
-
-    function registerSharedBotJob(address, address, uint32) external returns (uint256 jobId) {
-        sharedRegisterCount += 1;
-        return sharedRegisterCount;
-    }
-
-    function disablePrivateBotJobs(address) external pure {}
-
-    function getJobId(address, PrivateAutomationModule) external pure returns (uint256 jobId) {
-        return 0;
-    }
-
-    function getJobIdsByBot(address) external pure returns (PrivateBotJobIds memory jobIds) {
-        return jobIds;
-    }
-
-    function getJob(uint256) external pure returns (PrivateJobView memory job) {
-        return job;
-    }
-
-    function setJobConfig(uint256, PrivateJobConfig calldata) external pure {}
-
-    function setJobActive(uint256, bool) external pure {}
-
-    function checkUpkeep(bytes calldata) external pure returns (bool upkeepNeeded, bytes memory performData) {
-        return (false, bytes(""));
-    }
-
-    function performUpkeep(bytes calldata) external pure {}
-}
+import {MockPrivateAutomationHubForSimple} from "./PrivateDoppiSimpleTraderTopUpMock.sol";
 
 contract PrivateDoppiSimpleTraderTest is Test {
     MockToken usdt;
@@ -82,10 +34,12 @@ contract PrivateDoppiSimpleTraderTest is Test {
 
     DoppiSimpleTrader traderImplementation;
     PrivateDoppiSimpleTraderFactory privateFactory;
+    MockPrivateAutomationHubForSimple mockHub;
 
     address owner = address(0x1);
     address trader = address(0x2);
     address forwarder = address(0x3);
+    address feePoolReceiver = address(0x4);
 
     function setUp() public {
         vm.startPrank(owner);
@@ -139,6 +93,7 @@ contract PrivateDoppiSimpleTraderTest is Test {
         );
         doppiPoints.setCoreRegistrar(address(privateFactory), true);
         sharedLP.setTraderFactoryAllowed(address(privateFactory), true);
+        mockHub = new MockPrivateAutomationHubForSimple();
 
         usdt.mint(trader, 10_000_000 ether);
         btc.mint(trader, 100 ether);
@@ -161,6 +116,80 @@ contract PrivateDoppiSimpleTraderTest is Test {
 
         assertEq(bot.nextBuyTriggerPrice(), 65_000 * 1e8);
         assertEq(bot.nextSellTriggerPrice(), 65_000 * 1e8);
+    }
+
+    function test_startWithHubDoesNotTopUpWhenCreditIsActive() public {
+        mockHub.setBillingConfig(IERC20(usdt), 10 ether, false);
+        vm.prank(owner);
+        privateFactory.setPrivateAutomationHub(address(mockHub));
+
+        address botAddr = _deployAndCapture(trader);
+        DoppiSimpleTrader bot = DoppiSimpleTrader(botAddr);
+
+        vm.startPrank(trader);
+        usdt.approve(address(bot), type(uint256).max);
+        oracle.setPrice(int256(65_000 * 1e8));
+        bot.start(100_000 ether, 0);
+        vm.stopPrank();
+
+        assertEq(mockHub.depositedByBot(address(bot)), 0);
+        assertEq(usdt.balanceOf(address(mockHub)), 0);
+        assertEq(usdt.balanceOf(address(bot)), 100_000 ether);
+    }
+
+    function test_startWithHubTopUpWhenCreditPausedUsesRemainingCapital() public {
+        uint256 defaultTopUp = 10 ether;
+        mockHub.setBillingConfig(IERC20(usdt), defaultTopUp, true);
+        vm.prank(owner);
+        privateFactory.setPrivateAutomationHub(address(mockHub));
+
+        address botAddr = _deployAndCapture(trader);
+        DoppiSimpleTrader bot = DoppiSimpleTrader(botAddr);
+
+        vm.startPrank(trader);
+        usdt.approve(address(bot), type(uint256).max);
+        oracle.setPrice(int256(65_000 * 1e8));
+        bot.start(100_000 ether, 0);
+        vm.stopPrank();
+
+        assertEq(mockHub.depositedByBot(address(bot)), defaultTopUp);
+        assertEq(usdt.balanceOf(address(mockHub)), defaultTopUp);
+        assertEq(usdt.balanceOf(address(bot)), 100_000 ether - defaultTopUp);
+    }
+
+    function test_startWithHubTopUpRevertsWhenFundTokenDepositIsInsufficient() public {
+        mockHub.setBillingConfig(IERC20(usdt), 10 ether, true);
+        vm.prank(owner);
+        privateFactory.setPrivateAutomationHub(address(mockHub));
+
+        address botAddr = _deployAndCapture(trader);
+        DoppiSimpleTrader bot = DoppiSimpleTrader(botAddr);
+
+        vm.startPrank(trader);
+        usdt.approve(address(bot), type(uint256).max);
+        oracle.setPrice(int256(65_000 * 1e8));
+        vm.expectRevert(bytes4(keccak256("InsufficientTopUpAmount()")));
+        bot.start(5 ether, 0);
+        vm.stopPrank();
+    }
+
+    function test_startWithHubUnsupportedFundTokenLeavesCapitalUnchanged() public {
+        MockToken otherToken = new MockToken("Other", "OTHER");
+        mockHub.setBillingConfig(IERC20(otherToken), 10 ether, true);
+        vm.prank(owner);
+        privateFactory.setPrivateAutomationHub(address(mockHub));
+
+        address botAddr = _deployAndCapture(trader);
+        DoppiSimpleTrader bot = DoppiSimpleTrader(botAddr);
+
+        vm.startPrank(trader);
+        usdt.approve(address(bot), type(uint256).max);
+        oracle.setPrice(int256(65_000 * 1e8));
+        bot.start(100_000 ether, 0);
+        vm.stopPrank();
+
+        assertEq(mockHub.depositedByBot(address(bot)), 0);
+        assertEq(usdt.balanceOf(address(bot)), 100_000 ether);
     }
 
     function test_consecutiveOrdersAdvanceFromLastExecutionPrice() public {
@@ -355,6 +384,94 @@ contract PrivateDoppiSimpleTraderTest is Test {
         (avgBuy, avgSell) = bot.getAveragePrices();
         assertEq(avgBuy, 0);
         assertEq(avgSell, 0);
+    }
+
+    function test_stopPaysBuyUnwindProfitFeeInAssetB() public {
+        address botAddr = _deployAndCapture(trader);
+        DoppiSimpleTrader bot = DoppiSimpleTrader(botAddr);
+        uint256 p = 1e8;
+
+        vm.prank(owner);
+        privateFactory.setFeeConfig(address(bot), feePoolReceiver, 1000);
+
+        vm.startPrank(trader);
+        bot.setForwarderAddress(forwarder);
+        bot.setOpportunityBufferParams(10000, 0);
+        bot.setMaxOrderPerRound(10_000 ether, 0);
+        usdt.approve(address(bot), type(uint256).max);
+        oracle.setPrice(int256(65_000 * 1e8));
+        bot.start(100_000 ether, 0);
+        vm.stopPrank();
+
+        uint256 buyPrice = 64_500 * p;
+        vm.prank(owner);
+        oracle.setPrice(int256(buyPrice));
+
+        (bool upkeepNeeded, bytes memory performData) = bot.checkUpkeep("");
+        assertTrue(upkeepNeeded);
+        vm.prank(forwarder);
+        bot.performUpkeep(performData);
+
+        uint256 unwindAmountB = bot.getUnwindInfo(true, buyPrice);
+        uint256 entryValueA = bot.unWindBuyCostA(buyPrice);
+        uint256 stopPrice = 70_000 * p;
+        uint256 priceDecimals = 10 ** sharedLP.getPriceDecimals();
+        uint256 currentValueA = (unwindAmountB * stopPrice) / priceDecimals;
+        uint256 profitA = currentValueA - entryValueA;
+        uint256 expectedFeeB = ((profitA * 1000) / 10_000) * priceDecimals / stopPrice;
+
+        vm.prank(owner);
+        oracle.setPrice(int256(stopPrice));
+
+        uint256 receiverBefore = btc.balanceOf(feePoolReceiver);
+        vm.prank(trader);
+        bot.stop();
+
+        assertEq(btc.balanceOf(feePoolReceiver) - receiverBefore, expectedFeeB);
+    }
+
+    function test_stopPaysSellUnwindProfitFeeInAssetA() public {
+        address botAddr = _deployAndCapture(trader);
+        DoppiSimpleTrader bot = DoppiSimpleTrader(botAddr);
+        uint256 p = 1e8;
+
+        vm.prank(owner);
+        privateFactory.setFeeConfig(address(bot), feePoolReceiver, 1000);
+
+        vm.startPrank(trader);
+        bot.setForwarderAddress(forwarder);
+        bot.setOpportunityBufferParams(10000, 0);
+        bot.setMaxOrderPerRound(0, 0.1 ether);
+        btc.approve(address(bot), type(uint256).max);
+        oracle.setPrice(int256(65_000 * 1e8));
+        bot.start(0, 1 ether);
+        vm.stopPrank();
+
+        uint256 sellPrice = 66_000 * p;
+        vm.prank(owner);
+        oracle.setPrice(int256(sellPrice));
+
+        (bool upkeepNeeded, bytes memory performData) = bot.checkUpkeep("");
+        assertTrue(upkeepNeeded);
+        vm.prank(forwarder);
+        bot.performUpkeep(performData);
+
+        uint256 unwindAmountA = bot.getUnwindInfo(false, sellPrice);
+        uint256 entryValueB = bot.unWindSellCostB(sellPrice);
+        uint256 stopPrice = 60_000 * p;
+        uint256 priceDecimals = 10 ** sharedLP.getPriceDecimals();
+        uint256 currentValueB = (unwindAmountA * priceDecimals) / stopPrice;
+        uint256 profitB = currentValueB - entryValueB;
+        uint256 expectedFeeA = ((profitB * 1000) / 10_000) * stopPrice / priceDecimals;
+
+        vm.prank(owner);
+        oracle.setPrice(int256(stopPrice));
+
+        uint256 receiverBefore = usdt.balanceOf(feePoolReceiver);
+        vm.prank(trader);
+        bot.stop();
+
+        assertEq(usdt.balanceOf(feePoolReceiver) - receiverBefore, expectedFeeA);
     }
 
     function _deployAndCapture(address _trader) internal returns (address bot) {

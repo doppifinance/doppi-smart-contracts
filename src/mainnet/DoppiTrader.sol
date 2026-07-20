@@ -2,7 +2,6 @@
 pragma solidity ^0.8.26;
 import {Initializable} from "@openzeppelin/contracts/proxy/utils/Initializable.sol"; 
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
-import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {AutomationCompatibleInterface} from "../Interface/AutomationCompatibleInterface.sol";
 import {DALiquidityLib} from "../Library/DALiquidityLib.sol";
 import "./DoppiTraderTypes.sol";
@@ -11,7 +10,6 @@ import "./DoppiTraderAdminView.sol";
 
 contract DoppiTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCompatibleInterface, Initializable {
     using SafeERC20 for IERC20;
-    
     OrderConfig[] public orderConfigs;
     UndoStat public undoStat;
 
@@ -253,9 +251,11 @@ contract DoppiTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCompati
                 delete unWindMap[prices[index]];
                 reduced -= unwind;
             }else{
-                unWindMap[prices[index]] = reduced;
+                unWindMap[prices[index]] = unwind - reduced;
+                reduced = 0;
             }
             _syncStrikeState(prices[index], isBuy);
+            if (reduced == 0) break;
             unchecked { --i; }
         }
         if (isBuy) {

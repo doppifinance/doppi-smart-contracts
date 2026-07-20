@@ -6,23 +6,30 @@ import {IDoppiCore} from "../Interface/IDoppiCore.sol";
 import {IDoppiLiquidity} from "../Interface/IDoppiLiquidity.sol";
 import {IDoppiOffer} from "../Interface/IDoppiOffer.sol";
 import {IDoppiLiquidityRouter} from "../Interface/IDoppiLiquidityRouter.sol";
+import {IPrivateAutomationHub} from "../Interface/IPrivateAutomationHub.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import "./DoppiCoreTypes.sol";
+import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import {DualAssetPosition, StrikeNode, BulkDepositParam, DualAssetOffer} from "./DoppiCoreTypes.sol";
+import {BotBillingState} from "./private/PrivateAutomationHubTypes.sol";
+
 // import "forge-std/console.sol";
 
 
 abstract contract DoppiTraderAdminView is Ownable, Pausable {
 
+    using SafeERC20 for IERC20;
     struct StrikePnLView {
         uint256 strikePrice;
         uint256 unwindAmount;
         uint256 currentValue;
         uint256 entryValue;
+        uint256 averageCost;
         int256 pnl;
     }
     
     IERC20 public assetA;
     IERC20 public assetB;
+    IPrivateAutomationHub public privateAutomationHub;
     IDoppiLiquidity public doppiLP;
     IDoppiCore public doppiCore;
     IDoppiLiquidityRouter public doppiRouter;
@@ -56,7 +63,7 @@ abstract contract DoppiTraderAdminView is Ownable, Pausable {
 
     error NotValidTrader();
     error NotValidTraderOrUpkeep();
-
+    error InsufficientTopUpAmount();
     
     function getTotalBalancesInLP() external view returns (uint256 totalAssetA, uint256 totalAssetB) {
         return doppiLP.getBalances(address(this));
@@ -197,6 +204,10 @@ abstract contract DoppiTraderAdminView is Ownable, Pausable {
         s_forwarderAddress = forwarderAddress;
     }
 
+    function setPrivateAutomationHub(address _privateHub) external onlyOwner {
+        privateAutomationHub = IPrivateAutomationHub(_privateHub);
+    }
+
     function getUnwindInfo(bool isBuy, uint256 strikePrice) external view returns (uint256) {
         return isBuy ? unWindBuy[strikePrice] : unWindSell[strikePrice];
     }
@@ -223,17 +234,10 @@ abstract contract DoppiTraderAdminView is Ownable, Pausable {
         
         while (strikePrice != 0) {
             uint256 nextStrike = strikeNodes[strikePrice].next;
-            if (isBuy) {
-                uint256 amountOutBuy = unWindBuy[strikePrice];
-                uint256 currentValueInB = amountOutBuy * price / priceDecimals;
-                uint256 origValueInB = amountOutBuy * strikePrice / priceDecimals;
-                pnl += int256(currentValueInB) - int256(origValueInB);
-            } else {
-                uint256 amountOutSell = unWindSell[strikePrice];
-                    uint256 currentValueInB = amountOutSell * priceDecimals / price;
-                uint256 origValueInB = amountOutSell * priceDecimals / strikePrice;
-                    pnl += int256(currentValueInB) - int256(origValueInB);
-            }
+            uint256 unwindAmount = _getUnwindAmount(isBuy, strikePrice);
+            uint256 currentValue = _getUnwindCurrentValue(isBuy, unwindAmount, price);
+            uint256 entryValue = _getUnwindEntryValue(isBuy, strikePrice, unwindAmount);
+            pnl += int256(currentValue) - int256(entryValue);
             strikePrice = nextStrike;
         }
     }
@@ -257,17 +261,10 @@ abstract contract DoppiTraderAdminView is Ownable, Pausable {
         strikePrice = isBuy ? buyHead : sellHead;
         for (uint256 i = 0; i < count; ) {
             uint256 nextStrike = strikeNodes[strikePrice].next;
-            uint256 unwindAmount = isBuy ? unWindBuy[strikePrice] : unWindSell[strikePrice];
-            uint256 currentValue;
-            uint256 entryValue;
-
-            if (isBuy) {
-                currentValue = unwindAmount * price / priceDecimals;
-                entryValue = unwindAmount * strikePrice / priceDecimals;
-            } else {
-                currentValue = unwindAmount * priceDecimals / price;
-                entryValue = unwindAmount * priceDecimals / strikePrice;
-            }
+            uint256 unwindAmount = _getUnwindAmount(isBuy, strikePrice);
+            uint256 currentValue = _getUnwindCurrentValue(isBuy, unwindAmount, price);
+            uint256 entryValue = _getUnwindEntryValue(isBuy, strikePrice, unwindAmount);
+            uint256 averageCost = _getUnwindAverageCost(isBuy, unwindAmount, entryValue);
 
             int256 pnl = int256(currentValue) - int256(entryValue);
             totalPnl += pnl;
@@ -276,12 +273,68 @@ abstract contract DoppiTraderAdminView is Ownable, Pausable {
                 unwindAmount: unwindAmount,
                 currentValue: currentValue,
                 entryValue: entryValue,
+                averageCost: averageCost,
                 pnl: pnl
             });
 
             strikePrice = nextStrike;
             unchecked { ++i; }
         }
+    }
+
+    function _getUnwindAmount(bool isBuy, uint256 strikePrice) internal view returns (uint256) {
+        return isBuy ? unWindBuy[strikePrice] : unWindSell[strikePrice];
+    }
+
+    function _getUnwindCurrentValue(bool isBuy, uint256 unwindAmount, uint256 price) internal view returns (uint256) {
+        return isBuy ? unwindAmount * price / priceDecimals : unwindAmount * priceDecimals / price;
+    }
+
+    function _getUnwindEntryValue(bool isBuy, uint256 strikePrice, uint256 unwindAmount)
+        internal
+        view
+        virtual
+        returns (uint256)
+    {
+        return isBuy ? unwindAmount * strikePrice / priceDecimals : unwindAmount * priceDecimals / strikePrice;
+    }
+
+    function _performTopUp(uint256 amountA, uint256 amountB)
+        internal
+        returns (uint256 finalAmountA, uint256 finalAmountB)
+    {
+        finalAmountA = amountA;
+        finalAmountB = amountB;
+
+        if (address(privateAutomationHub) == address(0)) return (finalAmountA, finalAmountB);
+
+        BotBillingState memory botBilling = privateAutomationHub.getBotBilling(address(this));
+        uint256 minCreditThreshold = privateAutomationHub.minCreditThreshold();
+        if (botBilling.creditBalance > minCreditThreshold) return (finalAmountA, finalAmountB);
+
+        uint256 defaultTopUp = privateAutomationHub.defaultTopUp();
+        if (defaultTopUp == 0) return (finalAmountA, finalAmountB);
+
+        IERC20 fundToken = privateAutomationHub.fundToken();
+        
+        if (address(fundToken) == address(assetA)) {
+            if (amountA < defaultTopUp) revert InsufficientTopUpAmount();
+            finalAmountA = amountA - defaultTopUp;
+            assetA.safeIncreaseAllowance(address(privateAutomationHub), defaultTopUp);
+        } else if (address(fundToken) == address(assetB)) {
+            if (amountB < defaultTopUp) revert InsufficientTopUpAmount();
+            finalAmountB = amountB - defaultTopUp;
+            assetB.safeIncreaseAllowance(address(privateAutomationHub), defaultTopUp);
+        } else {
+            return (finalAmountA, finalAmountB);
+        }
+
+        privateAutomationHub.deposit(address(this), defaultTopUp);
+    }
+
+    function _getUnwindAverageCost(bool isBuy, uint256 unwindAmount, uint256 entryValue) internal view returns (uint256) {
+        if (unwindAmount == 0 || entryValue == 0) return 0;
+        return isBuy ? entryValue * priceDecimals / unwindAmount : unwindAmount * priceDecimals / entryValue;
     }
 
     function _getUnwindTargetPrice(uint256 _price, uint8 _zone, bool _isBuy) internal view returns (uint256) {

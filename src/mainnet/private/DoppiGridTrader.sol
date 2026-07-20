@@ -53,10 +53,6 @@ contract DoppiGridTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCom
 
     mapping(uint8 => uint256) public epochOriginalBuyByZone;
     mapping(uint8 => uint256) public epochOriginalSellByZone;
-    mapping(uint8 => uint256) public pendingUnwindBuyByZone;
-    mapping(uint8 => uint256) public pendingUnwindSellByZone;
-    uint256 private pendingUnwindBuyTotal;
-    uint256 private pendingUnwindSellTotal;
 
     struct EpochZoneInfo {
         uint8 zone;
@@ -66,8 +62,6 @@ contract DoppiGridTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCom
         uint256 originalSellAmount;
         uint256 remainingBuyOpportunity;
         uint256 remainingSellOpportunity;
-        uint256 pendingBuyUnwind;
-        uint256 pendingSellUnwind;
     }
 
     event OrdersPlaced(uint64 indexed epochStart, uint64 indexed epochExpiry, uint256 anchorPrice, uint256 buyBudget, uint256 sellBudget);
@@ -84,6 +78,7 @@ contract DoppiGridTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCom
     error InvalidBps();
     error NoEnoughBalance();
     error RecordTradeFailed();
+    error InvalidPrice();
 
     constructor() Ownable(msg.sender) {}
 
@@ -125,15 +120,21 @@ contract DoppiGridTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCom
     function start(uint256 _amountA, uint256 _amountB) external nonReentrant {
         _onlyTrader();
         if (_amountA == 0 && _amountB == 0) revert AmountNotSpecified();
-
         uint256 price = doppiLP.getPrice();
-        uint256 depositValueInA = _amountA;
-        uint256 depositValueInB = _amountB;
+        if(price == 0) revert InvalidPrice();
+
+        if (_amountA > 0) assetA.safeTransferFrom(msg.sender, address(this), _amountA);
+        if (_amountB > 0) assetB.safeTransferFrom(msg.sender, address(this), _amountB);
+
+        (uint256 finalAmountA, uint256 finalAmountB) = _performTopUp(_amountA, _amountB);
+
+        uint256 depositValueInA = finalAmountA;
+        uint256 depositValueInB = finalAmountB;
         if (_amountA > 0 && price > 0) {
-            depositValueInB += _amountA * priceDecimals / price;
+            depositValueInB += finalAmountA * priceDecimals / price;
         }
         if (_amountB > 0 && price > 0) {
-            depositValueInA += _amountB * price / priceDecimals;
+            depositValueInA += finalAmountB * price / priceDecimals;
         }
 
         uint256 currentValueInA = totalUnits == 0 ? 0 : _getTotalValueInA(price);
@@ -141,7 +142,6 @@ contract DoppiGridTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCom
         uint256 currentValueInB = totalUnitsB == 0 ? 0 : _getTotalValueInB(price);
         _updateUnitAndCostBasis(depositValueInB, currentValueInB, false);
 
-        _processDeposit(_amountA, _amountB);
         engineStarted = true;
         _resetAndPlace(price);
     }
@@ -156,6 +156,7 @@ contract DoppiGridTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCom
     function stop() external nonReentrant {
         _onlyTrader();
         engineStarted = false;
+        _payStopProfitFees();
         _clearOpportunityOrders();
         _removeMapping();
 
@@ -265,9 +266,7 @@ contract DoppiGridTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCom
                 originalBuyAmount: epochOriginalBuyByZone[zone],
                 originalSellAmount: epochOriginalSellByZone[zone],
                 remainingBuyOpportunity: buyStrike == 0 ? 0 : opportunityBuy[buyStrike],
-                remainingSellOpportunity: opportunitySell[sellStrike],
-                pendingBuyUnwind: pendingUnwindBuyByZone[zone],
-                pendingSellUnwind: pendingUnwindSellByZone[zone]
+                remainingSellOpportunity: opportunitySell[sellStrike]
             });
 
             unchecked {
@@ -326,16 +325,12 @@ contract DoppiGridTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCom
                 totalIn += toSwap;
 
                 uint8 zone = buyStrikeZone[strike];
-                pendingUnwindBuyByZone[zone] += amountOut;
-                pendingUnwindBuyTotal += amountOut;
-
-                uint256 unwindStrike = _roundPrice(price, gap) + (gap * unwindGapMultiplier);
-                unWindBuy[unwindStrike] += amountOut;
-                unWindBuyCostA[unwindStrike] += toSwap;
+                unWindBuy[strike] += amountOut;
+                unWindBuyCostA[strike] += toSwap;
                 undoStat.undo_assetB += amountOut;
-                _syncStrikeState(unwindStrike, true);
+                _syncStrikeState(strike, true);
 
-                emit OpportunityExecuted(true, strike, toSwap, amountOut, unwindStrike);
+                emit OpportunityExecuted(true, strike, toSwap, amountOut, strike);
             }
             unchecked {
                 ++i;
@@ -364,19 +359,12 @@ contract DoppiGridTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCom
                 opportunitySell[strike] = amount - toSwap;
                 totalIn += toSwap;
                 uint8 zone = sellStrikeZone[strike];
-                pendingUnwindSellByZone[zone] += amountOut;
-                pendingUnwindSellTotal += amountOut;
 
-                uint256 rounded = _roundPrice(price, gap);
-                uint256 unwindGap = gap * unwindGapMultiplier;
-                uint256 unwindStrike = rounded > unwindGap ? rounded - unwindGap : 0;
-                if (unwindStrike > 0) {
-                    unWindSell[unwindStrike] += amountOut;
-                    unWindSellCostB[unwindStrike] += toSwap;
-                    undoStat.undo_assetA += amountOut;
-                    _syncStrikeState(unwindStrike, false);
-                    emit OpportunityExecuted(false, strike, toSwap, amountOut, unwindStrike);
-                }
+                unWindSell[strike] += amountOut;
+                unWindSellCostB[strike] += toSwap;
+                undoStat.undo_assetA += amountOut;
+                _syncStrikeState(strike, false);
+                emit OpportunityExecuted(false, strike, toSwap, amountOut, strike);
             }
             unchecked {
                 ++i;
@@ -490,8 +478,8 @@ contract DoppiGridTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCom
         uint256 costConsumedA = (bucketCostA * amountInB) / bucketAmount;
         unWindBuy[strike] = bucketAmount - amountInB;
         unWindBuyCostA[strike] = bucketCostA > costConsumedA ? bucketCostA - costConsumedA : 0;
+        opportunityBuy[strike] += costConsumedA;
         undoStat.undo_assetB = undoStat.undo_assetB > amountInB ? undoStat.undo_assetB - amountInB : 0;
-        _reducePendingByZone(true, amountInB);
         _syncStrikeState(strike, true);
 
         if (amountOutA > costConsumedA) {
@@ -508,8 +496,8 @@ contract DoppiGridTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCom
         uint256 costConsumedB = (bucketCostB * amountInA) / bucketAmount;
         unWindSell[strike] = bucketAmount - amountInA;
         unWindSellCostB[strike] = bucketCostB > costConsumedB ? bucketCostB - costConsumedB : 0;
+        opportunitySell[strike] += costConsumedB;
         undoStat.undo_assetA = undoStat.undo_assetA > amountInA ? undoStat.undo_assetA - amountInA : 0;
-        _reducePendingByZone(false, amountInA);
         _syncStrikeState(strike, false);
 
         if (amountOutB > costConsumedB) {
@@ -521,7 +509,11 @@ contract DoppiGridTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCom
     function _payFee(address token, uint256 profitAmount) internal {
         if (feePool == address(0) || profitFeeBps == 0 || profitAmount == 0) return;
         uint256 fee = (profitAmount * profitFeeBps) / BPS;
-        if (fee == 0) return;
+        _payFeeAmount(token, fee);
+    }
+
+    function _payFeeAmount(address token, uint256 fee) internal {
+        if (feePool == address(0) || fee == 0) return;
         IERC20(token).safeTransfer(feePool, fee);
         if (feePool.code.length > 0) {
             (bool ok, ) = feePool.call(abi.encodeWithSelector(FEE_POOL_NOTIFY_SELECTOR, token, fee));
@@ -530,6 +522,66 @@ contract DoppiGridTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCom
             }
         }
         emit FeePaid(token, fee);
+    }
+
+    function _payStopProfitFees() internal {
+        if (feePool == address(0) || profitFeeBps == 0) return;
+        if (activeBuyStrikeCount == 0 && activeSellStrikeCount == 0) return;
+
+        uint256 price = doppiLP.getPrice();
+        if (price == 0) revert InvalidPrice();
+
+        _payStopBuyProfitFees(price);
+        _payStopSellProfitFees(price);
+    }
+
+    function _payStopBuyProfitFees(uint256 price) internal {
+        uint256 strike = buyHead;
+        while (strike != 0) {
+            uint256 nextStrike = buyStrikeNodes[strike].next;
+            uint256 amountB = unWindBuy[strike];
+            uint256 entryValueA = unWindBuyCostA[strike];
+            uint256 currentValueA = (amountB * price) / priceDecimals;
+
+            if (currentValueA > entryValueA) {
+                uint256 profitA = currentValueA - entryValueA;
+                uint256 feeA = (profitA * profitFeeBps) / BPS;
+                uint256 feeB = (feeA * priceDecimals) / price;
+                _payFeeAmount(address(assetB), feeB);
+            }
+
+            strike = nextStrike;
+        }
+    }
+
+    function _payStopSellProfitFees(uint256 price) internal {
+        uint256 strike = sellHead;
+        while (strike != 0) {
+            uint256 nextStrike = sellStrikeNodes[strike].next;
+            uint256 amountA = unWindSell[strike];
+            uint256 entryValueB = unWindSellCostB[strike];
+            uint256 currentValueB = (amountA * priceDecimals) / price;
+
+            if (currentValueB > entryValueB) {
+                uint256 profitB = currentValueB - entryValueB;
+                uint256 feeB = (profitB * profitFeeBps) / BPS;
+                uint256 feeA = (feeB * price) / priceDecimals;
+                _payFeeAmount(address(assetA), feeA);
+            }
+
+            strike = nextStrike;
+        }
+    }
+
+    function _getUnwindEntryValue(bool isBuy, uint256 strikePrice, uint256 unwindAmount)
+        internal
+        view
+        override
+        returns (uint256)
+    {
+        uint256 trackedCost = isBuy ? unWindBuyCostA[strikePrice] : unWindSellCostB[strikePrice];
+        if (trackedCost > 0 || unwindAmount == 0) return trackedCost;
+        return super._getUnwindEntryValue(isBuy, strikePrice, unwindAmount);
     }
 
     function _resetAndPlace(uint256 price) internal {
@@ -735,19 +787,10 @@ contract DoppiGridTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCom
         return impliedVol.getPriceGapPerOffer() * priceDecimals;
     }
 
-    function _processDeposit(uint256 _amountA, uint256 _amountB) internal {
-        if (_amountA > 0) _transferAndDeposit(assetA, _amountA);
-        if (_amountB > 0) _transferAndDeposit(assetB, _amountB);
-    }
-
     function _recordTradeVolumeInA(uint256 volumeInA) internal {
         if (volumeInA == 0 || address(doppiPoints) == address(0) || doppiPoints.paused()) return;
         (bool ok, ) = address(doppiPoints).call(abi.encodeWithSelector(RECORD_SELECTOR, validTrader, volumeInA));
         if (!ok) revert RecordTradeFailed();
-    }
-
-    function _transferAndDeposit(IERC20 token, uint256 amount) internal {
-        token.safeTransferFrom(msg.sender, address(this), amount);
     }
 
     function _initializeOrderConfigs(uint24[] memory _weights) internal {
@@ -820,70 +863,13 @@ contract DoppiGridTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCom
         sellTail = 0;
         activeBuyStrikeCount = 0;
         activeSellStrikeCount = 0;
-        pendingUnwindBuyTotal = 0;
-        pendingUnwindSellTotal = 0;
 
         for (uint8 z = 0; z < maxOrder; ) {
             epochOriginalBuyByZone[z] = 0;
             epochOriginalSellByZone[z] = 0;
-            pendingUnwindBuyByZone[z] = 0;
-            pendingUnwindSellByZone[z] = 0;
             unchecked {
                 ++z;
             }
-        }
-    }
-
-    function _reducePendingByZone(bool isBuySide, uint256 amount) internal {
-        if (amount == 0) return;
-
-        uint256 total = isBuySide ? pendingUnwindBuyTotal : pendingUnwindSellTotal;
-        if (total == 0) return;
-
-        uint256 toReduce = amount > total ? total : amount;
-        uint256 reduced;
-
-        for (uint8 z = 0; z < maxOrder; ) {
-            uint256 zonePending = isBuySide ? pendingUnwindBuyByZone[z] : pendingUnwindSellByZone[z];
-            if (zonePending > 0) {
-                uint256 delta = (toReduce * zonePending) / total;
-                if (delta > zonePending) delta = zonePending;
-
-                if (isBuySide) {
-                    pendingUnwindBuyByZone[z] = zonePending - delta;
-                } else {
-                    pendingUnwindSellByZone[z] = zonePending - delta;
-                }
-                reduced += delta;
-            }
-            unchecked {
-                ++z;
-            }
-        }
-
-        uint256 remainder = toReduce > reduced ? toReduce - reduced : 0;
-        if (remainder > 0) {
-            for (uint8 z = 0; z < maxOrder && remainder > 0; ) {
-                uint256 zonePending = isBuySide ? pendingUnwindBuyByZone[z] : pendingUnwindSellByZone[z];
-                if (zonePending > 0) {
-                    uint256 delta = zonePending > remainder ? remainder : zonePending;
-                    if (isBuySide) {
-                        pendingUnwindBuyByZone[z] = zonePending - delta;
-                    } else {
-                        pendingUnwindSellByZone[z] = zonePending - delta;
-                    }
-                    remainder -= delta;
-                }
-                unchecked {
-                    ++z;
-                }
-            }
-        }
-
-        if (isBuySide) {
-            pendingUnwindBuyTotal = total - toReduce;
-        } else {
-            pendingUnwindSellTotal = total - toReduce;
         }
     }
 

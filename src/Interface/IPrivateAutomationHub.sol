@@ -2,12 +2,14 @@
 pragma solidity ^0.8.26;
 
 import {AutomationCompatibleInterface} from "./AutomationCompatibleInterface.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {
     RegisterPrivateBotParams,
     PrivateBotJobIds,
     PrivateAutomationModule,
     PrivateJobConfig,
-    PrivateJobView
+    PrivateJobView,
+    BotBillingState
 } from "../mainnet/private/PrivateAutomationHubTypes.sol";
 
 /// @notice Shared scheduler/orchestrator for private bot upkeep jobs.
@@ -42,4 +44,10 @@ interface IPrivateAutomationHub is AutomationCompatibleInterface {
 
     /// @notice Pause/unpause one job.
     function setJobActive(uint256 jobId, bool active) external;
+
+    function getBotBilling(address bot) external view returns (BotBillingState memory);
+    function deposit(address bot, uint256 amount) external;
+    function defaultTopUp() external view returns (uint256);
+    function fundToken() external view returns (IERC20);
+    function minCreditThreshold() external view returns (uint256);
 }

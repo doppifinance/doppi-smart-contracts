@@ -472,7 +472,7 @@ contract DoppiTraderGasTest is Test {
 
         (uint256 undo_assetB, uint256 undo_assetA) = traderBot.undoStat();
         console.log(totalPayoutBuy, totalPayoutSell, "totalPayoutBuy, totalPayoutSell");
-        assertEq(undo_assetA, 740000000000000000000000);
+        assertEq(undo_assetA, 900000000000000000000000);
         // assertEq(undo_assetB, 5321094126146880050);
         // console.log(traderBot.lowerBound(), traderBot.upperBound());
         (uint256 lower, uint256 upper) = traderBot.getLowerUpperBound();

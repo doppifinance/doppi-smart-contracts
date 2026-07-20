@@ -80,7 +80,7 @@ contract DoppiCoreGasTest is Test {
     function setUp() public {
         
         // Fork Mainnet at a specific block
-        uint256 mainnetFork = vm.createFork("mainnet", 69703761); // Do not change the block number for the unit test
+        uint256 mainnetFork = vm.createFork("mainnet", 100250748); // Do not change the block number for the unit test
         vm.selectFork(mainnetFork);
         
         // Start prank as owner

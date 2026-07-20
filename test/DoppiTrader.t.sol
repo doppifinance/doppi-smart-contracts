@@ -1051,6 +1051,39 @@ contract DoppiTraderTest is Test {
         
     }
 
+    function test_partialUnwindClearsOnlyExecutedAmount_singleStrike() public {
+        _start();
+
+        // createUnwindPosition occured due to the sell side BTC to USDT striked
+        // So, we expected doppiTrader to have 300 in the trader bot
+        vm.prank(trader);
+        usdt.transfer(address(doppiTrader), 300 ether);
+
+        uint256 strikePrice = 102_000 * 1e8;
+        uint256 initialUnwindSellAmountA = 300 ether;
+
+        vm.prank(address(doppiCore));
+        doppiTrader.createUnwindPosition(initialUnwindSellAmountA, strikePrice, false);
+
+        vm.prank(trader);
+        doppiTrader.setMaxSwap(100 ether);
+
+        // For sell-side unwind trigger: strike >= roundedPrice + 2*gap + unwindGap.
+        oracle.setPrice(int256(100_000 * 1e8));
+
+        (bool upkeepNeeded, bytes memory performData) = doppiTrader.checkUpkeep("");
+        assertTrue(upkeepNeeded);
+
+        vm.prank(mockForwarder);
+        doppiTrader.performUpkeep(performData);
+
+        uint256 remaining = doppiTrader.getUnwindInfo(false, strikePrice);
+        assertEq(remaining, 200 ether, "Remaining unwind amount should be initial - maxSwap");
+
+        (, uint256 undoAssetA) = doppiTrader.undoStat();
+        assertEq(undoAssetA, 200 ether, "undoStat should match remaining sell-side unwind amount");
+    }
+
     function test_doppicore_doppiRouter_emergencyWithdraw() public {
         
         uint256 start_usdtbal = usdt.balanceOf(trader);

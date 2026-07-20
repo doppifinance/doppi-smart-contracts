@@ -71,6 +71,7 @@ contract DoppiSimpleTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationC
     error InvalidBps();
     error NoEnoughBalance();
     error RecordTradeFailed();
+    error InvalidPrice();
 
     constructor() Ownable(msg.sender) {}
 
@@ -111,15 +112,22 @@ contract DoppiSimpleTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationC
     function start(uint256 _amountA, uint256 _amountB) external nonReentrant {
         _onlyTrader();
         if (_amountA == 0 && _amountB == 0) revert AmountNotSpecified();
-
         uint256 price = doppiLP.getPrice();
-        uint256 depositValueInA = _amountA;
-        uint256 depositValueInB = _amountB;
-        if (_amountA > 0 && price > 0) {
-            depositValueInB += _amountA * priceDecimals / price;
+        if(price == 0) revert InvalidPrice();
+
+        if (_amountA > 0) assetA.safeTransferFrom(msg.sender, address(this), _amountA);
+        if (_amountB > 0) assetB.safeTransferFrom(msg.sender, address(this), _amountB);
+
+        (uint256 finalAmountA, uint256 finalAmountB) = _performTopUp(_amountA, _amountB);
+
+        uint256 depositValueInA = finalAmountA;
+        uint256 depositValueInB = finalAmountB;
+
+        if (finalAmountA > 0) {
+            depositValueInB += finalAmountA * priceDecimals / price;
         }
-        if (_amountB > 0 && price > 0) {
-            depositValueInA += _amountB * price / priceDecimals;
+        if (finalAmountB > 0) {
+            depositValueInA += finalAmountB * price / priceDecimals;
         }
 
         uint256 currentValueInA = totalUnits == 0 ? 0 : _getTotalValueInA(price);
@@ -127,7 +135,6 @@ contract DoppiSimpleTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationC
         uint256 currentValueInB = totalUnitsB == 0 ? 0 : _getTotalValueInB(price);
         _updateUnitAndCostBasis(depositValueInB, currentValueInB, false);
 
-        _processDeposit(_amountA, _amountB);
         engineStarted = true;
 
         if (nextBuyTriggerPrice == 0 && nextSellTriggerPrice == 0) {
@@ -140,6 +147,7 @@ contract DoppiSimpleTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationC
     function stop() external nonReentrant {
         _onlyTrader();
         engineStarted = false;
+        _payStopProfitFees();
 
         _removeMapping();
 
@@ -212,7 +220,7 @@ contract DoppiSimpleTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationC
     }
 
     function setOpportunityBufferParams(uint16 _bufferCutBps, uint16 _minBufferBps) external {
-        _onlyTraderOrOwner();
+        _onlyTrader();
         if (_bufferCutBps > BPS || _minBufferBps > BPS) revert InvalidBps();
         opportunityBufferCutBps = _bufferCutBps;
         opportunityMinBufferBps = _minBufferBps;
@@ -224,13 +232,13 @@ contract DoppiSimpleTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationC
         profitFeeBps = _profitFeeBps;
     }
 
-    function setOrderCountMultiplierBps(uint16 _orderCountMultiplierBps) external onlyOwner {
-        _onlyTraderOrOwner();
+    function setOrderCountMultiplierBps(uint16 _orderCountMultiplierBps) external {
+        _onlyTrader();
         orderCountMultiplierBps = _orderCountMultiplierBps;
     }
 
     function setMinOrder(uint256 _minOrderA, uint256 _minOrderB) external {
-        _onlyTraderOrOwner();
+        _onlyTrader();
         minOrderA = _minOrderA;
         minOrderB = _minOrderB;
     }
@@ -260,6 +268,10 @@ contract DoppiSimpleTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationC
     function getAveragePrices() external view returns (uint256 avgBuyEntryPrice, uint256 avgSellEntryPrice) {
         avgBuyEntryPrice = _averageBuyEntryPrice();
         avgSellEntryPrice = _averageSellEntryPrice();
+    }
+
+    function getNextOrderAmount(bool isBuy) external view returns (uint256) {
+        return _nextOrderAmount(isBuy);
     }
 
     function getUnwindTriggerPrices() external view returns (uint256 buyUnwindTrigger, uint256 sellUnwindTrigger) {
@@ -494,7 +506,11 @@ contract DoppiSimpleTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationC
     function _payFee(address token, uint256 profitAmount) internal {
         if (feePool == address(0) || profitFeeBps == 0 || profitAmount == 0) return;
         uint256 fee = (profitAmount * profitFeeBps) / BPS;
-        if (fee == 0) return;
+        _payFeeAmount(token, fee);
+    }
+
+    function _payFeeAmount(address token, uint256 fee) internal {
+        if (feePool == address(0) || fee == 0) return;
         IERC20(token).safeTransfer(feePool, fee);
         if (feePool.code.length > 0) {
             (bool ok, ) = feePool.call(abi.encodeWithSelector(FEE_POOL_NOTIFY_SELECTOR, token, fee));
@@ -505,13 +521,64 @@ contract DoppiSimpleTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationC
         emit FeePaid(token, fee);
     }
 
-    function _processDeposit(uint256 _amountA, uint256 _amountB) internal {
-        if (_amountA > 0) _transferAndDeposit(assetA, _amountA);
-        if (_amountB > 0) _transferAndDeposit(assetB, _amountB);
+    function _payStopProfitFees() internal {
+        if (feePool == address(0) || profitFeeBps == 0) return;
+        if (activeBuyStrikeCount == 0 && activeSellStrikeCount == 0) return;
+
+        uint256 price = doppiLP.getPrice();
+        if (price == 0) revert InvalidPrice();
+
+        _payStopBuyProfitFees(price);
+        _payStopSellProfitFees(price);
     }
 
-    function _transferAndDeposit(IERC20 token, uint256 amount) internal {
-        token.safeTransferFrom(msg.sender, address(this), amount);
+    function _payStopBuyProfitFees(uint256 price) internal {
+        uint256 strike = buyHead;
+        while (strike != 0) {
+            uint256 nextStrike = buyStrikeNodes[strike].next;
+            uint256 amountB = unWindBuy[strike];
+            uint256 entryValueA = unWindBuyCostA[strike];
+            uint256 currentValueA = (amountB * price) / priceDecimals;
+
+            if (currentValueA > entryValueA) {
+                uint256 profitA = currentValueA - entryValueA;
+                uint256 feeA = (profitA * profitFeeBps) / BPS;
+                uint256 feeB = (feeA * priceDecimals) / price;
+                _payFeeAmount(address(assetB), feeB);
+            }
+
+            strike = nextStrike;
+        }
+    }
+
+    function _payStopSellProfitFees(uint256 price) internal {
+        uint256 strike = sellHead;
+        while (strike != 0) {
+            uint256 nextStrike = sellStrikeNodes[strike].next;
+            uint256 amountA = unWindSell[strike];
+            uint256 entryValueB = unWindSellCostB[strike];
+            uint256 currentValueB = (amountA * priceDecimals) / price;
+
+            if (currentValueB > entryValueB) {
+                uint256 profitB = currentValueB - entryValueB;
+                uint256 feeB = (profitB * profitFeeBps) / BPS;
+                uint256 feeA = (feeB * price) / priceDecimals;
+                _payFeeAmount(address(assetA), feeA);
+            }
+
+            strike = nextStrike;
+        }
+    }
+
+    function _getUnwindEntryValue(bool isBuy, uint256 strikePrice, uint256 unwindAmount)
+        internal
+        view
+        override
+        returns (uint256)
+    {
+        uint256 trackedCost = isBuy ? unWindBuyCostA[strikePrice] : unWindSellCostB[strikePrice];
+        if (trackedCost > 0 || unwindAmount == 0) return trackedCost;
+        return super._getUnwindEntryValue(isBuy, strikePrice, unwindAmount);
     }
 
     function _recordTradeVolumeInA(uint256 volumeInA) internal {

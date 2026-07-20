@@ -56,6 +56,7 @@ contract PrivateAutomationHub is IPrivateAutomationHub, Ownable, ReentrancyGuard
 
     // ── Billing ───────────────────────────────────────────────────────────
     event FundTokenUpdated(address indexed fundToken);
+    event DefaultTopUpUpdated(uint256 defaultTopUp);
     event TreasuryUpdated(address indexed treasury);
     event PlatformMarkupUpdated(uint24 markupBps);
     event MinCreditThresholdUpdated(uint256 threshold);
@@ -98,6 +99,7 @@ contract PrivateAutomationHub is IPrivateAutomationHub, Ownable, ReentrancyGuard
     uint16 public maxJobsPerUpkeep = 8;
     uint32 public checkScanLimit   = 64;
 
+    uint256 public defaultTopUp         = 10 ether;
     uint32 public defaultMinInterval         = 30;
     uint32 public defaultGasLimitHint        = 5_000_000;
 
@@ -195,6 +197,13 @@ contract PrivateAutomationHub is IPrivateAutomationHub, Ownable, ReentrancyGuard
         defaultMinInterval         = _minInterval;
         defaultGasLimitHint        = _gasLimitHint;
         emit DefaultJobConfigUpdated(_minInterval, _gasLimitHint);
+    }
+
+    function setDefaultTopUp(
+        uint256 _defaultTopUp
+    ) external onlyOwner {
+        defaultTopUp = _defaultTopUp;
+        emit DefaultTopUpUpdated(_defaultTopUp);
     }
 
     // ── Billing admin ─────────────────────────────────────────────────────

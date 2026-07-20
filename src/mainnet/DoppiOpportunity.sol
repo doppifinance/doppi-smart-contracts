@@ -8,7 +8,7 @@ import {IDoppiOpportunity} from "../Interface/IDoppiOpportunity.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {Pausable} from "@openzeppelin/contracts/utils/Pausable.sol";
 import {Initializable} from "@openzeppelin/contracts/proxy/utils/Initializable.sol";
-import "./DoppiCoreTypes.sol";
+import {OpportunityOrders, StrikeNode} from "./DoppiCoreTypes.sol";
 // import "forge-std/console.sol";
 
 contract DoppiOpportunity is Ownable, Pausable, AutomationCompatibleInterface, Initializable, IDoppiOpportunity {

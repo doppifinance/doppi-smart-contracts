@@ -23,7 +23,8 @@ import {
     PrivateBotJobIds,
     PrivateAutomationModule,
     PrivateJobConfig,
-    PrivateJobView
+    PrivateJobView,
+    BotBillingState
 } from "../src/mainnet/private/PrivateAutomationHubTypes.sol";
 import {TestParamLib} from "../src/Library/TestParamLib.sol";
 
@@ -33,9 +34,19 @@ contract MockPrivateAutomationHubForGrid is IPrivateAutomationHub {
     address public lastBot;
     uint32 public lastBotId;
     bool public shouldRevert;
+    IERC20 public topUpToken;
+    uint256 public topUpAmount;
+    bool public pausedForLowCredit;
+    mapping(address => uint256) public depositedByBot;
 
     function setShouldRevert(bool _shouldRevert) external {
         shouldRevert = _shouldRevert;
+    }
+
+    function setBillingConfig(IERC20 _topUpToken, uint256 _topUpAmount, bool _pausedForLowCredit) external {
+        topUpToken = _topUpToken;
+        topUpAmount = _topUpAmount;
+        pausedForLowCredit = _pausedForLowCredit;
     }
 
     function registerPrivateBotJobs(RegisterPrivateBotParams calldata)
@@ -78,6 +89,30 @@ contract MockPrivateAutomationHubForGrid is IPrivateAutomationHub {
     }
 
     function performUpkeep(bytes calldata) external pure {}
+
+    function getBotBilling(address bot) external view returns (BotBillingState memory){
+        return BotBillingState({
+            trader: address(0),
+            creditBalance: 0,
+            totalGasFeePaid: 0,
+            lowCreditPaused: pausedForLowCredit,
+            usePoint: false
+        });
+    }
+    function deposit(address bot, uint256 amount) external {
+        require(topUpToken.transferFrom(msg.sender, address(this), amount), "top up transfer failed");
+        depositedByBot[bot] += amount;
+    }
+    function defaultTopUp() external view returns (uint256){
+        return topUpAmount;
+    }
+    function fundToken() external view returns (IERC20){
+        return topUpToken;
+    }
+
+    function minCreditThreshold() external view returns (uint256){
+        return 0;
+    }
 }
 
 contract PrivateDoppiGridTraderTest is Test {
@@ -117,8 +152,6 @@ contract PrivateDoppiGridTraderTest is Test {
         uint256 originalSellAmount;
         uint256 remainingBuyOpportunity;
         uint256 remainingSellOpportunity;
-        uint256 pendingBuyUnwind;
-        uint256 pendingSellUnwind;
     }
 
     function setUp() public {
@@ -223,6 +256,80 @@ contract PrivateDoppiGridTraderTest is Test {
         assertEq(bot.getOpportunityInfo(false, 102_000 * p), 0.04 ether);
     }
 
+    function test_startWithHubDoesNotTopUpWhenCreditIsActive() public {
+        uint256 p = 1e8;
+        mockHub.setBillingConfig(IERC20(usdt), 10 ether, false);
+        vm.prank(owner);
+        privateFactory.setPrivateAutomationHub(address(mockHub));
+
+        (address botAddr,,,,) = _deployAndCapture(trader);
+        DoppiGridTrader bot = DoppiGridTrader(botAddr);
+
+        vm.startPrank(trader);
+        usdt.approve(address(bot), type(uint256).max);
+        bot.start(100_000 ether, 0);
+        vm.stopPrank();
+
+        assertEq(mockHub.depositedByBot(address(bot)), 0);
+        assertEq(usdt.balanceOf(address(mockHub)), 0);
+        assertEq(bot.getOpportunityInfo(true, 100_000 * p), 4_000 ether);
+    }
+
+    function test_startWithHubTopUpWhenCreditPausedUsesRemainingCapital() public {
+        uint256 p = 1e8;
+        uint256 defaultTopUp = 10 ether;
+        mockHub.setBillingConfig(IERC20(usdt), defaultTopUp, true);
+        vm.prank(owner);
+        privateFactory.setPrivateAutomationHub(address(mockHub));
+
+        (address botAddr,,,,) = _deployAndCapture(trader);
+        DoppiGridTrader bot = DoppiGridTrader(botAddr);
+
+        vm.startPrank(trader);
+        usdt.approve(address(bot), type(uint256).max);
+        bot.start(100_000 ether, 0);
+        vm.stopPrank();
+
+        uint256 expectedOrderAmount = (((100_000 ether - defaultTopUp) / 5) * 2000) / 10000;
+        assertEq(mockHub.depositedByBot(address(bot)), defaultTopUp);
+        assertEq(usdt.balanceOf(address(mockHub)), defaultTopUp);
+        assertEq(bot.getOpportunityInfo(true, 100_000 * p), expectedOrderAmount);
+    }
+
+    function test_startWithHubTopUpRevertsWhenFundTokenDepositIsInsufficient() public {
+        mockHub.setBillingConfig(IERC20(usdt), 10 ether, true);
+        vm.prank(owner);
+        privateFactory.setPrivateAutomationHub(address(mockHub));
+
+        (address botAddr,,,,) = _deployAndCapture(trader);
+        DoppiGridTrader bot = DoppiGridTrader(botAddr);
+
+        vm.startPrank(trader);
+        usdt.approve(address(bot), type(uint256).max);
+        vm.expectRevert(bytes4(keccak256("InsufficientTopUpAmount()")));
+        bot.start(5 ether, 0);
+        vm.stopPrank();
+    }
+
+    function test_startWithHubUnsupportedFundTokenLeavesCapitalUnchanged() public {
+        uint256 p = 1e8;
+        MockToken otherToken = new MockToken("Other", "OTHER");
+        mockHub.setBillingConfig(IERC20(otherToken), 10 ether, true);
+        vm.prank(owner);
+        privateFactory.setPrivateAutomationHub(address(mockHub));
+
+        (address botAddr,,,,) = _deployAndCapture(trader);
+        DoppiGridTrader bot = DoppiGridTrader(botAddr);
+
+        vm.startPrank(trader);
+        usdt.approve(address(bot), type(uint256).max);
+        bot.start(100_000 ether, 0);
+        vm.stopPrank();
+
+        assertEq(mockHub.depositedByBot(address(bot)), 0);
+        assertEq(bot.getOpportunityInfo(true, 100_000 * p), 4_000 ether);
+    }
+
     function test_performUpkeepMovesOpportunityToUnwind() public {
         (address botAddr,,,,) = _deployAndCapture(trader);
         DoppiGridTrader bot = DoppiGridTrader(botAddr);
@@ -294,6 +401,187 @@ contract PrivateDoppiGridTraderTest is Test {
         assertGt(sharedLpAfter, sharedLpBefore);
     }
 
+    function test_stopPaysBuyUnwindProfitFeeInAssetB() public {
+        (address botAddr,,,,) = _deployAndCapture(trader);
+        DoppiGridTrader bot = DoppiGridTrader(botAddr);
+        uint256 p = 1e8;
+        uint256 strike = 100_000 * p;
+
+        vm.prank(owner);
+        privateFactory.setFeeConfig(address(bot), feePoolReceiver, 1000);
+
+        vm.startPrank(trader);
+        bot.setForwarderAddress(forwarder);
+        bot.setOpportunityBufferParams(10000, 0);
+        usdt.approve(address(bot), type(uint256).max);
+        bot.start(100_000 ether, 0);
+        vm.stopPrank();
+
+        vm.prank(owner);
+        oracle.setPrice(int256(99_900 * 1e8));
+
+        (bool upkeepNeeded, bytes memory performData) = bot.checkUpkeep("");
+        assertTrue(upkeepNeeded);
+        vm.prank(forwarder);
+        bot.performUpkeep(performData);
+
+        uint256 unwindAmountB = bot.getUnwindInfo(true, strike);
+        uint256 entryValueA = bot.unWindBuyCostA(strike);
+        uint256 stopPrice = 130_000 * p;
+        uint256 priceDecimals = 10 ** sharedLP.getPriceDecimals();
+        uint256 currentValueA = (unwindAmountB * stopPrice) / priceDecimals;
+        uint256 profitA = currentValueA - entryValueA;
+        uint256 expectedFeeB = ((profitA * 1000) / 10_000) * priceDecimals / stopPrice;
+
+        vm.prank(owner);
+        oracle.setPrice(int256(stopPrice));
+
+        uint256 receiverBefore = btc.balanceOf(feePoolReceiver);
+        vm.prank(trader);
+        bot.stop();
+
+        assertEq(btc.balanceOf(feePoolReceiver) - receiverBefore, expectedFeeB);
+    }
+
+    function test_stopPaysSellUnwindProfitFeeInAssetA() public {
+        (address botAddr,,,,) = _deployAndCapture(trader);
+        DoppiGridTrader bot = DoppiGridTrader(botAddr);
+        uint256 p = 1e8;
+        uint256 strike = 100_500 * p;
+
+        vm.prank(owner);
+        privateFactory.setFeeConfig(address(bot), feePoolReceiver, 1000);
+
+        vm.startPrank(trader);
+        bot.setForwarderAddress(forwarder);
+        bot.setOpportunityBufferParams(10000, 0);
+        btc.approve(address(bot), type(uint256).max);
+        bot.start(0, 1 ether);
+        vm.stopPrank();
+
+        vm.prank(owner);
+        oracle.setPrice(int256(100_600 * 1e8));
+
+        (bool upkeepNeeded, bytes memory performData) = bot.checkUpkeep("");
+        assertTrue(upkeepNeeded);
+        vm.prank(forwarder);
+        bot.performUpkeep(performData);
+
+        uint256 unwindAmountA = bot.getUnwindInfo(false, strike);
+        uint256 entryValueB = bot.unWindSellCostB(strike);
+        uint256 stopPrice = 80_000 * p;
+        uint256 priceDecimals = 10 ** sharedLP.getPriceDecimals();
+        uint256 currentValueB = (unwindAmountA * priceDecimals) / stopPrice;
+        uint256 profitB = currentValueB - entryValueB;
+        uint256 expectedFeeA = ((profitB * 1000) / 10_000) * stopPrice / priceDecimals;
+
+        vm.prank(owner);
+        oracle.setPrice(int256(stopPrice));
+
+        uint256 receiverBefore = usdt.balanceOf(feePoolReceiver);
+        vm.prank(trader);
+        bot.stop();
+
+        assertEq(usdt.balanceOf(feePoolReceiver) - receiverBefore, expectedFeeA);
+    }
+
+    function test_partialUnwindReopensOnlyConsumedBuyCost() public {
+        (address botAddr,,,,) = _deployAndCapture(trader);
+        DoppiGridTrader bot = DoppiGridTrader(botAddr);
+        uint256 p = 1e8;
+        uint256 strike = 100_000 * p;
+        uint256 originalCostA = 4_000 ether;
+
+        vm.startPrank(trader);
+        bot.setForwarderAddress(forwarder);
+        bot.setOpportunityBufferParams(10000, 0);
+        usdt.approve(address(bot), type(uint256).max);
+        bot.start(100_000 ether, 0);
+        vm.stopPrank();
+
+        vm.prank(owner);
+        oracle.setPrice(int256(99_900 * 1e8));
+
+        (bool upkeepNeeded, bytes memory performData) = bot.checkUpkeep("");
+        assertTrue(upkeepNeeded);
+        vm.prank(forwarder);
+        bot.performUpkeep(performData);
+
+        uint256 unwindAmount = bot.getUnwindInfo(true, strike);
+        assertGt(unwindAmount, 0);
+        assertEq(bot.getOpportunityInfo(true, strike), 0);
+
+        uint256 priceDecimals = 10 ** sharedLP.getPriceDecimals();
+
+    (DoppiGridTrader.StrikePnLView[] memory items, int256 totalPnl, uint256 currentPrice) = bot.getStrikePnL(true);
+    assertEq(items.length, 1);
+    assertEq(items[0].strikePrice, strike);
+    assertEq(items[0].unwindAmount, unwindAmount);
+    assertEq(items[0].entryValue, originalCostA);
+    assertEq(items[0].averageCost, (originalCostA * priceDecimals) / unwindAmount);
+    assertEq(items[0].currentValue, (unwindAmount * currentPrice) / priceDecimals);
+    assertEq(totalPnl, int256(items[0].currentValue) - int256(originalCostA));
+
+        uint256 unwindPrice = 130_000 * p;
+        uint256 halfUnwind = unwindAmount / 2;
+        uint256 maxSwapA = (halfUnwind * unwindPrice) / priceDecimals;
+        uint256 expectedUsed = (maxSwapA * priceDecimals) / unwindPrice;
+        uint256 expectedReopened = (originalCostA * expectedUsed) / unwindAmount;
+
+        vm.startPrank(trader);
+        bot.setMaxSwap(maxSwapA);
+        vm.stopPrank();
+
+        vm.prank(owner);
+        oracle.setPrice(int256(unwindPrice));
+
+        (upkeepNeeded, performData) = bot.checkUpkeep("");
+        assertTrue(upkeepNeeded);
+        vm.prank(forwarder);
+        bot.performUpkeep(performData);
+
+        assertEq(bot.getOpportunityInfo(true, strike), expectedReopened);
+        assertEq(bot.unWindBuyCostA(strike), originalCostA - expectedReopened);
+        assertLt(bot.getOpportunityInfo(true, strike), originalCostA);
+    }
+
+    function test_getStrikePnLUsesTrackedSellExecutionCost() public {
+        (address botAddr,,,,) = _deployAndCapture(trader);
+        DoppiGridTrader bot = DoppiGridTrader(botAddr);
+        uint256 p = 1e8;
+        uint256 strike = 100_500 * p;
+        uint256 originalCostB = 0.04 ether;
+
+        vm.startPrank(trader);
+        bot.setForwarderAddress(forwarder);
+        bot.setOpportunityBufferParams(10000, 0);
+        btc.approve(address(bot), type(uint256).max);
+        bot.start(0, 1 ether);
+        vm.stopPrank();
+
+        vm.prank(owner);
+        oracle.setPrice(int256(100_600 * 1e8));
+
+        (bool upkeepNeeded, bytes memory performData) = bot.checkUpkeep("");
+        assertTrue(upkeepNeeded);
+        vm.prank(forwarder);
+        bot.performUpkeep(performData);
+
+        uint256 unwindAmount = bot.getUnwindInfo(false, strike);
+        assertGt(unwindAmount, 0);
+        assertEq(bot.getOpportunityInfo(false, strike), 0);
+
+        uint256 priceDecimals = 10 ** sharedLP.getPriceDecimals();
+        (DoppiGridTrader.StrikePnLView[] memory items, int256 totalPnl, uint256 currentPrice) = bot.getStrikePnL(false);
+        assertEq(items.length, 1);
+        assertEq(items[0].strikePrice, strike);
+        assertEq(items[0].unwindAmount, unwindAmount);
+        assertEq(items[0].entryValue, originalCostB);
+        assertEq(items[0].averageCost, (unwindAmount * priceDecimals) / originalCostB);
+        assertEq(items[0].currentValue, (unwindAmount * priceDecimals) / currentPrice);
+        assertEq(totalPnl, int256(items[0].currentValue) - int256(originalCostB));
+    }
+
     function test_epochResetAfter24HoursReanchorsOrders() public {
         (address botAddr,,,,) = _deployAndCapture(trader);
         DoppiGridTrader bot = DoppiGridTrader(botAddr);
@@ -323,44 +611,6 @@ contract PrivateDoppiGridTraderTest is Test {
         assertGt(expiryAfter, expiryBefore);
         assertEq(anchorAfter, 98_000 * p);
         assertEq(bot.getOpportunityInfo(true, 98_000 * p), 4_000 ether);
-    }
-
-    function test_getEpochZoneInfoReturnsOriginalAndUnwindByZone() public {
-        (address botAddr,,,,) = _deployAndCapture(trader);
-        DoppiGridTrader bot = DoppiGridTrader(botAddr);
-        uint256 p = 1e8;
-
-        vm.startPrank(trader);
-        bot.setForwarderAddress(forwarder);
-        bot.setOpportunityBufferParams(10000, 0);
-        usdt.approve(address(bot), type(uint256).max);
-        bot.start(100_000 ether, 0);
-        vm.stopPrank();
-
-        (bool okBefore, bytes memory dataBefore) = address(bot).call(abi.encodeWithSignature("getEpochZoneInfo()"));
-        assertTrue(okBefore);
-        EpochZoneInfo[] memory beforeExec = abi.decode(dataBefore, (EpochZoneInfo[]));
-
-        assertEq(beforeExec.length, 5);
-        assertEq(beforeExec[0].zone, 0);
-        assertEq(beforeExec[0].buyStrike, 100_000 * p);
-        assertEq(beforeExec[0].originalBuyAmount, 4_000 ether);
-        assertEq(beforeExec[0].pendingBuyUnwind, 0);
-
-        (bool upkeepNeeded, bytes memory performData) = bot.checkUpkeep("");
-        if(upkeepNeeded){
-            vm.prank(owner);
-            oracle.setPrice(int256(99_900 * 1e8));
-            vm.prank(forwarder);
-            bot.performUpkeep(performData);
-        }
-
-        (bool okAfter, bytes memory dataAfter) = address(bot).call(abi.encodeWithSignature("getEpochZoneInfo()"));
-        assertTrue(okAfter);
-        EpochZoneInfo[] memory afterExec = abi.decode(dataAfter, (EpochZoneInfo[]));
-
-        assertEq(afterExec[0].remainingBuyOpportunity, 0);
-        assertGt(afterExec[0].pendingBuyUnwind, 0);
     }
 
     function test_deployPrivateBot_registersHubAndSetsForwarder() public {

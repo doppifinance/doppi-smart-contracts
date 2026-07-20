@@ -89,16 +89,13 @@ contract DoppiTraderFactory is Ownable, IDoppiTraderFactory {
         
         // Register with hub if available
         if (privateAutomationHub != address(0)) {
-            try IPrivateAutomationHub(privateAutomationHub).registerSharedBotJob(
+            IPrivateAutomationHub(privateAutomationHub).registerSharedBotJob(
                 msg.sender,
                 traderBot,
                 id
-            ) {
-                // Auto-set hub as the forwarder for shared bot trader job
-                ISetForwarder(traderBot).setForwarderAddress(privateAutomationHub);
-            } catch {
-                // Fail silently if hub registration fails
-            }
+            );
+            // Auto-set hub as the forwarder for shared bot trader job
+            ISetForwarder(traderBot).setForwarderAddress(privateAutomationHub);
         }
         
         emit BotDeployed(msg.sender, traderBot, id);

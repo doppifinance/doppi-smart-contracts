@@ -61,6 +61,7 @@ contract PrivateDoppiSimpleTraderFactory is Ownable, IDoppiTraderFactory {
         IDoppiPoints(doppiPoints).registerCore(traderBot, address(this));
 
         if (privateAutomationHub != address(0)) {
+            DoppiSimpleTrader(traderBot).setPrivateAutomationHub(privateAutomationHub);
             IPrivateAutomationHub(privateAutomationHub).registerSharedBotJob(msg.sender, traderBot, id);
             ISetForwarder(traderBot).setForwarderAddress(privateAutomationHub);
         }
