@@ -26,6 +26,7 @@ contract DoppiTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCompati
     error OnlyForwarder();
     error OnlyDoppiCore();
     error NoEnoughBalance();
+    error InvalidPrice();
 
 
     constructor() Ownable(msg.sender) {
@@ -76,23 +77,30 @@ contract DoppiTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCompati
         _onlyTrader();
         if(_amountA == 0 && _amountB == 0) revert AmountNotSpecified();
 
-        // Unit price tracking: snapshot value BEFORE deposit, then issue proportional units.
         uint256 price = doppiLP.getPrice();
-        uint256 depositValueInA = _amountA;
-        uint256 depositValueInB = _amountB;
-        if (_amountA > 0 && price > 0) {
-            depositValueInB += _amountA * priceDecimals / price;
-        }
-        if (_amountB > 0 && price > 0) {
-            depositValueInA += _amountB * price / priceDecimals;
-        }
+        if(price == 0) revert InvalidPrice();
+
         uint256 currentValueInA = totalUnits == 0 ? 0 : _getTotalValueInA(price);
+        uint256 currentValueInB = totalUnitsB == 0 ? 0 : _getTotalValueInB(price);
+
+        if (_amountA > 0) assetA.safeTransferFrom(msg.sender, address(this), _amountA);
+        if (_amountB > 0) assetB.safeTransferFrom(msg.sender, address(this), _amountB);
+
+        (uint256 finalAmountA, uint256 finalAmountB) = _performTopUp(_amountA, _amountB);
+
+        uint256 depositValueInA = finalAmountA;
+        uint256 depositValueInB = finalAmountB;
+        if (finalAmountA > 0) {
+            depositValueInB += finalAmountA * priceDecimals / price;
+        }
+        if (finalAmountB > 0) {
+            depositValueInA += finalAmountB * price / priceDecimals;
+        }
         _updateUnitAndCostBasis(depositValueInA, currentValueInA, true);
 
-        uint256 currentValueInB = totalUnitsB == 0 ? 0 : _getTotalValueInB(price);
         _updateUnitAndCostBasis(depositValueInB, currentValueInB, false);
 
-        _processDeposit(_amountA, _amountB);
+        _processDeposit(finalAmountA, finalAmountB);
         _placeBulk();
     }
 
@@ -344,7 +352,6 @@ contract DoppiTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCompati
     }
 
     function _transferAndDeposit(IERC20 token, uint256 amount) internal {
-        token.safeTransferFrom(msg.sender, address(this), amount);
         uint256 toLP = amount * ratioLP / 10000;
         _deposit(address(token), toLP);
     }

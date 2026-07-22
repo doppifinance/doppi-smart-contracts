@@ -54,10 +54,6 @@ contract PrivateBotDeployer {
         opportunity = Clones.clone(opportunityImpl);
         core        = Clones.clone(coreImpl);
 
-        IPrivateOpportunityInit(opportunity).initialize(core);
-        // Factory must own opportunity so forwarder/admin updates are possible.
-        IOwnable(opportunity).transferOwnership(factory);
-
         IPrivateCoreInit(core).initialize(
             address(assetA),
             address(assetB),
@@ -67,6 +63,10 @@ contract PrivateBotDeployer {
             factory,          // factory owns core
             opportunity
         );
+
+        IPrivateOpportunityInit(opportunity).initialize(core);
+        // Factory must own opportunity so forwarder/admin updates are possible.
+        IOwnable(opportunity).transferOwnership(factory);
 
         // 2. Clone trader bot
         bot = Clones.clone(traderBotImpl);

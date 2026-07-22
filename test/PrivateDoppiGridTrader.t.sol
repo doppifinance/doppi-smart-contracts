@@ -36,6 +36,8 @@ contract MockPrivateAutomationHubForGrid is IPrivateAutomationHub {
     bool public shouldRevert;
     IERC20 public topUpToken;
     uint256 public topUpAmount;
+    uint256 public creditThreshold;
+    uint256 public creditBalance;
     bool public pausedForLowCredit;
     mapping(address => uint256) public depositedByBot;
 
@@ -46,7 +48,13 @@ contract MockPrivateAutomationHubForGrid is IPrivateAutomationHub {
     function setBillingConfig(IERC20 _topUpToken, uint256 _topUpAmount, bool _pausedForLowCredit) external {
         topUpToken = _topUpToken;
         topUpAmount = _topUpAmount;
+        creditThreshold = _topUpAmount;
+        creditBalance = _pausedForLowCredit ? 0 : _topUpAmount + 1;
         pausedForLowCredit = _pausedForLowCredit;
+    }
+
+    function setCreditBalance(uint256 _creditBalance) external {
+        creditBalance = _creditBalance;
     }
 
     function registerPrivateBotJobs(RegisterPrivateBotParams calldata)
@@ -93,7 +101,7 @@ contract MockPrivateAutomationHubForGrid is IPrivateAutomationHub {
     function getBotBilling(address bot) external view returns (BotBillingState memory){
         return BotBillingState({
             trader: address(0),
-            creditBalance: 0,
+            creditBalance: creditBalance,
             totalGasFeePaid: 0,
             lowCreditPaused: pausedForLowCredit,
             usePoint: false
@@ -111,7 +119,7 @@ contract MockPrivateAutomationHubForGrid is IPrivateAutomationHub {
     }
 
     function minCreditThreshold() external view returns (uint256){
-        return 0;
+        return creditThreshold;
     }
 }
 

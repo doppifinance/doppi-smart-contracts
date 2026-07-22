@@ -30,6 +30,7 @@ import {DoppiFeePool} from "../../src/mainnet/DoppiFeePool.sol";
 import "../../src/mainnet/DoppiLiquidityTypes.sol";
 import {TestParamLib} from "../../src/Library/TestParamLib.sol";
 import {MockOracle} from "../../src/test/MockOracle.sol";
+import {MockSwapper} from "../../src/test/MockSwapper.sol";
 
 
 contract DeployDoppiAll is Script {
@@ -59,6 +60,7 @@ contract DeployDoppiAll is Script {
     address constant forwarder = address(0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266);
     ConfigParam configLP;
     MockOracle oracle;
+    MockSwapper mockSwapper;
 
     function run() external {
         
@@ -67,6 +69,9 @@ contract DeployDoppiAll is Script {
         vm.startBroadcast(deployerPrivateKey);
 
         configLP = TestParamLib.get_configLP_localhost();
+        
+        mockSwapper = _deployMockSwapper();
+        configLP.router = address(mockSwapper);
         
         BlackScholes blackScholes = _deployBlackScholes();
         DoppiOffer impliedVol = _deployDoppiOffer(address(blackScholes));
@@ -236,6 +241,7 @@ contract DeployDoppiAll is Script {
         console.log("PrivateGridTraderImpl:", address(privateGridTraderImpl));
         console.log("PrivateSimpleTraderImpl:", address(privateSimpleTraderImpl));
         console.log("MockOracle:", address(oracle));
+        console.log("MockSwapper:", address(mockSwapper));
         // console.log("InitialPrivateBotId:", privateBotId);
         // console.log("InitialPrivateBot:", privateBot);
         // console.log("InitialPrivateCore:", privateCore);
@@ -243,6 +249,13 @@ contract DeployDoppiAll is Script {
         // console.log("InitialPrivateLP:", privateLP);
         // console.log("InitialPrivateRouter:", privateRouter);
 
+    }
+
+    function _deployMockSwapper() internal returns (MockSwapper) {
+        console.log("Deploying MockSwapper...");
+        MockSwapper deployedMockSwapper = new MockSwapper(USDT, BTC);
+        console.log("MockSwapper deployed at:", address(deployedMockSwapper));
+        return deployedMockSwapper;
     }
 
     function _setDoppiCoreProperties(
@@ -301,6 +314,7 @@ contract DeployDoppiAll is Script {
         console.log("Deploying DoppiLiquidity...");
         DoppiLiquidity _doppiLP = new DoppiLiquidity("Doppi BTC-USDT LP", "BTCB-USDT", address(IERC20(USDT)), address(IERC20(BTC)));
         console.log("DoppiLiquidity deployed at:", address(_doppiLP));
+        console.log(configLP.router, "configLP.router");
         _doppiLP.setConfig(configLP); 
         _doppiLP.approveRouter();
         return _doppiLP;

@@ -15,7 +15,7 @@ import {IPrivateCoreAdmin} from "../../Interface/IPrivateCoreAdmin.sol";
 import {IPrivateOpportunityAdmin} from "../../Interface/IPrivateOpportunityAdmin.sol";
 import {IPrivateLiquidityAdmin} from "../../Interface/IPrivateLiquidityAdmin.sol";
 import {IPrivateRouterAdmin, IPrivateRouterView} from "../../Interface/IPrivateRouterAdmin.sol";
-import {ISetForwarder, ISetTraderFactory, IPrivateBot, IPrivateFeePoolAdmin} from "../../Interface/IPrivateBotInterfaces.sol";
+import {ISetForwarder, ISetTraderFactory, IPrivateBot, IPrivateFeePoolAdmin, ISetPrivateAutomationHub} from "../../Interface/IPrivateBotInterfaces.sol";
 
 /**
  * @title PrivateDoppiTraderFactory
@@ -130,6 +130,7 @@ contract PrivateDoppiTraderFactory is Ownable, IDoppiTraderFactory {
 
         // Core owner is this factory; owner-only wiring must happen from factory context.
         ISetTraderFactory(privateCore).setDoppiTraderFactory(address(this));
+        IPrivateCoreAdmin(privateCore).setOpportunityBot(privateOpportunity, true);
 
         if (defaultPrivateTreasury != address(0)) {
             IPrivateCoreAdmin(privateCore).setTreasury(defaultPrivateTreasury, defaultPrivateTreasuryFee);
@@ -157,6 +158,8 @@ contract PrivateDoppiTraderFactory is Ownable, IDoppiTraderFactory {
         uint32 botId = botRegistry.deployBot(msg.sender, privateBot);
 
         if (privateAutomationHub != address(0)) {
+            ISetPrivateAutomationHub(privateBot).setPrivateAutomationHub(privateAutomationHub);
+
             RegisterPrivateBotParams memory registerParams = RegisterPrivateBotParams({
                 trader: msg.sender,
                 bot: privateBot,
@@ -249,27 +252,27 @@ contract PrivateDoppiTraderFactory is Ownable, IDoppiTraderFactory {
     // ─── Private Core wrappers ───────────────────────────────────────────────
 
     function setPrivateCoreEmergencyMode(address bot, bool _emergency) external {
-        _requireOwnerOrTrader(bot);
+        _requireTrader(bot);
         IPrivateCoreAdmin(botPrivateCore[bot]).setEmergencyMode(_emergency);
     }
 
     function setPrivateCorePause(address bot) external {
-        _requireOwnerOrTrader(bot);
+        _requireTrader(bot);
         IPrivateCoreAdmin(botPrivateCore[bot]).setPause();
     }
 
     function setPrivateCoreUnPause(address bot) external {
-        _requireOwnerOrTrader(bot);
+        _requireTrader(bot);
         IPrivateCoreAdmin(botPrivateCore[bot]).setUnPause();
     }
 
     function setPrivateCoreUpkeepsPerCheck(address bot, uint16 _percheck) external {
-        _requireOwnerOrTrader(bot);
+        _requireTrader(bot);
         IPrivateCoreAdmin(botPrivateCore[bot]).setUpkeeps_per_check(_percheck);
     }
 
     function setPrivateCoreMaxSwap(address bot, uint256 _maxSwap) external {
-        _requireOwnerOrTrader(bot);
+        _requireTrader(bot);
         IPrivateCoreAdmin(botPrivateCore[bot]).setMaxSwap(_maxSwap);
     }
 
@@ -279,51 +282,36 @@ contract PrivateDoppiTraderFactory is Ownable, IDoppiTraderFactory {
         IPrivateCoreAdmin(core).setTreasury(_treasury, _treasury_fee);
     }
 
-    function setPrivateCoreOpportunityBot(address bot, address _opportunityBot, bool _status) external onlyOwner {
-        _requireRegisteredBot(bot);
-        IPrivateCoreAdmin(botPrivateCore[bot]).setOpportunityBot(_opportunityBot, _status);
-    }
-
-    function setPrivateCoreTraderFactory(address bot, IDoppiTraderFactory _traderFactory) external onlyOwner {
-        _requireRegisteredBot(bot);
-        IPrivateCoreAdmin(botPrivateCore[bot]).setDoppiTraderFactory(address(_traderFactory));
-    }
-
+    
     function setPrivateLiquidityConfig(address bot) external onlyOwner {
         _requireRegisteredBot(bot);
         IPrivateLiquidityAdmin(botPrivateLiquidity[bot]).setConfig(lpConfig);
     }
 
-    // ─── Private Opportunity wrappers ───────────────────────────────────────────────
+    // ─── Private Opportunity wrappers ───────  ────────────────────────────────────────
 
     function setOpportunityBufferParams(address bot, uint16 _bufferCutBps, uint16 _minBufferBps) external {
-        _requireOwnerOrTrader(bot);
+        _requireTrader(bot);
         IPrivateOpportunityAdmin(botPrivateOpportunity[bot]).setOpportunityBufferParams(_bufferCutBps, _minBufferBps);
     }
 
     // ─── Private Router wrappers ───────────────────────────────────────────────
 
     function setPrivateRouterPause(address bot) external {
-        _requireOwnerOrTrader(bot);
+        _requireTrader(bot);
         IPrivateRouterAdmin(botPrivateRouter[bot]).setPause();
         IPrivateLiquidityAdmin(botPrivateLiquidity[bot]).setPause();
     }
 
     function setPrivateRouterUnPause(address bot) external {
-        _requireOwnerOrTrader(bot);
+        _requireTrader(bot);
         IPrivateRouterAdmin(botPrivateRouter[bot]).setUnPause();
         IPrivateLiquidityAdmin(botPrivateLiquidity[bot]).setUnPause();
     }
 
     function setPrivateRouterEmergencyMode(address bot, bool _emergency) external {
-        _requireOwnerOrTrader(bot);
+        _requireTrader(bot);
         IPrivateRouterAdmin(botPrivateRouter[bot]).setEmergencyMode(_emergency);
-    }
-
-    function setPrivateRouterCore(address bot, address _doppiCore) external onlyOwner {
-        _requireRegisteredBot(bot);
-        IPrivateRouterAdmin(botPrivateRouter[bot]).setDoppiCore(_doppiCore);
-        IPrivateLiquidityAdmin(botPrivateLiquidity[bot]).setDoppiCore(_doppiCore);
     }
 
     // ─── View helpers ─────────────────────────────────────────────────────────
@@ -336,8 +324,8 @@ contract PrivateDoppiTraderFactory is Ownable, IDoppiTraderFactory {
         if (!botRegistry.isBot(bot)) revert NotRegisteredBot();
     }
 
-    function _requireOwnerOrTrader(address bot) internal view {
+    function _requireTrader(address bot) internal view {
         _requireRegisteredBot(bot);
-        if (!(msg.sender == owner() || msg.sender == IPrivateBot(bot).validTrader())) revert NotAuthorized();
+        if (msg.sender != IPrivateBot(bot).validTrader()) revert NotAuthorized();
     }
 }

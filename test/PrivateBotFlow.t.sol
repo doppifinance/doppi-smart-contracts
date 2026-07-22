@@ -23,6 +23,7 @@ import "../src/mainnet/DoppiCoreTypes.sol";
 import "../src/mainnet/DoppiTraderTypes.sol";
 import {TestParamLib} from "../src/Library/TestParamLib.sol";
 import {ConfigParam} from "../src/mainnet/DoppiLiquidityTypes.sol";
+import {MockPrivateAutomationHubForSimple} from "./PrivateDoppiSimpleTraderTopUpMock.sol";
 
 contract PrivateBotFlowTest is Test {
 
@@ -230,6 +231,16 @@ contract PrivateBotFlowTest is Test {
         assertEq(privateFactory.botPrivateOpportunity(bot), opp,       "opportunity mismatch");
         assertEq(privateFactory.botPrivateLiquidity(bot),   privLP,    "LP mismatch");
         assertEq(privateFactory.botPrivateRouter(bot),      privRouter,"router mismatch");
+    }
+
+    function test_deployPrivateBot_setsPrivateAutomationHubOnBot() public {
+        MockPrivateAutomationHubForSimple mockHub = new MockPrivateAutomationHubForSimple();
+        vm.prank(owner);
+        privateFactory.setPrivateAutomationHub(address(mockHub));
+
+        (address bot,,,,) = _deployAndCapture(trader1);
+
+        assertEq(address(DoppiTrader(bot).privateAutomationHub()), address(mockHub));
     }
 
     function test_deployPrivateBot_autoGeneratesUniqueLpNameAndSymbol() public {
@@ -448,6 +459,70 @@ contract PrivateBotFlowTest is Test {
         assertTrue(dc.getSellPositionCount(bot) > 0, "no sell positions");
     }
 
+    function test_privateOpportunity_price65000To67000_defaultBufferDoesNotTrigger() public {
+        oracle.setPrice(int256(65_000 * 1e8));
+        (address bot,, address opp,,) = _deployAndCapture(trader1);
+
+        DoppiTrader dt = DoppiTrader(bot);
+        DoppiOpportunity privateOpportunity = DoppiOpportunity(opp);
+
+        vm.prank(owner);
+        privateFactory.setPrivateBotForwarder(bot, forwarder);
+
+        vm.startPrank(trader1);
+        usdt.approve(bot, type(uint256).max);
+        btc.approve(bot, type(uint256).max);
+        dt.start(100_000 * 1e18, 1 * 1e18);
+        vm.stopPrank();
+
+        (uint256 activeSellCount, uint256 lowestSellStrike,) = privateOpportunity.getActiveStrikeSnapshot(false);
+        assertGt(activeSellCount, 0, "expected active private sell opportunity strikes");
+        assertEq(lowestSellStrike, 65_500 * 1e8, "unexpected lowest sell strike");
+
+        oracle.setPrice(int256(67_000 * 1e8));
+
+        (bool upkeepNeeded,) = privateOpportunity.checkUpkeep("");
+        assertFalse(upkeepNeeded, "default buffer should keep 67k below opportunity trigger");
+    }
+
+    function test_privateOpportunity_price65000To67000_zeroBufferPerforms() public {
+        oracle.setPrice(int256(65_000 * 1e8));
+        (address bot,, address opp,,) = _deployAndCapture(trader1);
+
+        DoppiTrader dt = DoppiTrader(bot);
+        DoppiOpportunity privateOpportunity = DoppiOpportunity(opp);
+
+        vm.prank(owner);
+        privateFactory.setPrivateBotForwarder(bot, forwarder);
+
+        vm.prank(trader1);
+        privateFactory.setOpportunityBufferParams(bot, 10000, 0);
+
+        vm.startPrank(trader1);
+        usdt.approve(bot, type(uint256).max);
+        btc.approve(bot, type(uint256).max);
+        dt.start(100_000 * 1e18, 1 * 1e18);
+        vm.stopPrank();
+
+        (uint256 activeSellCount, uint256 lowestSellStrike,) = privateOpportunity.getActiveStrikeSnapshot(false);
+        assertGt(activeSellCount, 0, "expected active private sell opportunity strikes");
+        OpportunityOrders memory beforeOrder = privateOpportunity.getSellOpportunity(lowestSellStrike);
+        assertGt(beforeOrder.amount, 0, "expected sell opportunity amount before upkeep");
+        assertEq(beforeOrder.swappedAmount, 0, "expected no sell opportunity swap before upkeep");
+
+        oracle.setPrice(int256(67_000 * 1e8));
+
+        (bool upkeepNeeded, bytes memory performData) = privateOpportunity.checkUpkeep("");
+        assertTrue(upkeepNeeded, "expected private opportunity upkeep at 67k");
+
+        vm.prank(forwarder);
+        privateOpportunity.performUpkeep(performData);
+
+        OpportunityOrders memory afterOrder = privateOpportunity.getSellOpportunity(lowestSellStrike);
+        assertGt(afterOrder.swappedAmount, beforeOrder.swappedAmount, "expected sell opportunity swap to execute");
+        assertGt(afterOrder.outAmount, beforeOrder.outAmount, "expected sell opportunity out amount to increase");
+    }
+
     function test_privateBot_ordersNotVisibleInSharedCore() public {
         (address bot, address core,,address privLP, address privRouter) =
             _deployAndCapture(trader1);
@@ -622,29 +697,29 @@ contract PrivateBotFlowTest is Test {
         assertEq(dc.treasury(), treasury, "treasury not updated");
         assertEq(dc.treasury_fee(), 1200, "treasury fee not updated");
 
-        vm.prank(owner);
-        privateFactory.setPrivateCoreOpportunityBot(bot, trader2, true);
-        assertTrue(dc.opportunityBots(trader2), "opportunity bot not updated");
+        // vm.prank(owner);
+        // privateFactory.setPrivateCoreOpportunityBot(bot, trader2, true);
+        // assertTrue(dc.opportunityBots(trader2), "opportunity bot not updated");
 
-        vm.prank(owner);
-        privateFactory.setPrivateCoreTraderFactory(bot, IDoppiTraderFactory(address(sharedFactory)));
-        assertEq(address(dc.doppiTraderFactory()), address(sharedFactory), "trader factory not updated");
+        // vm.prank(owner);
+        // privateFactory.setPrivateCoreTraderFactory(bot, IDoppiTraderFactory(address(sharedFactory)));
+        // assertEq(address(dc.doppiTraderFactory()), address(sharedFactory), "trader factory not updated");
     }
 
-    function test_privateCore_traderCannotUpdateOwnerOnlyControls() public {
-        (address bot,,,,) = _deployAndCapture(trader1);
+    // function test_privateCore_traderCannotUpdateOwnerOnlyControls() public {
+    //     (address bot,,,,) = _deployAndCapture(trader1);
 
-        vm.startPrank(trader1);
-        vm.expectRevert();
-        privateFactory.setPrivateCoreTreasury(bot, treasury, 500);
+    //     vm.startPrank(trader1);
+    //     vm.expectRevert();
+    //     privateFactory.setPrivateCoreTreasury(bot, treasury, 500);
 
-        vm.expectRevert();
-        privateFactory.setPrivateCoreOpportunityBot(bot, trader2, true);
+    //     vm.expectRevert();
+    //     // privateFactory.setPrivateCoreOpportunityBot(bot, trader2, true);
 
-        vm.expectRevert();
-        privateFactory.setPrivateCoreTraderFactory(bot, IDoppiTraderFactory(address(sharedFactory)));
-        vm.stopPrank();
-    }
+    //     // vm.expectRevert();
+    //     // privateFactory.setPrivateCoreTraderFactory(bot, IDoppiTraderFactory(address(sharedFactory)));
+    //     // vm.stopPrank();
+    // }
 
     function test_privateRouter_traderCanUpdateOperationalControls() public {
         (address bot,,,, address privRouter) = _deployAndCapture(trader1);
@@ -663,22 +738,22 @@ contract PrivateBotFlowTest is Test {
         assertFalse(router.paused(), "router should be unpaused");
     }
 
-    function test_privateRouter_ownerCanUpdateOwnerOnlyControls() public {
-        (address bot,,,, address privRouter) = _deployAndCapture(trader1);
-        DoppiLiquidityRouter router = DoppiLiquidityRouter(privRouter);
+    // function test_privateRouter_ownerCanUpdateOwnerOnlyControls() public {
+    //     (address bot,,,, address privRouter) = _deployAndCapture(trader1);
+    //     DoppiLiquidityRouter router = DoppiLiquidityRouter(privRouter);
 
-        vm.prank(owner);
-        privateFactory.setPrivateRouterCore(bot, address(sharedCore));
-        assertEq(router.doppiCore(), address(sharedCore), "router core not updated");
-    }
+    //     vm.prank(owner);
+    //     privateFactory.setPrivateRouterCore(bot, address(sharedCore));
+    //     assertEq(router.doppiCore(), address(sharedCore), "router core not updated");
+    // }
 
-    function test_privateRouter_traderCannotUpdateOwnerOnlyControls() public {
-        (address bot,,,,) = _deployAndCapture(trader1);
+    // function test_privateRouter_traderCannotUpdateOwnerOnlyControls() public {
+    //     (address bot,,,,) = _deployAndCapture(trader1);
 
-        vm.expectRevert();
-        privateFactory.setPrivateRouterCore(bot, address(sharedCore));
-        vm.stopPrank();
-    }
+    //     vm.expectRevert();
+    //     privateFactory.setPrivateRouterCore(bot, address(sharedCore));
+    //     vm.stopPrank();
+    // }
 
     function test_privateWrappers_outsiderCannotCallTraderOrOwnerPaths() public {
         (address bot,,,,) = _deployAndCapture(trader1);

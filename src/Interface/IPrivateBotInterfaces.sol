@@ -14,6 +14,10 @@ interface IPrivateBot {
     function setForwarderAddress(address forwarderAddress) external;
 }
 
+interface ISetPrivateAutomationHub {
+    function setPrivateAutomationHub(address privateHub) external;
+}
+
 interface IPrivateFeePoolAdmin {
     function setAuthorizedCore(address core, bool allowed) external;
 }

@@ -89,6 +89,7 @@ contract DoppiTraderFactory is Ownable, IDoppiTraderFactory {
         
         // Register with hub if available
         if (privateAutomationHub != address(0)) {
+            DoppiTrader(traderBot).setPrivateAutomationHub(privateAutomationHub);
             IPrivateAutomationHub(privateAutomationHub).registerSharedBotJob(
                 msg.sender,
                 traderBot,

@@ -20,6 +20,7 @@ import "../src/mainnet/DoppiTraderTypes.sol";
 import "../src/mainnet/DoppiCoreTypes.sol";
 import {TestParamLib} from "../src/Library/TestParamLib.sol";
 import "../src/mainnet/DoppiLiquidityTypes.sol";
+import {MockPrivateAutomationHubForSimple} from "./PrivateDoppiSimpleTraderTopUpMock.sol";
 
 contract DoppiTraderV2Mock is DoppiTrader {
     function version() external pure returns (uint256) {
@@ -39,6 +40,7 @@ contract DoppiTraderTest is Test {
     MockToken btc;
     MockOracle oracle;
     MockDoppiUpKeepManager mockDoppiUpKeepManager;
+    MockPrivateAutomationHubForSimple mockPrivateAutomationHub;
     DoppiOpportunity opportunityBot;
     Swapper swapper;
     DoppiPoints doppiPoints;
@@ -77,6 +79,7 @@ contract DoppiTraderTest is Test {
         doppiPoints = new DoppiPoints();
 
         mockDoppiUpKeepManager = new MockDoppiUpKeepManager(mockForwarder);
+        mockPrivateAutomationHub = new MockPrivateAutomationHubForSimple();
 
         // Deploy Swapper that will act as both router and pool
         swapper = new Swapper(MockToken(usdt), MockToken(btc));
@@ -278,6 +281,83 @@ contract DoppiTraderTest is Test {
 
         // Check USDT balance decreased
         assertEq(usdt.balanceOf(address(trader)), 9_900_000 ether);
+    }
+
+    function test_startWithPrivateHubDoesNotTopUpWhenCreditAboveThreshold() public {
+        mockPrivateAutomationHub.setBillingConfig(IERC20(usdt), 10 ether, false);
+        mockPrivateAutomationHub.setCreditThreshold(0);
+        doppiFactory.setPrivateAutomationHub(address(mockPrivateAutomationHub));
+
+        vm.prank(trader);
+        uint32 id = doppiFactory.deployTraderBot(defaultweights);
+        DoppiTrader bot = DoppiTrader(doppiFactory.traderBots(id));
+
+        vm.startPrank(trader);
+        usdt.approve(address(bot), type(uint256).max);
+        bot.start(100_000 ether, 0);
+        vm.stopPrank();
+
+        assertEq(mockPrivateAutomationHub.depositedByBot(address(bot)), 0);
+        assertEq(usdt.balanceOf(address(mockPrivateAutomationHub)), 0);
+        assertEq(bot.costBasis(), 100_000 ether);
+    }
+
+    function test_startWithPrivateHubTopUpWhenCreditAtThresholdUsesRemainingCapital() public {
+        uint256 defaultTopUp = 10 ether;
+        mockPrivateAutomationHub.setBillingConfig(IERC20(usdt), defaultTopUp, false);
+        mockPrivateAutomationHub.setCreditThreshold(defaultTopUp);
+        mockPrivateAutomationHub.setCreditBalance(defaultTopUp);
+        doppiFactory.setPrivateAutomationHub(address(mockPrivateAutomationHub));
+
+        vm.prank(trader);
+        uint32 id = doppiFactory.deployTraderBot(defaultweights);
+        DoppiTrader bot = DoppiTrader(doppiFactory.traderBots(id));
+
+        vm.startPrank(trader);
+        usdt.approve(address(bot), type(uint256).max);
+        bot.start(100_000 ether, 0);
+        vm.stopPrank();
+
+        assertEq(mockPrivateAutomationHub.depositedByBot(address(bot)), defaultTopUp);
+        assertEq(usdt.balanceOf(address(mockPrivateAutomationHub)), defaultTopUp);
+        assertEq(bot.costBasis(), 100_000 ether - defaultTopUp);
+    }
+
+    function test_startWithPrivateHubTopUpRevertsWhenFundTokenDepositIsInsufficient() public {
+        mockPrivateAutomationHub.setBillingConfig(IERC20(usdt), 10 ether, false);
+        mockPrivateAutomationHub.setCreditThreshold(10 ether);
+        mockPrivateAutomationHub.setCreditBalance(10 ether);
+        doppiFactory.setPrivateAutomationHub(address(mockPrivateAutomationHub));
+
+        vm.prank(trader);
+        uint32 id = doppiFactory.deployTraderBot(defaultweights);
+        DoppiTrader bot = DoppiTrader(doppiFactory.traderBots(id));
+
+        vm.startPrank(trader);
+        usdt.approve(address(bot), type(uint256).max);
+        vm.expectRevert(bytes4(keccak256("InsufficientTopUpAmount()")));
+        bot.start(5 ether, 0);
+        vm.stopPrank();
+    }
+
+    function test_startWithPrivateHubUnsupportedFundTokenLeavesCapitalUnchanged() public {
+        MockToken otherToken = new MockToken("Other", "OTHER");
+        mockPrivateAutomationHub.setBillingConfig(IERC20(otherToken), 10 ether, false);
+        mockPrivateAutomationHub.setCreditThreshold(10 ether);
+        mockPrivateAutomationHub.setCreditBalance(10 ether);
+        doppiFactory.setPrivateAutomationHub(address(mockPrivateAutomationHub));
+
+        vm.prank(trader);
+        uint32 id = doppiFactory.deployTraderBot(defaultweights);
+        DoppiTrader bot = DoppiTrader(doppiFactory.traderBots(id));
+
+        vm.startPrank(trader);
+        usdt.approve(address(bot), type(uint256).max);
+        bot.start(100_000 ether, 0);
+        vm.stopPrank();
+
+        assertEq(mockPrivateAutomationHub.depositedByBot(address(bot)), 0);
+        assertEq(bot.costBasis(), 100_000 ether);
     }
 
     function test_stop_assetA_only() public {
