@@ -115,25 +115,13 @@ contract DoppiSimpleTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationC
         uint256 price = doppiLP.getPrice();
         if(price == 0) revert InvalidPrice();
 
+        (uint256 currentBalanceA, uint256 currentBalanceB, ) = getTotalBalances();
+
         if (_amountA > 0) assetA.safeTransferFrom(msg.sender, address(this), _amountA);
         if (_amountB > 0) assetB.safeTransferFrom(msg.sender, address(this), _amountB);
 
         (uint256 finalAmountA, uint256 finalAmountB) = _performTopUp(_amountA, _amountB);
-
-        uint256 depositValueInA = finalAmountA;
-        uint256 depositValueInB = finalAmountB;
-
-        if (finalAmountA > 0) {
-            depositValueInB += finalAmountA * priceDecimals / price;
-        }
-        if (finalAmountB > 0) {
-            depositValueInA += finalAmountB * price / priceDecimals;
-        }
-
-        uint256 currentValueInA = totalUnits == 0 ? 0 : _getTotalValueInA(price);
-        _updateUnitAndCostBasis(depositValueInA, currentValueInA, true);
-        uint256 currentValueInB = totalUnitsB == 0 ? 0 : _getTotalValueInB(price);
-        _updateUnitAndCostBasis(depositValueInB, currentValueInB, false);
+        _updateUnitAndCostBasis(finalAmountA, finalAmountB, currentBalanceA, currentBalanceB, price);
 
         engineStarted = true;
 
@@ -585,25 +573,6 @@ contract DoppiSimpleTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationC
         if (volumeInA == 0 || address(doppiPoints) == address(0) || doppiPoints.paused()) return;
         (bool ok, ) = address(doppiPoints).call(abi.encodeWithSelector(RECORD_SELECTOR, validTrader, volumeInA));
         if (!ok) revert RecordTradeFailed();
-    }
-
-    function _updateUnitAndCostBasis(uint256 depositValue, uint256 currentValue, bool isAssetA) internal {
-        if (depositValue == 0) return;
-
-        uint256 units = isAssetA ? totalUnits : totalUnitsB;
-        if (units == 0) {
-            units = depositValue;
-        } else if (currentValue > 0) {
-            units += depositValue * units / currentValue;
-        }
-
-        if (isAssetA) {
-            totalUnits = units;
-            costBasis += depositValue;
-        } else {
-            totalUnitsB = units;
-            costBasisB += depositValue;
-        }
     }
 
     function _nextOrderAmount(bool isBuy) internal view returns (uint256) {

@@ -229,9 +229,9 @@ contract DoppiTraderTest is Test {
         vm.stopPrank();
 
         assertEq(doppiTrader.totalUnits(), expectedA);
-        assertEq(doppiTrader.costBasis(), expectedA);
+        assertEq(doppiTrader.costBasis(), amountUSDT);
         assertEq(doppiTrader.totalUnitsB(), expectedB);
-        assertEq(doppiTrader.costBasisB(), expectedB);
+        assertEq(doppiTrader.costBasisB(), amountBTC);
     }
 
     function test_start_less_order() public {
@@ -1225,7 +1225,8 @@ contract DoppiTraderTest is Test {
         vm.stopPrank();
 
         // Immediately after first deposit the unit price must be exactly 1e18
-        assertEq(doppiTrader.getUnitPrice(), 1e18);
+        (,, uint256 unitPrice,) = doppiTrader.getPerformanceMultipliers();
+        assertEq(unitPrice, 1e18);
 
         // Settle after 1 day — keep oracle price unchanged so LP BTC exposure is neutral;
         // unit price must rise purely from interest earned on DoppiCore positions.
@@ -1240,7 +1241,8 @@ contract DoppiTraderTest is Test {
         usdt.mint(address(doppiLP), 100 ether);
 
         // Interest received increases totalValueInA without changing totalUnits
-        assertGt(doppiTrader.getUnitPrice(), 1e18);
+        (,, unitPrice,) = doppiTrader.getPerformanceMultipliers();
+        assertGt(unitPrice, 1e18);
     }
 
     function test_unitPrice_secondDepositDoesNotDilute() public {
@@ -1263,7 +1265,7 @@ contract DoppiTraderTest is Test {
         // Set LP gain
         usdt.mint(address(doppiLP), 100 ether);
 
-        uint256 unitPriceBefore = doppiTrader.getUnitPrice();
+        (,, uint256 unitPriceBefore,) = doppiTrader.getPerformanceMultipliers();
         assertGt(unitPriceBefore, 1e18); // confirm portfolio has gains
 
         _updateIV();
@@ -1273,7 +1275,8 @@ contract DoppiTraderTest is Test {
         doppiTrader.start(amountUSDT, 0);
 
         // Unit price must be preserved within 0.01% (integer rounding only)
-        assertApproxEqRel(doppiTrader.getUnitPrice(), unitPriceBefore, 1e14);
+        (,, uint256 unitPriceAfter,) = doppiTrader.getPerformanceMultipliers();
+        assertApproxEqRel(unitPriceAfter, unitPriceBefore, 1e14);
     }
 
     function test_stop_resetsUnitTracking() public {
@@ -1330,7 +1333,8 @@ contract DoppiTraderTest is Test {
         assertEq(doppiTrader.costBasis(), expectedUnits);
 
         // unit price should be exactly 1e18 (no gains/losses yet on first deposit)
-        assertEq(doppiTrader.getUnitPrice(), 1e18);
+        (,, uint256 unitPrice,) = doppiTrader.getPerformanceMultipliers();
+        assertEq(unitPrice, 1e18);
     }
 
     // internal

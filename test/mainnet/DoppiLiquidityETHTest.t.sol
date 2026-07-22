@@ -226,8 +226,10 @@ contract DoppiLiquidityETHTest is Test {
 
         (totalBalancesBotA, totalBalancesBotB, ) = traderBot.getTotalBalances();
         (totalBalancesInLPA, totalBalancesInLPB) = traderBot.getTotalBalancesInLP();
-        assertEq(totalBalancesBotA, 0, "totalBalancesBotA should be 0 after final withdraw");
-        assertEq(totalBalancesBotB, 0, "totalBalancesBotB should be 0 after final withdraw");
+        assertEq(usdt.balanceOf(address(traderBot)), 0, "bot wallet USDT should be 0 after partial withdraw");
+        assertEq(btc.balanceOf(address(traderBot)), 0, "bot wallet ETH should be 0 after partial withdraw");
+        assertEq(totalBalancesBotA, totalBalancesInLPA, "remaining total assetA should come only from LP");
+        assertEq(totalBalancesBotB, totalBalancesInLPB, "remaining total assetB should come only from LP");
         assertGt(totalBalancesInLPA, 0, "totalBalancesInLPA should be remaiining due to the unsettled orders");
         assertGt(totalBalancesInLPB, 0, "totalBalancesInLPB should be remaiining due to the unsettled orders");
         
@@ -243,7 +245,10 @@ contract DoppiLiquidityETHTest is Test {
         traderBot.stop();
         vm.stopPrank();
 
+        (totalBalancesBotA, totalBalancesBotB, ) = traderBot.getTotalBalances();
         (totalBalancesInLPA, totalBalancesInLPB) = traderBot.getTotalBalancesInLP();
+        assertEq(totalBalancesBotA, 0, "totalBalancesBotA should be 0 after final withdraw");
+        assertEq(totalBalancesBotB, 0, "totalBalancesBotB should be 0 after final withdraw");
         assertEq(totalBalancesInLPA, 0, "totalBalancesInLPA should be 0 after final withdraw");
         assertEq(totalBalancesInLPB, 0, "totalBalancesInLPB should be 0 after final withdraw");
 

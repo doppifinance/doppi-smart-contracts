@@ -69,23 +69,6 @@ abstract contract DoppiTraderAdminView is Ownable, Pausable {
         return doppiLP.getBalances(address(this));
     }
 
-    function getTotalValueInA() public view returns (uint256 totalInA) {
-        uint256 price = doppiLP.getPrice();
-        return _getTotalValueInA(price);
-    }
-
-    function getUnitPrice() external view returns (uint256) {
-        if (totalUnits == 0) return 1e18;
-        return getTotalValueInA() * 1e18 / totalUnits;
-    }
-
-    function getUnitPriceInB() external view returns (uint256) {
-        if (totalUnitsB == 0) return 1e18;
-        uint256 price = doppiLP.getPrice();
-        uint256 totalInB = _getTotalValueInB(price);
-        return totalInB * 1e18 / totalUnitsB;
-    }
-
     function getTotalBalances() public view returns (uint256 totalAssetA, uint256 totalAssetB, uint256 price) {
         
         price = doppiLP.getPrice();
@@ -93,6 +76,10 @@ abstract contract DoppiTraderAdminView is Ownable, Pausable {
         totalAssetA = assetA.balanceOf(address(this));
         totalAssetB = assetB.balanceOf(address(this));
         
+        (uint256 totalLPAssetA, uint256 totalLPAssetB) = doppiLP.getBalances(address(this));
+        totalAssetA += totalLPAssetA;
+        totalAssetB += totalLPAssetB;
+
         if(address(doppiCore) != address(0)) {
             DualAssetPosition[] memory buyPositions = doppiCore.get_positions_buy(address(this));
             uint256 length = buyPositions.length;
@@ -110,24 +97,24 @@ abstract contract DoppiTraderAdminView is Ownable, Pausable {
         
     }
 
-    function _getTotalValueInA(uint256 price) internal view returns (uint256 totalInA) {
-        (uint256 balA, uint256 balB, ) = getTotalBalances();
-        (uint256 lpA, uint256 lpB) = doppiLP.getBalances(address(this));
-        totalInA = balA + lpA;
-        uint256 totalB = balB + lpB;
-        if (price > 0) {
-            totalInA += totalB * price / priceDecimals;
-        }
-    }
+    function getPerformanceMultipliers() external view returns (uint256 multiplierA, uint256 multiplierB, uint256 unitPriceA, uint256 unitPriceB) {
+        
+        uint256 price = doppiLP.getPrice();
+        if(price == 0) return (1e18, 1e18, 1e18, 1e18);
 
-    function _getTotalValueInB(uint256 price) internal view returns (uint256 totalInB) {
-        (uint256 balA, uint256 balB, ) = getTotalBalances();
-        (uint256 lpA, uint256 lpB) = doppiLP.getBalances(address(this));
-        totalInB = balB + lpB;
-        uint256 totalA = balA + lpA;
-        if (price > 0) {
-            totalInB += totalA * priceDecimals / price;
-        }
+        (uint256 currentA, uint256 currentB, ) = getTotalBalances();
+
+        // Convert B values to A using current price
+        uint256 currentBInA = (currentB * price) / priceDecimals;
+        uint256 currentAInB = (currentA * priceDecimals ) / price;
+
+        uint256 totalValueA = currentA + currentBInA;
+        uint256 totalValueB = currentB + currentAInB;
+
+        multiplierA = (costBasis == 0) ? 0 : currentA * 1e18 / costBasis;
+        multiplierB = (costBasisB == 0) ? 0 : currentB * 1e18 / costBasisB;
+        unitPriceA = (totalUnits == 0) ? 1e18 : (totalValueA * 1e18) / totalUnits;
+        unitPriceB = (totalUnitsB == 0) ? 1e18 : (totalValueB * 1e18) / totalUnitsB;
     }
 
     function get_unrealized_PNL() external view returns (int256 pnl) {
@@ -360,6 +347,37 @@ abstract contract DoppiTraderAdminView is Ownable, Pausable {
                 _deactivateStrikeNode(sellStrikeNodes, strikePrice, false);
             }
         }
+    }
+
+    function _updateUnitAndCostBasis(
+        uint256 depositAmountA,
+        uint256 depositAmountB,
+        uint256 currentBalanceA,
+        uint256 currentBalanceB,
+        uint256 price
+    ) internal {
+        uint256 depositValueInA = depositAmountA + ((depositAmountB * price) / priceDecimals);
+        uint256 currentValueInA = currentBalanceA + ((currentBalanceB * price) / priceDecimals);
+        if (depositValueInA > 0) {
+            if (totalUnits == 0) {
+                totalUnits = depositValueInA;
+            } else if (currentValueInA > 0) {
+                totalUnits += (depositValueInA * totalUnits) / currentValueInA;
+            }
+        }
+
+        uint256 depositValueInB = depositAmountB + ((depositAmountA * priceDecimals) / price);
+        uint256 currentValueInB = currentBalanceB + ((currentBalanceA * priceDecimals) / price);
+        if (depositValueInB > 0) {
+            if (totalUnitsB == 0) {
+                totalUnitsB = depositValueInB;
+            } else if (currentValueInB > 0) {
+                totalUnitsB += (depositValueInB * totalUnitsB) / currentValueInB;
+            }
+        }
+
+        costBasis += depositAmountA;
+        costBasisB += depositAmountB;
     }
 
     function _activateStrikeNode(

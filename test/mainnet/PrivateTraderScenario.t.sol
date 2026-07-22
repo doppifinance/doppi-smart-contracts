@@ -265,6 +265,24 @@ contract PrivateTraderScenarioTest is Test {
         _getPrivateInfo(address(traderBot));
     }
 
+    function test_privateTrader_unitPriceStartsAtOne_afterAssetAOnlyStart() public {
+        deal(USDT, address(trader), 10_000 ether);
+
+        vm.startPrank(trader);
+        uint32 traderId = privateFactory.deployPrivateBot(defaultWeights);
+        DoppiTrader traderBot = DoppiTrader(privateFactory.traderBots(traderId));
+
+        usdt.approve(address(privateAutomationHub), 1_000 ether);
+        privateAutomationHub.deposit(address(traderBot), 1_000 ether);
+
+        usdt.approve(address(traderBot), 2_000 ether);
+        traderBot.start(2_000 ether, 0);
+        vm.stopPrank();
+
+        (, , uint256 unitPriceA, ) = traderBot.getPerformanceMultipliers();
+        assertEq(unitPriceA, 1e18, "first deposit should start at unit price 1");
+    }
+
     function _getBotBilling(address bot) internal view {
         
         BotBillingState memory billingState = privateAutomationHub.getBotBilling(bot);
