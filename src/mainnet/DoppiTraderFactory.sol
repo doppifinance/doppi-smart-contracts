@@ -7,10 +7,6 @@ import {IDoppiTraderFactory} from "../Interface/IDoppiTraderFactory.sol";
 import {BotRegistryLib} from "../Library/BotRegistryLib.sol";
 import {DoppiTrader} from "./DoppiTrader.sol";
 import {Clones} from "@openzeppelin/contracts/proxy/Clones.sol";
-import {IDoppiLiquidity} from "../Interface/IDoppiLiquidity.sol";
-import {IDoppiOffer} from "../Interface/IDoppiOffer.sol";
-import {IDoppiPoints} from "../Interface/IDoppiPoints.sol";
-import {IDoppiLiquidityRouter} from "../Interface/IDoppiLiquidityRouter.sol";
 import {IPrivateAutomationHub} from "../Interface/IPrivateAutomationHub.sol";
 
 interface ISetForwarder {
@@ -23,15 +19,7 @@ contract DoppiTraderFactory is Ownable, IDoppiTraderFactory {
 
     using BotRegistryLib for BotRegistryLib.BotRegistry;
 
-    // Add this line - the implementation contract address
     address public traderBotImplementation;
-    address public doppiCoreImplementation;
-    address public doppiOpportunityImplementation;
-    
-    /// @notice Maps trader bot → its private DoppiCore
-    mapping(address => address) public traderPrivateCore;
-    /// @notice Maps trader bot → its private DoppiOpportunity
-    mapping(address => address) public traderPrivateOpportunity;
 
     IERC20 public immutable assetA;
     IERC20 public immutable assetB;
@@ -106,26 +94,6 @@ contract DoppiTraderFactory is Ownable, IDoppiTraderFactory {
 	// Update implementation (only owner, for upgrades)
     function updateImplementation(address newImplementation) external onlyOwner {
         traderBotImplementation = newImplementation;
-    }
-
-    /// @notice Set implementation for private DoppiCore
-    function setDoppiCoreImplementation(address newImplementation) external onlyOwner {
-        doppiCoreImplementation = newImplementation;
-    }
-
-    /// @notice Set implementation for private DoppiOpportunity
-    function setDoppiOpportunityImplementation(address newImplementation) external onlyOwner {
-        doppiOpportunityImplementation = newImplementation;
-    }
-
-    /// @notice Get private core for a trader bot
-    function getPrivateCore(address _traderBot) external view returns (address) {
-        return traderPrivateCore[_traderBot];
-    }
-
-    /// @notice Get private opportunity for a trader bot
-    function getPrivateOpportunity(address _traderBot) external view returns (address) {
-        return traderPrivateOpportunity[_traderBot];
     }
 
     function setDoppiUpKeepManager(address _doppiUpKeepManager) external onlyOwner {
