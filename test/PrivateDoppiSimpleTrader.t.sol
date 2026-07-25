@@ -339,6 +339,7 @@ contract PrivateDoppiSimpleTraderTest is Test {
         DoppiSimpleTrader bot = DoppiSimpleTrader(botAddr);
 
         vm.startPrank(trader);
+        bot.setMaxSwap(50000 * 1e18);
         bot.setForwarderAddress(forwarder);
         bot.setOpportunityBufferParams(10000, 0); // zero buffer so unwind trigger equals average entry
         bot.setMaxOrderPerRound(10_000 ether, 0.1 ether);

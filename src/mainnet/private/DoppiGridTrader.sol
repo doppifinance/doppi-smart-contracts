@@ -20,7 +20,6 @@ contract DoppiGridTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCom
 
     uint16 private constant BPS = 10000;
     bytes4 private constant RECORD_SELECTOR = bytes4(keccak256("recordTrade(address,uint256)"));
-    bytes4 private constant FEE_POOL_NOTIFY_SELECTOR = bytes4(keccak256("onFeeReceived(address,uint256)"));
     OrderConfig[] public orderConfigs;
     UndoStat public undoStat;
 
@@ -44,7 +43,6 @@ contract DoppiGridTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCom
 
     uint16 public opportunityBufferCutBps;
     uint16 public opportunityMinBufferBps;
-    uint16 public profitFeeBps;
     uint32 public epochDuration;
     uint256 public minOrderA;
     uint256 public minOrderB;
@@ -67,7 +65,6 @@ contract DoppiGridTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCom
     event OrdersPlaced(uint64 indexed epochStart, uint64 indexed epochExpiry, uint256 anchorPrice, uint256 buyBudget, uint256 sellBudget);
     event OpportunityExecuted(bool indexed isBuy, uint256 indexed strikePrice, uint256 amountIn, uint256 amountOut, uint256 unwindStrike);
     event UnwindExecuted(bool indexed fromBuyBucket, uint256 amountIn, uint256 amountOut, uint256 profit);
-    event FeePaid(address indexed token, uint256 amount);
 
     error ArrayMismatch();
     error MaxLimit();
@@ -78,7 +75,6 @@ contract DoppiGridTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCom
     error InvalidBps();
     error NoEnoughBalance();
     error RecordTradeFailed();
-    error InvalidPrice();
 
     constructor() Ownable(msg.sender) {}
 
@@ -106,13 +102,13 @@ contract DoppiGridTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCom
         traderDefaultDay = 1;
         maxOrder = 5;
         ratioLP = 0;
-        maxSwap = 50000 ether;
+        maxSwap = 30000 ether;
         unwindGapMultiplier = 1;
         priceDecimals = 10 ** doppiLP.getPriceDecimals();
         epochDuration = 1 days;
         minOrderA = 50 ether;
         minOrderB = 0.0005 ether;
-        opportunityBufferCutBps = 3000;
+        opportunityBufferCutBps = 2000;
         opportunityMinBufferBps = 100;
         profitFeeBps = 2000;
     }
@@ -176,29 +172,30 @@ contract DoppiGridTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCom
         bool needPlace = _needPlaceOrders();
 
         upkeepNeeded = needUnwind || needOpportunity || needPlace;
-        return (upkeepNeeded, abi.encode(needUnwind, needOpportunity, needPlace));
+        return (upkeepNeeded, abi.encode(""));
     }
 
-    function performUpkeep(bytes calldata performData) external override nonReentrant {
+    function performUpkeep(bytes calldata /* performData */) external override nonReentrant {
         _onlyForwarder();
         if (!engineStarted || paused()) return;
 
         uint256 price = doppiLP.getPrice();
         if (price == 0) return;
 
-        (bool needUnwind, bool needOpportunity, bool needPlace) = 
-            abi.decode(performData, (bool, bool, bool));
-
+        bool needUnwind = _hasTriggeredUnwind(price);
         if(needUnwind){
             _performUnwindBuyBuckets(price);
             _performUnwindSellBuckets(price);
         }
+
+        bool needOpportunity = _hasTriggeredOpportunity(price);
         if(needOpportunity){
             _performOpportunityBuy(price);
             _performOpportunitySell(price);            
         }
 
-        if (needPlace && _needPlaceOrders()) {
+        bool needPlace = _needPlaceOrders();
+        if (needPlace) {
             _resetAndPlace(price);
         }
     }
@@ -234,30 +231,73 @@ contract DoppiGridTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCom
     }
 
     function getEpochZoneInfo() external view returns (EpochZoneInfo[] memory zones) {
-        uint256 len = orderConfigs.length;
-        zones = new EpochZoneInfo[](len);
         uint256 gap = _priceGapWithDecimals();
         bool hasActiveAnchor = engineStarted && currentAnchorPrice > 0;
 
-        for (uint256 i = 0; i < len; ) {
-            uint8 zone = orderConfigs[i].strikeZone;
-            uint256 buyStrike;
-            uint256 sellStrike;
-            if (hasActiveAnchor) {
-                buyStrike = currentAnchorPrice >= uint256(zone) * gap ? currentAnchorPrice - (uint256(zone) * gap) : 0;
-                sellStrike = currentAnchorPrice + ((uint256(zone) + 1) * gap);
+        if (hasActiveAnchor) {
+            uint256 totalOffers = impliedVol.TOTAL_OFFER();
+            uint256 maxZones = uint256(type(uint8).max) + 1;
+            if (totalOffers > maxZones) totalOffers = maxZones;
+
+            uint256 count;
+            for (uint256 z = 0; z < totalOffers; ) {
+                uint8 zone = uint8(z);
+                if (epochOriginalBuyByZone[zone] > 0 || epochOriginalSellByZone[zone] > 0) {
+                    unchecked {
+                        ++count;
+                    }
+                }
+                unchecked {
+                    ++z;
+                }
             }
 
+            zones = new EpochZoneInfo[](count);
+            uint256 idx;
+            for (uint256 z = 0; z < totalOffers; ) {
+                uint8 zone = uint8(z);
+                uint256 originalBuyAmount = epochOriginalBuyByZone[zone];
+                uint256 originalSellAmount = epochOriginalSellByZone[zone];
+                if (originalBuyAmount > 0 || originalSellAmount > 0) {
+                    uint256 buyStrike = currentAnchorPrice >= uint256(zone) * gap
+                        ? currentAnchorPrice - (uint256(zone) * gap)
+                        : 0;
+                    uint256 sellStrike = currentAnchorPrice + ((uint256(zone) + 1) * gap);
+
+                    zones[idx] = EpochZoneInfo({
+                        zone: zone,
+                        buyStrike: buyStrike,
+                        sellStrike: sellStrike,
+                        originalBuyAmount: originalBuyAmount,
+                        originalSellAmount: originalSellAmount,
+                        remainingBuyOpportunity: buyStrike == 0 ? 0 : opportunityBuy[buyStrike],
+                        remainingSellOpportunity: opportunitySell[sellStrike]
+                    });
+
+                    unchecked {
+                        ++idx;
+                    }
+                }
+                unchecked {
+                    ++z;
+                }
+            }
+            return zones;
+        }
+
+        uint256 len = orderConfigs.length;
+        zones = new EpochZoneInfo[](len);
+        for (uint256 i = 0; i < len; ) {
+            uint8 zone = orderConfigs[i].strikeZone;
             zones[i] = EpochZoneInfo({
                 zone: zone,
-                buyStrike: buyStrike,
-                sellStrike: sellStrike,
-                originalBuyAmount: epochOriginalBuyByZone[zone],
-                originalSellAmount: epochOriginalSellByZone[zone],
-                remainingBuyOpportunity: buyStrike == 0 ? 0 : opportunityBuy[buyStrike],
-                remainingSellOpportunity: opportunitySell[sellStrike]
+                buyStrike: 0,
+                sellStrike: 0,
+                originalBuyAmount: 0,
+                originalSellAmount: 0,
+                remainingBuyOpportunity: 0,
+                remainingSellOpportunity: 0
             });
-
             unchecked {
                 ++i;
             }
@@ -495,73 +535,6 @@ contract DoppiGridTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCom
         }
     }
 
-    function _payFee(address token, uint256 profitAmount) internal {
-        if (feePool == address(0) || profitFeeBps == 0 || profitAmount == 0) return;
-        uint256 fee = (profitAmount * profitFeeBps) / BPS;
-        _payFeeAmount(token, fee);
-    }
-
-    function _payFeeAmount(address token, uint256 fee) internal {
-        if (feePool == address(0) || fee == 0) return;
-        IERC20(token).safeTransfer(feePool, fee);
-        if (feePool.code.length > 0) {
-            (bool ok, ) = feePool.call(abi.encodeWithSelector(FEE_POOL_NOTIFY_SELECTOR, token, fee));
-            if (!ok) {
-                // no-op
-            }
-        }
-        emit FeePaid(token, fee);
-    }
-
-    function _payStopProfitFees() internal {
-        if (feePool == address(0) || profitFeeBps == 0) return;
-        if (activeBuyStrikeCount == 0 && activeSellStrikeCount == 0) return;
-
-        uint256 price = doppiLP.getPrice();
-        if (price == 0) revert InvalidPrice();
-
-        _payStopBuyProfitFees(price);
-        _payStopSellProfitFees(price);
-    }
-
-    function _payStopBuyProfitFees(uint256 price) internal {
-        uint256 strike = buyHead;
-        while (strike != 0) {
-            uint256 nextStrike = buyStrikeNodes[strike].next;
-            uint256 amountB = unWindBuy[strike];
-            uint256 entryValueA = unWindBuyCostA[strike];
-            uint256 currentValueA = (amountB * price) / priceDecimals;
-
-            if (currentValueA > entryValueA) {
-                uint256 profitA = currentValueA - entryValueA;
-                uint256 feeA = (profitA * profitFeeBps) / BPS;
-                uint256 feeB = (feeA * priceDecimals) / price;
-                _payFeeAmount(address(assetB), feeB);
-            }
-
-            strike = nextStrike;
-        }
-    }
-
-    function _payStopSellProfitFees(uint256 price) internal {
-        uint256 strike = sellHead;
-        while (strike != 0) {
-            uint256 nextStrike = sellStrikeNodes[strike].next;
-            uint256 amountA = unWindSell[strike];
-            uint256 entryValueB = unWindSellCostB[strike];
-            uint256 currentValueB = (amountA * priceDecimals) / price;
-
-            if (currentValueB > entryValueB) {
-                uint256 profitB = currentValueB - entryValueB;
-                uint256 feeB = (profitB * profitFeeBps) / BPS;
-                uint256 feeA = (feeB * price) / priceDecimals;
-                _payFeeAmount(address(assetA), feeA);
-            }
-
-            strike = nextStrike;
-        }
-    }
-
     function _getUnwindEntryValue(bool isBuy, uint256 strikePrice, uint256 unwindAmount)
         internal
         view
@@ -571,6 +544,19 @@ contract DoppiGridTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCom
         uint256 trackedCost = isBuy ? unWindBuyCostA[strikePrice] : unWindSellCostB[strikePrice];
         if (trackedCost > 0 || unwindAmount == 0) return trackedCost;
         return super._getUnwindEntryValue(isBuy, strikePrice, unwindAmount);
+    }
+
+    function _getStopProfitEntryValue(bool isBuy, uint256 strikePrice, uint256)
+        internal
+        view
+        override
+        returns (uint256)
+    {
+        return isBuy ? unWindBuyCostA[strikePrice] : unWindSellCostB[strikePrice];
+    }
+
+    function _getFeePool() internal view override returns (address) {
+        return feePool;
     }
 
     function _resetAndPlace(uint256 price) internal {
@@ -707,54 +693,8 @@ contract DoppiGridTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCom
         return block.timestamp >= currentEpochExpiry;
     }
 
-    function _getRoundBudget(bool isBuy, uint256 availableBalance, uint256 minOrder, uint256 length)
-        internal
-        view
-        returns (uint256 budget)
-    {
-        if (availableBalance == 0) return 0;
-
-        uint256 cap = isBuy ? maxOrderPerRoundA : maxOrderPerRoundB;
-        if (cap > 0) {
-            return availableBalance < cap ? availableBalance : cap;
-        }
-
-        return _getAutoRoundBudget(availableBalance, minOrder, length);
-    }
-
-    function _getAutoRoundBudget(uint256 availableBalance, uint256 minOrder, uint256 length)
-        internal
-        view
-        returns (uint256 budget)
-    {
-        if (length == 0) return 0;
-
-        uint256 maxSplit = length < 5 ? length : 5;
-        for (uint256 split = maxSplit; split > 0; ) {
-            uint256 candidateBudget = availableBalance / split;
-            if (candidateBudget > 0) {
-                uint256 validCount = 0;
-                for (uint256 i = 0; i < length; ) {
-                    uint256 depositAmount = (candidateBudget * orderConfigs[i].weight) / BPS;
-                    if (depositAmount >= minOrder) {
-                        unchecked {
-                            ++validCount;
-                        }
-                    }
-                    unchecked {
-                        ++i;
-                    }
-                }
-                if (validCount >= split) {
-                    return candidateBudget;
-                }
-            }
-            unchecked {
-                --split;
-            }
-        }
-
-        return 0;
+    function _getOrderWeight(uint256 index) internal view override returns (uint256) {
+        return orderConfigs[index].weight;
     }
 
     function _getBufferAmount(uint256 price, bool isBuy) internal view returns (uint256) {

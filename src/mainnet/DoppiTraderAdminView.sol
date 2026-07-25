@@ -18,6 +18,10 @@ import {BotBillingState} from "./private/PrivateAutomationHubTypes.sol";
 abstract contract DoppiTraderAdminView is Ownable, Pausable {
 
     using SafeERC20 for IERC20;
+    uint16 private constant FEE_BPS_DENOMINATOR = 10000;
+    uint16 private constant BUDGET_BPS_DENOMINATOR = 10000;
+    bytes4 private constant FEE_POOL_NOTIFY_SELECTOR = bytes4(keccak256("onFeeReceived(address,uint256)"));
+
     struct StrikePnLView {
         uint256 strikePrice;
         uint256 unwindAmount;
@@ -26,6 +30,8 @@ abstract contract DoppiTraderAdminView is Ownable, Pausable {
         uint256 averageCost;
         int256 pnl;
     }
+
+    event FeePaid(address indexed token, uint256 amount);
     
     IERC20 public assetA;
     IERC20 public assetB;
@@ -57,6 +63,7 @@ abstract contract DoppiTraderAdminView is Ownable, Pausable {
     uint256 internal activeSellStrikeCount;
     uint256 public maxSwap;
     uint8 public unwindGapMultiplier;
+    uint16 public profitFeeBps;
     uint256 public maxOrderPerRoundA;
     uint256 public maxOrderPerRoundB;
     uint256 priceDecimals;
@@ -64,6 +71,7 @@ abstract contract DoppiTraderAdminView is Ownable, Pausable {
     error NotValidTrader();
     error NotValidTraderOrUpkeep();
     error InsufficientTopUpAmount();
+    error InvalidPrice();
     
     function getTotalBalancesInLP() external view returns (uint256 totalAssetA, uint256 totalAssetB) {
         return doppiLP.getBalances(address(this));
@@ -119,9 +127,11 @@ abstract contract DoppiTraderAdminView is Ownable, Pausable {
 
     function get_unrealized_PNL() external view returns (int256 pnl) {
         uint256 price = doppiLP.getPrice();
-        int256 pnlprofit = _calcPnL(price, true);
-        int256 pnlloss = _calcPnL(price, false);
-        pnl = pnlprofit + pnlloss;  
+
+        (, int256 buyPnl, ) = _buildStrikePnLView(true, price);
+        (, int256 sellPnl, ) = _buildStrikePnLView(false, price);
+
+        pnl = buyPnl + (sellPnl * int256(price)) / int256(priceDecimals);
     }
 
     function getStrikePnL(bool isBuy)
@@ -131,14 +141,6 @@ abstract contract DoppiTraderAdminView is Ownable, Pausable {
     {
         currentPrice = doppiLP.getPrice();
         return _buildStrikePnLView(isBuy, currentPrice);
-    }
-
-    function getStrikePnLAtPrice(bool isBuy, uint256 price)
-        external
-        view
-        returns (StrikePnLView[] memory items, int256 totalPnl)
-    {
-        (items, totalPnl, ) = _buildStrikePnLView(isBuy, price);
     }
 
     function setPause() external {
@@ -184,6 +186,22 @@ abstract contract DoppiTraderAdminView is Ownable, Pausable {
         _onlyTrader();
         maxOrderPerRoundA = _maxOrderPerRoundA;
         maxOrderPerRoundB = _maxOrderPerRoundB;
+    }
+
+    function _getRoundBudget(bool isBuy, uint256 availableBalance, uint256 minOrder, uint256 length)
+        internal
+        view
+        returns (uint256 budget)
+    {
+        if (availableBalance == 0) return 0;
+
+        uint256 cap = isBuy ? maxOrderPerRoundA : maxOrderPerRoundB;
+        if (cap > 0) {
+            uint256 available = availableBalance < cap ? availableBalance : cap;
+            return available > maxSwap ? maxSwap : available;
+        }
+
+        return _getAutoRoundBudget(availableBalance, minOrder, length);
     }
 
     function setForwarderAddress(address forwarderAddress) external {
@@ -284,6 +302,86 @@ abstract contract DoppiTraderAdminView is Ownable, Pausable {
         returns (uint256)
     {
         return isBuy ? unwindAmount * strikePrice / priceDecimals : unwindAmount * priceDecimals / strikePrice;
+    }
+
+    function _getStopProfitEntryValue(bool isBuy, uint256 strikePrice, uint256 unwindAmount)
+        internal
+        view
+        virtual
+        returns (uint256)
+    {
+        return _getUnwindEntryValue(isBuy, strikePrice, unwindAmount);
+    }
+
+    function _payFee(address token, uint256 profitAmount) internal {
+        uint16 feeBps = profitFeeBps;
+        if (_getFeePool() == address(0) || feeBps == 0 || profitAmount == 0) return;
+        uint256 fee = (profitAmount * feeBps) / FEE_BPS_DENOMINATOR;
+        _payFeeAmount(token, fee);
+    }
+
+    function _payFeeAmount(address token, uint256 fee) internal {
+        address feePool = _getFeePool();
+        if (feePool == address(0) || fee == 0) return;
+        IERC20(token).safeTransfer(feePool, fee);
+        if (feePool.code.length > 0) {
+            (bool ok, ) = feePool.call(abi.encodeWithSelector(FEE_POOL_NOTIFY_SELECTOR, token, fee));
+            if (!ok) {
+                revert("FeePool notify failed");
+            }
+        }
+        emit FeePaid(token, fee);
+    }
+
+    function _payStopProfitFees() internal {
+        address feePool = _getFeePool();
+        uint16 feeBps = profitFeeBps;
+        if (feePool == address(0) || feeBps == 0) return;
+        if (activeBuyStrikeCount == 0 && activeSellStrikeCount == 0) return;
+
+        uint256 price = doppiLP.getPrice();
+        if (price == 0) revert InvalidPrice();
+
+        _payStopBuyProfitFees(price, feeBps);
+        _payStopSellProfitFees(price, feeBps);
+    }
+
+    function _payStopBuyProfitFees(uint256 price, uint16 feeBps) internal {
+        uint256 strike = buyHead;
+        while (strike != 0) {
+            uint256 nextStrike = buyStrikeNodes[strike].next;
+            uint256 amountB = unWindBuy[strike];
+            uint256 entryValueA = _getStopProfitEntryValue(true, strike, amountB);
+            uint256 currentValueA = (amountB * price) / priceDecimals;
+
+            if (currentValueA > entryValueA) {
+                uint256 profitA = currentValueA - entryValueA;
+                uint256 feeA = (profitA * feeBps) / FEE_BPS_DENOMINATOR;
+                uint256 feeB = (feeA * priceDecimals) / price;
+                _payFeeAmount(address(assetB), feeB);
+            }
+
+            strike = nextStrike;
+        }
+    }
+
+    function _payStopSellProfitFees(uint256 price, uint16 feeBps) internal {
+        uint256 strike = sellHead;
+        while (strike != 0) {
+            uint256 nextStrike = sellStrikeNodes[strike].next;
+            uint256 amountA = unWindSell[strike];
+            uint256 entryValueB = _getStopProfitEntryValue(false, strike, amountA);
+            uint256 currentValueB = (amountA * priceDecimals) / price;
+
+            if (currentValueB > entryValueB) {
+                uint256 profitB = currentValueB - entryValueB;
+                uint256 feeB = (profitB * feeBps) / FEE_BPS_DENOMINATOR;
+                uint256 feeA = (feeB * price) / priceDecimals;
+                _payFeeAmount(address(assetA), feeA);
+            }
+
+            strike = nextStrike;
+        }
     }
 
     function _performTopUp(uint256 amountA, uint256 amountB)
@@ -482,6 +580,40 @@ abstract contract DoppiTraderAdminView is Ownable, Pausable {
 
     function _onlyTraderOrOwner() internal view {
         if(msg.sender != validTrader && msg.sender != owner()) revert NotValidTrader();
-    }    
+    }
+
+    function _getAutoRoundBudget(uint256 availableBalance, uint256 minOrder, uint256 length)
+        internal
+        view
+        virtual
+        returns (uint256 budget)
+    {
+        if (length == 0) return 0;
+
+        uint256 maxSplit = length < 5 ? length : 5;
+        for (uint256 split = maxSplit; split > 0; ) {
+            uint256 candidateBudget = availableBalance / split;
+            if (candidateBudget > 0) {
+                uint256 validCount = 0;
+                for (uint256 i = 0; i < length; ) {
+                    uint256 depositAmount = (candidateBudget * _getOrderWeight(i)) / BUDGET_BPS_DENOMINATOR;
+                    if (depositAmount >= minOrder) {
+                        unchecked { ++validCount; }
+                    }
+                    unchecked { ++i; }
+                }
+                if (validCount >= split) {
+                    return candidateBudget > maxSwap ? maxSwap : candidateBudget;
+                }
+            }
+            unchecked { --split; }
+        }
+
+        return 0;
+    }
+
+    function _getOrderWeight(uint256 index) internal view virtual returns (uint256);
+
+    function _getFeePool() internal view virtual returns (address);
 
 }

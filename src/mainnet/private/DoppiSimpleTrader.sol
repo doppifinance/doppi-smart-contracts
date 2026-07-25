@@ -18,7 +18,6 @@ contract DoppiSimpleTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationC
 
     uint16 private constant BPS = 10000;
     bytes4 private constant RECORD_SELECTOR = bytes4(keccak256("recordTrade(address,uint256)"));
-    bytes4 private constant FEE_POOL_NOTIFY_SELECTOR = bytes4(keccak256("onFeeReceived(address,uint256)"));
 
     UndoStat public undoStat;
 
@@ -33,7 +32,6 @@ contract DoppiSimpleTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationC
 
     uint16 public opportunityBufferCutBps;
     uint16 public opportunityMinBufferBps;
-    uint16 public profitFeeBps;
     uint256 public minOrderA;
     uint256 public minOrderB;
     address public feePool;
@@ -64,14 +62,12 @@ contract DoppiSimpleTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationC
     event TriggerInitialized(uint256 buyTrigger, uint256 sellTrigger);
     event OrderPlaced(bool indexed isBuy, uint256 indexed executionPrice, uint256 amountIn, uint256 amountOut, uint256 nextTrigger);
     event UnwindExecuted(bool indexed fromBuyBucket, uint256 amountIn, uint256 amountOut, uint256 profit);
-    event FeePaid(address indexed token, uint256 amount);
 
     error AmountNotSpecified();
     error OnlyForwarder();
     error InvalidBps();
     error NoEnoughBalance();
     error RecordTradeFailed();
-    error InvalidPrice();
 
     constructor() Ownable(msg.sender) {}
 
@@ -97,7 +93,7 @@ contract DoppiSimpleTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationC
         traderDefaultDay = 1;
         maxOrder = 5;
         ratioLP = 0;
-        maxSwap = 50000 ether;
+        maxSwap = 10000 ether;
         unwindGapMultiplier = 1;
         priceDecimals = 10 ** doppiLP.getPriceDecimals();
 
@@ -128,6 +124,10 @@ contract DoppiSimpleTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationC
         if (nextBuyTriggerPrice == 0 && nextSellTriggerPrice == 0) {
             nextBuyTriggerPrice = _lowerTriggerPrice(price);
             nextSellTriggerPrice = _upperTriggerPrice(price);
+
+            maxOrderPerRoundA = _getRoundBudget(true);
+            maxOrderPerRoundB = _getRoundBudget(false);
+
             emit TriggerInitialized(nextBuyTriggerPrice, nextSellTriggerPrice);
         }
     }
@@ -168,8 +168,8 @@ contract DoppiSimpleTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationC
         uint256 price = doppiLP.getPrice();
         if (price == 0) return (false, bytes(""));
 
-        uint256 buyOrderAmount = _nextOrderAmount(true);
-        uint256 sellOrderAmount = _nextOrderAmount(false);
+        uint256 buyOrderAmount = _getRoundBudget(true);
+        uint256 sellOrderAmount = _getRoundBudget(false);
 
         bool placeBuy = price <= nextBuyTriggerPrice && buyOrderAmount >= minOrderA;
         bool placeSell = price >= nextSellTriggerPrice && sellOrderAmount >= minOrderB;
@@ -190,6 +190,14 @@ contract DoppiSimpleTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationC
         (bool placeBuy, bool placeSell, bool unwindBuy, bool unwindSell) =
             abi.decode(performData, (bool, bool, bool, bool));
 
+        if (unwindBuy && _shouldUnwindBuy(price)) {
+            _performUnwindBuyBuckets(price);
+        }
+
+        if (unwindSell && _shouldUnwindSell(price)) {
+            _performUnwindSellBuckets(price);
+        }
+        
         if (placeBuy && price <= nextBuyTriggerPrice) {
             _executeBuyOrder(price);
         }
@@ -198,13 +206,6 @@ contract DoppiSimpleTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationC
             _executeSellOrder(price);
         }
 
-        if (unwindBuy && _shouldUnwindBuy(price)) {
-            _performUnwindBuyBuckets(price);
-        }
-
-        if (unwindSell && _shouldUnwindSell(price)) {
-            _performUnwindSellBuckets(price);
-        }
     }
 
     function setOpportunityBufferParams(uint16 _bufferCutBps, uint16 _minBufferBps) external {
@@ -238,8 +239,8 @@ contract DoppiSimpleTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationC
     function placeOrders() external nonReentrant {
         _onlyTrader();
         uint256 price = doppiLP.getPrice();
-        uint256 buyOrderAmount = _nextOrderAmount(true);
-        uint256 sellOrderAmount = _nextOrderAmount(false);
+        uint256 buyOrderAmount = _getRoundBudget(true);
+        uint256 sellOrderAmount = _getRoundBudget(false);
 
         bool canBuy = price <= nextBuyTriggerPrice && buyOrderAmount >= minOrderA;
         bool canSell = price >= nextSellTriggerPrice && sellOrderAmount >= minOrderB;
@@ -259,7 +260,7 @@ contract DoppiSimpleTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationC
     }
 
     function getNextOrderAmount(bool isBuy) external view returns (uint256) {
-        return _nextOrderAmount(isBuy);
+        return _getRoundBudget(isBuy);
     }
 
     function getUnwindTriggerPrices() external view returns (uint256 buyUnwindTrigger, uint256 sellUnwindTrigger) {
@@ -282,7 +283,7 @@ contract DoppiSimpleTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationC
     }
 
     function _executeBuyOrder(uint256 price) internal {
-        uint256 amountInA = _nextOrderAmount(true);
+        uint256 amountInA = _getRoundBudget(true);
         if (amountInA < minOrderA) return;
 
         bool wasEmpty = unWindBuy[price] == 0;
@@ -311,7 +312,7 @@ contract DoppiSimpleTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationC
     }
 
     function _executeSellOrder(uint256 price) internal {
-        uint256 amountInB = _nextOrderAmount(false);
+        uint256 amountInB = _getRoundBudget(false);
         if (amountInB < minOrderB) return;
 
         bool wasEmpty = unWindSell[price] == 0;
@@ -491,73 +492,6 @@ contract DoppiSimpleTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationC
         }
     }
 
-    function _payFee(address token, uint256 profitAmount) internal {
-        if (feePool == address(0) || profitFeeBps == 0 || profitAmount == 0) return;
-        uint256 fee = (profitAmount * profitFeeBps) / BPS;
-        _payFeeAmount(token, fee);
-    }
-
-    function _payFeeAmount(address token, uint256 fee) internal {
-        if (feePool == address(0) || fee == 0) return;
-        IERC20(token).safeTransfer(feePool, fee);
-        if (feePool.code.length > 0) {
-            (bool ok, ) = feePool.call(abi.encodeWithSelector(FEE_POOL_NOTIFY_SELECTOR, token, fee));
-            if (!ok) {
-                // no-op
-            }
-        }
-        emit FeePaid(token, fee);
-    }
-
-    function _payStopProfitFees() internal {
-        if (feePool == address(0) || profitFeeBps == 0) return;
-        if (activeBuyStrikeCount == 0 && activeSellStrikeCount == 0) return;
-
-        uint256 price = doppiLP.getPrice();
-        if (price == 0) revert InvalidPrice();
-
-        _payStopBuyProfitFees(price);
-        _payStopSellProfitFees(price);
-    }
-
-    function _payStopBuyProfitFees(uint256 price) internal {
-        uint256 strike = buyHead;
-        while (strike != 0) {
-            uint256 nextStrike = buyStrikeNodes[strike].next;
-            uint256 amountB = unWindBuy[strike];
-            uint256 entryValueA = unWindBuyCostA[strike];
-            uint256 currentValueA = (amountB * price) / priceDecimals;
-
-            if (currentValueA > entryValueA) {
-                uint256 profitA = currentValueA - entryValueA;
-                uint256 feeA = (profitA * profitFeeBps) / BPS;
-                uint256 feeB = (feeA * priceDecimals) / price;
-                _payFeeAmount(address(assetB), feeB);
-            }
-
-            strike = nextStrike;
-        }
-    }
-
-    function _payStopSellProfitFees(uint256 price) internal {
-        uint256 strike = sellHead;
-        while (strike != 0) {
-            uint256 nextStrike = sellStrikeNodes[strike].next;
-            uint256 amountA = unWindSell[strike];
-            uint256 entryValueB = unWindSellCostB[strike];
-            uint256 currentValueB = (amountA * priceDecimals) / price;
-
-            if (currentValueB > entryValueB) {
-                uint256 profitB = currentValueB - entryValueB;
-                uint256 feeB = (profitB * profitFeeBps) / BPS;
-                uint256 feeA = (feeB * price) / priceDecimals;
-                _payFeeAmount(address(assetA), feeA);
-            }
-
-            strike = nextStrike;
-        }
-    }
-
     function _getUnwindEntryValue(bool isBuy, uint256 strikePrice, uint256 unwindAmount)
         internal
         view
@@ -569,36 +503,52 @@ contract DoppiSimpleTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationC
         return super._getUnwindEntryValue(isBuy, strikePrice, unwindAmount);
     }
 
+    function _getStopProfitEntryValue(bool isBuy, uint256 strikePrice, uint256)
+        internal
+        view
+        override
+        returns (uint256)
+    {
+        return isBuy ? unWindBuyCostA[strikePrice] : unWindSellCostB[strikePrice];
+    }
+
+    function _getFeePool() internal view override returns (address) {
+        return feePool;
+    }
+
     function _recordTradeVolumeInA(uint256 volumeInA) internal {
         if (volumeInA == 0 || address(doppiPoints) == address(0) || doppiPoints.paused()) return;
         (bool ok, ) = address(doppiPoints).call(abi.encodeWithSelector(RECORD_SELECTOR, validTrader, volumeInA));
         if (!ok) revert RecordTradeFailed();
     }
 
-    function _nextOrderAmount(bool isBuy) internal view returns (uint256) {
-        uint256 available = _availableBalance(isBuy);
-        uint256 cap = isBuy ? maxOrderPerRoundA : maxOrderPerRoundB;
-        if (cap > 0) {
-            return available < cap ? available : cap;
-        }
-
+    function _getRoundBudget(bool isBuy) internal view returns (uint256) {
         uint256 minOrder = isBuy ? minOrderA : minOrderB;
-        return _getAutoRoundBudget(available, minOrder);
+        return super._getRoundBudget(isBuy, _availableBalance(isBuy), minOrder, 5);
     }
 
-    function _getAutoRoundBudget(uint256 availableBalance, uint256 minOrder) internal pure returns (uint256 budget) {
+    function _getAutoRoundBudget(uint256 availableBalance, uint256 minOrder, uint256)
+        internal
+        view
+        override
+        returns (uint256 budget)
+    {
         if (availableBalance == 0) return 0;
 
         for (uint256 split = 5; split > 0; ) {
             uint256 candidateBudget = availableBalance / split;
             if (candidateBudget >= minOrder) {
-                return candidateBudget;
+                return candidateBudget > maxSwap ? maxSwap : candidateBudget;
             }
             unchecked {
                 --split;
             }
         }
 
+        return 0;
+    }
+
+    function _getOrderWeight(uint256) internal pure override returns (uint256) {
         return 0;
     }
 

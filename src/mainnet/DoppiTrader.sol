@@ -26,7 +26,6 @@ contract DoppiTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCompati
     error OnlyForwarder();
     error OnlyDoppiCore();
     error NoEnoughBalance();
-    error InvalidPrice();
 
 
     constructor() Ownable(msg.sender) {
@@ -67,7 +66,7 @@ contract DoppiTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCompati
         traderDefaultDay = 1;
         maxOrder = 5;
         ratioLP = 5000;
-        maxSwap = 200000 ether;
+        maxSwap = 30000 ether;
         unwindGapMultiplier = 1;
         priceDecimals = 10 ** doppiLP.getPriceDecimals();
     }
@@ -201,7 +200,7 @@ contract DoppiTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCompati
         uint256 totalSellAmountInA;
         
         (bool toBuy, bool toSell) = _shouldPlaceOrders(price);
-        if(toBuy || toSell) return (true, abi.encode(false, false, targetPricesBuy, targetPricesSell, 0, 0, 0, toBuy, toSell));
+        if(toBuy || toSell) return (true, abi.encode(false, toBuy, toSell));
 
         (targetPricesBuy, totalBuyAmountInB) =_checkUndoTrade(true, price);
         (targetPricesSell, totalSellAmountInA) =_checkUndoTrade(false, price);
@@ -209,7 +208,7 @@ contract DoppiTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCompati
         if (totalBuyAmountInB > 0 || totalSellAmountInA > 0) {
             (bool isNetBuy, uint256 netAmount) = _netoutBuySell(totalSellAmountInA, totalBuyAmountInB, price);
             if(netAmount > 0){
-                return (true, abi.encode(true, isNetBuy, targetPricesBuy, targetPricesSell, netAmount, totalSellAmountInA, totalBuyAmountInB, false, false));
+                return (true, abi.encode(true, false, false));
             }
         }
         return (false, bytes(""));
@@ -218,20 +217,31 @@ contract DoppiTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCompati
     function performUpkeep(bytes calldata performData) external override nonReentrant {
         
         _onlyForwarder();
-        (bool performUnwind, bool isNetBuy, uint256[] memory targetPricesBuy, uint256[] memory targetPricesSell, uint256 totalAmount, uint256 totalSellAmountInA, uint256 totalBuyAmountInB, bool placeBuy, bool placeSell) = 
-            abi.decode(performData, (bool, bool, uint256[], uint256[], uint256, uint256, uint256, bool, bool));
+        (bool performUnwind, bool placeBuy, bool placeSell) = 
+            abi.decode(performData, (bool, bool, bool));
 
         uint256 currentPrice = doppiLP.getPrice();
+        if (currentPrice == 0) return;
+
         if (placeBuy || placeSell) {
-            _handleOrderPlacement(placeBuy, placeSell);
+            (bool toBuy, bool toSell) = _shouldPlaceOrders(currentPrice);
+            _handleOrderPlacement(toBuy, toSell);
             return;
         }
 
         if (performUnwind) {
-            uint256 amountOut = doppiLP.swap(totalAmount, currentPrice, isNetBuy);
-            _clearUnwindMap(targetPricesBuy, true, totalBuyAmountInB);
-            _clearUnwindMap(targetPricesSell, false, totalSellAmountInA);  
-            emit UnwindPerformed(address(this), isNetBuy, totalAmount, amountOut);
+
+            (uint256[] memory targetPricesBuy, uint256 totalBuyAmountInB) =_checkUndoTrade(true, currentPrice);
+            (uint256[] memory targetPricesSell, uint256 totalSellAmountInA) =_checkUndoTrade(false, currentPrice);
+            if (totalBuyAmountInB > 0 || totalSellAmountInA > 0) {
+                (bool isNetBuy, uint256 netAmount) = _netoutBuySell(totalSellAmountInA, totalBuyAmountInB, currentPrice);
+                if(netAmount > 0){
+                    uint256 amountOut = doppiLP.swap(netAmount, currentPrice, isNetBuy);
+                    _clearUnwindMap(targetPricesBuy, true, totalBuyAmountInB);
+                    _clearUnwindMap(targetPricesSell, false, totalSellAmountInA);  
+                    emit UnwindPerformed(address(this), isNetBuy, netAmount, amountOut);
+                }
+            }
         }
     }
 
@@ -392,48 +402,8 @@ contract DoppiTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCompati
         return (params, availableAsset);
     }
 
-    function _getRoundBudget(bool isBuy, uint256 availableBalance, uint256 minOrder, uint256 length)
-        internal
-        view
-        returns (uint256 budget)
-    {
-        if (availableBalance == 0) return 0;
-
-        uint256 cap = isBuy ? maxOrderPerRoundA : maxOrderPerRoundB;
-        if (cap > 0) {
-            return availableBalance < cap ? availableBalance : cap;
-        }
-
-        return _getAutoRoundBudget(availableBalance, minOrder, length);
-    }
-
-    function _getAutoRoundBudget(uint256 availableBalance, uint256 minOrder, uint256 length)
-        internal
-        view
-        returns (uint256 budget)
-    {
-        if (length == 0) return 0;
-
-        uint256 maxSplit = length < 5 ? length : 5;
-        for (uint256 split = maxSplit; split > 0; ) {
-            uint256 candidateBudget = availableBalance / split;
-            if (candidateBudget > 0) {
-                uint256 validCount = 0;
-                for (uint256 i = 0; i < length; ) {
-                    uint256 depositAmount = (candidateBudget * orderConfigs[i].weight) / 10000;
-                    if (depositAmount >= minOrder) {
-                        unchecked { ++validCount; }
-                    }
-                    unchecked { ++i; }
-                }
-                if (validCount >= split) {
-                    return candidateBudget;
-                }
-            }
-            unchecked { --split; }
-        }
-
-        return 0;
+    function _getOrderWeight(uint256 index) internal view override returns (uint256) {
+        return orderConfigs[index].weight;
     }
 
     function _prepareOrder(uint256 depositAmount, OrderConfig memory _orderConfig) internal view returns (BulkDepositParam memory param) {
@@ -578,5 +548,9 @@ contract DoppiTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCompati
 
     function _onlyForwarder() internal view {
         if (msg.sender != s_forwarderAddress) revert OnlyForwarder();
+    }
+
+    function _getFeePool() internal view override returns (address) {
+        return address(0);
     }
 }

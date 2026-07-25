@@ -63,6 +63,8 @@ contract DoppiOpportunity is Ownable, Pausable, AutomationCompatibleInterface, I
         if(paused()) return (false, bytes(""));
 
         uint256 price = doppiLP.getPrice();
+        if(price == 0) return (false, bytes(""));
+
         (uint256[] memory targetPrices, uint256[] memory targetPricesUnwind, ,) = _checkOpportunity(price, true);
         (uint256[] memory targetPricesSell, uint256[] memory targetPricesSellUnwind, ,) = _checkOpportunity(price, false);
 
@@ -78,6 +80,8 @@ contract DoppiOpportunity is Ownable, Pausable, AutomationCompatibleInterface, I
         
         if(paused()) return;
         uint256 price = doppiLP.getPrice();
+        if(price == 0) return;
+        
         (   
             uint256[] memory targetPrices, 
             uint256[] memory targetPricesUnwind, 

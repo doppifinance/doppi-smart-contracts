@@ -718,25 +718,18 @@ contract DoppiTraderTest is Test {
         // buy : those buy <= 99000 will trigger, sell : only those sold > 101500 will trigger
         oracle.setPrice(int256(100_100 * 1e8));
         (bool upkeepNeeded, bytes memory performData) = doppiTrader.checkUpkeep("");
-        (bool performUnwind, bool isNetBuy, uint256[] memory targetPricesBuy, uint256[] memory targetPricesSell, uint256 totalAmount, uint256 totalSellAmountInA, uint256 totalBuyAmountInB, bool placeBuy, bool placeSell) = 
-            abi.decode(performData, (bool, bool, uint256[], uint256[], uint256, uint256, uint256, bool, bool));
+        (bool performUnwind, bool placeBuy, bool placeSell) = 
+            abi.decode(performData, (bool, bool, bool));
         
-        console.log(targetPricesSell.length, targetPricesBuy.length, isNetBuy);
         assertTrue(performUnwind);
-        assertEq(targetPricesBuy.length, 1);
-        assertEq(targetPricesSell.length, 0);
 
-        
         // buy : those buy <= 100_000 will trigger, sell : only those sold > 102_500 will trigger
         oracle.setPrice(int256(101_100 * 1e8));
         (upkeepNeeded,  performData) = doppiTrader.checkUpkeep("");
-        (performUnwind, isNetBuy, targetPricesBuy, targetPricesSell, totalAmount, totalSellAmountInA, totalBuyAmountInB, placeBuy, placeSell) = 
-            abi.decode(performData, (bool, bool, uint256[], uint256[], uint256, uint256, uint256, bool, bool));
-        
-        console.log(targetPricesSell.length, targetPricesBuy.length, isNetBuy);
+        (performUnwind, placeBuy, placeSell) = 
+            abi.decode(performData, (bool, bool, bool));
+
         assertTrue(performUnwind);
-        assertEq(targetPricesBuy.length, 2);
-        assertEq(targetPricesSell.length, 0);
         
     }
 
@@ -1344,6 +1337,7 @@ contract DoppiTraderTest is Test {
         vm.startPrank(trader);
         usdt.approve(address(doppiTrader), 10_000_000 ether);
         btc.approve(address(doppiTrader), 100 ether);
+        doppiTrader.setMaxSwap(200000 * 1e18);
         doppiTrader.start(amountUSDT, amountBTC);
         vm.stopPrank();
     }

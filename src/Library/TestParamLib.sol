@@ -40,7 +40,7 @@ library TestParamLib {
 			chainLinkFeed : CHAINLINK_BTC_USD,
 			router : PCSWAP_V3_ROUTER,
 			poolFee: 500,  
-			slippage: 80,
+			slippage: 50,
 			liquidityFee: 1000,
 			priceDecimals: 8,
 			decimals: 10 ** 8,
@@ -93,7 +93,7 @@ library TestParamLib {
 			chainLinkFeed : CHAINLINK_BTC_USD,
 			router : PCSWAP_V3_ROUTER,
 			poolFee: 500,  // fee for PCSWAP_V3Pool 0.05%
-			slippage: 100, // 1.00% swap slippage
+			slippage: 50, // 1.00% swap slippage
 			liquidityFee: 1000, // 0.10% to the LP pool for internal swap
 			priceDecimals: 8,
 			decimals: 10 ** 8,
