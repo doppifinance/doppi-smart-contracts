@@ -32,7 +32,6 @@ import {TestParamLib} from "../../src/Library/TestParamLib.sol";
 import {MockOracle} from "../../src/test/MockOracle.sol";
 import {MockSwapper} from "../../src/test/MockSwapper.sol";
 
-
 contract DeployDoppiAll is Script {
     
     uint256 minOrderA = 50 ether;
@@ -202,7 +201,7 @@ contract DeployDoppiAll is Script {
 
         oracle = new MockOracle(int256(64300 * 1e8), 8);
 
-        // privateAutomationHub.registerPrivateBotJobs(params);
+        doppiLP.setForwarderAddress(forwarder);
 
         // // Deploy one initial private bot for the broadcasting EOA
         // uint24[] memory privateWeights = _defaultPrivateWeights();
