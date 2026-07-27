@@ -7,7 +7,7 @@ import {Clones} from "@openzeppelin/contracts/proxy/Clones.sol";
 import {IDoppiTraderFactory} from "../../Interface/IDoppiTraderFactory.sol";
 import {IDoppiPoints} from "../../Interface/IDoppiPoints.sol";
 import {IPrivateAutomationHub} from "../../Interface/IPrivateAutomationHub.sol";
-import {ISetForwarder} from "../../Interface/IPrivateBotInterfaces.sol";
+import {ISetForwarder, IPrivateFeePoolAdmin} from "../../Interface/IPrivateBotInterfaces.sol";
 import {BotRegistryLib} from "../../Library/BotRegistryLib.sol";
 import {DoppiGridTrader} from "./DoppiGridTrader.sol";
 
@@ -67,6 +67,9 @@ contract PrivateDoppiGridTraderFactory is Ownable, IDoppiTraderFactory {
         }
         if (defaultPrivateTreasury != address(0)) {
             DoppiGridTrader(traderBot).setFeeConfig(defaultPrivateTreasury, defaultPrivateTreasuryFee);
+            if (defaultPrivateTreasury.code.length > 0) {
+                IPrivateFeePoolAdmin(defaultPrivateTreasury).setAuthorizedCore(traderBot, true);
+            }
         }
 
         emit GridBotDeployed(msg.sender, traderBot, id);

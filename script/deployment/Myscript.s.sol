@@ -92,7 +92,7 @@ contract MyScript is Script {
         (uint256 totalClaimedPointBot2, uint256 readyPointBot2, uint256 currentMonthPointBot2) = doppiPoints.getAllPointData(bot2);
         (uint256 totalClaimedPointBot3, uint256 readyPointBot3, uint256 currentMonthPointBot3) = doppiPoints.getAllPointData(bot3);
 
-        uint256 totalVolume = doppiPoints.totalVolume();
+        uint256 totalVolume = doppiPoints.totalPoints();
             
         console.log("Total Claimed Point:", totalClaimedPoint);
         console.log("Ready Point:", readyPoint); 

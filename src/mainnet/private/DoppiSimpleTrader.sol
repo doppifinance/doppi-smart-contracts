@@ -28,6 +28,7 @@ contract DoppiSimpleTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationC
     uint256 public nextSellTriggerPrice;
     uint256 public lastBuyPlacedPrice;
     uint256 public lastSellPlacedPrice;
+    uint16 public firstOrderScaleBps;
     uint16 public orderCountMultiplierBps; 
 
     uint16 public opportunityBufferCutBps;
@@ -90,19 +91,17 @@ contract DoppiSimpleTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationC
         assetA.safeIncreaseAllowance(_doppiLP, type(uint256).max);
         assetB.safeIncreaseAllowance(_doppiLP, type(uint256).max);
 
-        traderDefaultDay = 1;
-        maxOrder = 5;
-        ratioLP = 0;
         maxSwap = 10000 ether;
         unwindGapMultiplier = 1;
         priceDecimals = 10 ** doppiLP.getPriceDecimals();
 
         minOrderA = 50 ether;
         minOrderB = 0.0005 ether;
-        opportunityBufferCutBps = 2000;
+        opportunityBufferCutBps = 1000;
         opportunityMinBufferBps = 100;
         profitFeeBps = 2000;
-        orderCountMultiplierBps = 100;
+        firstOrderScaleBps = 6000;
+        orderCountMultiplierBps = 1000;
     }
 
     function start(uint256 _amountA, uint256 _amountB) external nonReentrant {
@@ -124,9 +123,6 @@ contract DoppiSimpleTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationC
         if (nextBuyTriggerPrice == 0 && nextSellTriggerPrice == 0) {
             nextBuyTriggerPrice = _lowerTriggerPrice(price);
             nextSellTriggerPrice = _upperTriggerPrice(price);
-
-            maxOrderPerRoundA = _getRoundBudget(true);
-            maxOrderPerRoundB = _getRoundBudget(false);
 
             emit TriggerInitialized(nextBuyTriggerPrice, nextSellTriggerPrice);
         }
@@ -224,6 +220,12 @@ contract DoppiSimpleTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationC
     function setOrderCountMultiplierBps(uint16 _orderCountMultiplierBps) external {
         _onlyTrader();
         orderCountMultiplierBps = _orderCountMultiplierBps;
+    }
+
+    function setFirstOrderScaleBps(uint16 _firstOrderScaleBps) external {
+        _onlyTrader();
+        if (_firstOrderScaleBps > BPS) revert InvalidBps();
+        firstOrderScaleBps = _firstOrderScaleBps;
     }
 
     function setMinOrder(uint256 _minOrderA, uint256 _minOrderB) external {
@@ -523,22 +525,48 @@ contract DoppiSimpleTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationC
     }
 
     function _getRoundBudget(bool isBuy) internal view returns (uint256) {
+        uint256 availableBalance = _availableBalance(isBuy);
+        if (availableBalance == 0) return 0;
+
         uint256 minOrder = isBuy ? minOrderA : minOrderB;
-        return super._getRoundBudget(isBuy, _availableBalance(isBuy), minOrder, 5);
+        uint256 cap = isBuy ? maxOrderPerRoundA : maxOrderPerRoundB;
+        uint256 sideHint = isBuy ? 1 : 2;
+        uint256 autoRoundBudget = _getAutoRoundBudget(availableBalance, minOrder, sideHint);
+        cap = cap == 0 ? autoRoundBudget : cap;
+        if (cap > 0) {
+            uint256 baseBudget = availableBalance < cap ? availableBalance : cap;
+            uint256 candidateBudget = (baseBudget * _nextOrderMultiplierBps(isBuy)) / BPS;
+            uint256 maxSwapForSide = _maxSwapForSide(isBuy);
+
+            // In capped mode, maxOrderPerRound remains the hard ceiling.
+            if (candidateBudget > baseBudget) candidateBudget = baseBudget;
+            if (candidateBudget > maxSwapForSide) candidateBudget = maxSwapForSide;
+            return candidateBudget;
+        }
+
+        return 0;
     }
 
-    function _getAutoRoundBudget(uint256 availableBalance, uint256 minOrder, uint256)
+    function _getAutoRoundBudget(uint256 availableBalance, uint256 minOrder, uint256 sideHint)
         internal
         view
         override
         returns (uint256 budget)
     {
         if (availableBalance == 0) return 0;
+        bool isBuy = sideHint != 2;
+        uint256 currentOpenCount = isBuy ? openBuyOrderCount : openSellOrderCount;
+        uint256 maxSwapForSide = _maxSwapForSide(isBuy);
 
-        for (uint256 split = 5; split > 0; ) {
+        if (currentOpenCount >= 5) {
+            return availableBalance > maxSwapForSide ? maxSwapForSide : availableBalance;
+        }
+
+        uint256 loop = 5 - currentOpenCount;
+        for (uint256 split = loop; split > 0; ) {
             uint256 candidateBudget = availableBalance / split;
             if (candidateBudget >= minOrder) {
-                return candidateBudget > maxSwap ? maxSwap : candidateBudget;
+                return candidateBudget > maxSwapForSide ? maxSwapForSide : candidateBudget;
             }
             unchecked {
                 --split;
@@ -546,6 +574,21 @@ contract DoppiSimpleTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationC
         }
 
         return 0;
+    }
+
+    function _nextOrderMultiplierBps(bool isBuy) internal view returns (uint256) {
+        uint256 currentOpenCount = isBuy ? openBuyOrderCount : openSellOrderCount;
+        uint256 nextOrderIndex = currentOpenCount + 1;
+        if (nextOrderIndex > 4) nextOrderIndex = 4;
+        return firstOrderScaleBps + ((nextOrderIndex - 1) * orderCountMultiplierBps);
+    }
+
+    function _maxSwapForSide(bool isBuy) internal view returns (uint256) {
+        if (isBuy) return maxSwap;
+
+        uint256 price = doppiLP.getPrice();
+        if (price == 0) return 0;
+        return (maxSwap * priceDecimals) / price;
     }
 
     function _getOrderWeight(uint256) internal pure override returns (uint256) {
@@ -640,7 +683,7 @@ contract DoppiSimpleTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationC
         
         uint256 baseBuffer = _bufferAmount(price, isBuy); // volatility-based
         uint256 count = isBuy ? openBuyOrderCount : openSellOrderCount;
-        uint256 multiplier = BPS + (count * orderCountMultiplierBps);
+        uint256 multiplier = BPS + (count * 2 * orderCountMultiplierBps);
         return (baseBuffer * multiplier) / BPS;
     }
 
@@ -650,8 +693,13 @@ contract DoppiSimpleTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationC
     }
 
     function _refreshEntryTriggers(uint256 referencePrice) internal {
-        nextBuyTriggerPrice = _lowerTriggerPrice(referencePrice);
-        nextSellTriggerPrice = _upperTriggerPrice(referencePrice);
+
+        uint256 adjustedBuffer = _bufferAmount(referencePrice, true) * 2;
+        nextBuyTriggerPrice = referencePrice > adjustedBuffer ? referencePrice - adjustedBuffer : 0;
+
+        adjustedBuffer = _bufferAmount(referencePrice, false) * 2;
+        nextSellTriggerPrice = referencePrice + adjustedBuffer;
+        
     }
 
     function _onlyForwarder() internal view {

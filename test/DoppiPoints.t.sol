@@ -368,7 +368,7 @@ contract DoppiPointsTest is Test {
         uint24 monthId = doppiPoints.getCurrentMonthId();
         assertEq(doppiPoints.getMonthlyVolume(trader1, monthId), 1000, "Bot volume should be multiplied");
         assertEq(doppiPoints.getMonthlyVolume(trader2, monthId), 200, "EOA volume should stay unchanged");
-        assertEq(doppiPoints.totalVolume(), 1200, "Total points volume should include multiplier");
+        assertEq(doppiPoints.totalPoints(), 1200, "Total points volume should include multiplier");
         assertEq(doppiPoints.totalTradeVolumeUSDT(), 700, "Total trade volume should keep raw USDT sum");
     }
 
@@ -380,7 +380,7 @@ contract DoppiPointsTest is Test {
         vm.prank(mockDoppiCore);
         doppiPoints.recordTrade(address(mockBot), 500);
 
-        assertEq(doppiPoints.totalVolume(), 1000, "Points volume should be multiplied");
+        assertEq(doppiPoints.totalPoints(), 1000, "Points volume should be multiplied");
         assertEq(doppiPoints.totalTradeVolumeUSDT(), 500, "Raw trade volume should not be multiplied");
     }
 
