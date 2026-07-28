@@ -4,15 +4,12 @@ import {Initializable} from "@openzeppelin/contracts/proxy/utils/Initializable.s
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import {AutomationCompatibleInterface} from "../Interface/AutomationCompatibleInterface.sol";
 import {DALiquidityLib} from "../Library/DALiquidityLib.sol";
-import "./DoppiTraderTypes.sol";
 import "./DoppiTraderAdminView.sol";
 // import "forge-std/console.sol"; // removed: debug-only import, not for production
 
 contract DoppiTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCompatibleInterface, Initializable {
     using SafeERC20 for IERC20;
-    OrderConfig[] public orderConfigs;
-    UndoStat public undoStat;
-
+    
     event BulkDeposited(address indexed trader, uint256 totalAmount, bool isBuy);
     event UnwindPerformed(address indexed trader, bool isBuy, uint256 amountIn, uint256 amountOut);
 
@@ -169,9 +166,7 @@ contract DoppiTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCompati
         }
     }
 
-    function getOrderConfigs() external view returns (OrderConfig[] memory) {
-        return orderConfigs;
-    }
+    
 
     function createUnwindPosition(uint256 _payout, uint256 _strikePrice, bool _isBuyUndo) external nonReentrant {
         
@@ -512,34 +507,6 @@ contract DoppiTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCompati
     function _withdrawFromLP(uint256 _shares) internal {
         IERC20(address(doppiLP)).safeIncreaseAllowance(address(doppiRouter), _shares);
         doppiRouter.redeem(_shares);
-    }
-
-    function _initializeOrderConfigs(uint24[] memory _weights) internal {
-        uint256 length = _weights.length;
-
-        for (uint256 i = length; i > 0; ) {
-            unchecked { --i; }
-            if(_weights[i] > 0) {
-                orderConfigs.push(OrderConfig(uint8(i), _weights[i]));
-            }
-        }
-    }
-
-    function _availableBalance(bool _isBuy) private view returns (uint256 availableAmount) {
-        uint256 balance;
-        uint256 undoAmount; 
-        
-        if (_isBuy) {
-            balance = assetA.balanceOf(address(this));
-            undoAmount = undoStat.undo_assetA;
-        } else {
-            balance = assetB.balanceOf(address(this));
-            undoAmount = undoStat.undo_assetB;
-        }        
-        if (balance <= undoAmount) {
-            return 0;
-        }
-        availableAmount = balance - undoAmount;
     }
     
     function _onlyDoppiCore() internal view {

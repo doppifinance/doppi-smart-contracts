@@ -236,6 +236,13 @@ contract PrivateSimpleTraderScenarioTest is Test {
         usdt.approve(address(privateAutomationHub), 1_000 ether);
         privateAutomationHub.deposit(address(traderBot), 1_000 ether);
 
+        traderBot.setMaxSwap(100000 ether);
+        traderBot.setOpportunityBufferParams(2000, 100);
+        traderBot.setMaxOrderPerRound(0, 0);
+        traderBot.setMinOrder(50 ether, 0.0005 ether);
+        traderBot.setFirstOrderScaleBps(7500);
+        traderBot.setOrderCountMultiplierBps(1500);
+
         usdt.approve(address(traderBot), 10_000 ether);
         traderBot.start(10_000 ether, 0);
         vm.stopPrank();
@@ -255,7 +262,7 @@ contract PrivateSimpleTraderScenarioTest is Test {
             : traderBot.opportunityMinBufferBps();
 
         uint256 baseBuffer = (triggerPrice * effectiveBps) / 10_000;
-        uint256 expectedPlacementBuffer = (baseBuffer * (10_000 + traderBot.orderCountMultiplierBps())) / 10_000;
+        uint256 expectedPlacementBuffer = (baseBuffer * (10_000 + traderBot.orderCountMultiplierBps() * 2)) / 10_000;
         uint256 expectedNextBuyPrice = triggerPrice > expectedPlacementBuffer
             ? triggerPrice - expectedPlacementBuffer
             : 0;

@@ -11,6 +11,7 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {DualAssetPosition, StrikeNode, BulkDepositParam, DualAssetOffer} from "./DoppiCoreTypes.sol";
 import {BotBillingState} from "./private/PrivateAutomationHubTypes.sol";
+import {OrderConfig, UndoStat} from "./DoppiTraderTypes.sol";
 
 // import "forge-std/console.sol";
 
@@ -67,6 +68,9 @@ abstract contract DoppiTraderAdminView is Ownable, Pausable {
     uint256 public maxOrderPerRoundA;
     uint256 public maxOrderPerRoundB;
     uint256 priceDecimals;
+    UndoStat public undoStat;
+    OrderConfig[] public orderConfigs;
+    
 
     error NotValidTrader();
     error NotValidTraderOrUpkeep();
@@ -143,6 +147,10 @@ abstract contract DoppiTraderAdminView is Ownable, Pausable {
         return _buildStrikePnLView(isBuy, currentPrice);
     }
 
+    function getOrderConfigs() external view returns (OrderConfig[] memory) {
+        return orderConfigs;
+    }
+
     function setPause() external {
         _onlyTrader();
         _pause();
@@ -195,13 +203,42 @@ abstract contract DoppiTraderAdminView is Ownable, Pausable {
     {
         if (availableBalance == 0) return 0;
 
+        uint256 sideMaxSwap = _getSideMaxSwap(isBuy);
+        if (sideMaxSwap == 0) return 0;
+
         uint256 cap = isBuy ? maxOrderPerRoundA : maxOrderPerRoundB;
         if (cap > 0) {
             uint256 available = availableBalance < cap ? availableBalance : cap;
-            return available > maxSwap ? maxSwap : available;
+            return available > sideMaxSwap ? sideMaxSwap : available;
         }
 
-        return _getAutoRoundBudget(availableBalance, minOrder, length);
+        uint256 autoBudget = _getAutoRoundBudget(availableBalance, minOrder, length);
+        return autoBudget > sideMaxSwap ? sideMaxSwap : autoBudget;
+    }
+
+    function _initializeOrderConfigs(uint24[] memory _weights) internal {
+        uint256 length = _weights.length;
+
+        for (uint256 i = length; i > 0; ) {
+            unchecked { --i; }
+            if(_weights[i] > 0) {
+                orderConfigs.push(OrderConfig(uint8(i), _weights[i]));
+            }
+        }
+    }
+
+    function _availableBalance(bool _isBuy) internal view returns (uint256 availableAmount) {
+        uint256 balance;
+        uint256 undoAmount;
+        if (_isBuy) {
+            balance = assetA.balanceOf(address(this));
+            undoAmount = undoStat.undo_assetA;
+        } else {
+            balance = assetB.balanceOf(address(this));
+            undoAmount = undoStat.undo_assetB;
+        }
+        if (balance <= undoAmount) return 0;
+        availableAmount = balance - undoAmount;
     }
 
     function setForwarderAddress(address forwarderAddress) external {
@@ -589,27 +626,49 @@ abstract contract DoppiTraderAdminView is Ownable, Pausable {
         returns (uint256 budget)
     {
         if (length == 0) return 0;
+        uint256 configLength = orderConfigs.length;
+        uint256 effectiveSlots = configLength < length ? configLength : length;
+        if (effectiveSlots == 0) return 0;
+
+        uint256 activeWeightSlots;
+        for (uint256 i = 0; i < effectiveSlots; ) {
+            if (_getOrderWeight(i) > 0) {
+                unchecked { ++activeWeightSlots; }
+            }
+            unchecked { ++i; }
+        }
+        if (activeWeightSlots == 0) return 0;
 
         uint256 maxSplit = length < 5 ? length : 5;
         for (uint256 split = maxSplit; split > 0; ) {
             uint256 candidateBudget = availableBalance / split;
             if (candidateBudget > 0) {
                 uint256 validCount = 0;
-                for (uint256 i = 0; i < length; ) {
-                    uint256 depositAmount = (candidateBudget * _getOrderWeight(i)) / BUDGET_BPS_DENOMINATOR;
+                for (uint256 i = 0; i < effectiveSlots; ) {
+                    uint256 weight = _getOrderWeight(i);
+                    uint256 depositAmount = (candidateBudget * weight) / BUDGET_BPS_DENOMINATOR;
                     if (depositAmount >= minOrder) {
                         unchecked { ++validCount; }
                     }
                     unchecked { ++i; }
                 }
-                if (validCount >= split) {
-                    return candidateBudget > maxSwap ? maxSwap : candidateBudget;
+                uint256 requiredValid = split < activeWeightSlots ? split : activeWeightSlots;
+                if (validCount >= requiredValid) {
+                    return candidateBudget;
                 }
             }
             unchecked { --split; }
         }
 
         return 0;
+    }
+
+    function _getSideMaxSwap(bool isBuy) internal view returns (uint256) {
+        if (isBuy) return maxSwap;
+
+        uint256 price = doppiLP.getPrice();
+        if (price == 0) return 0;
+        return (maxSwap * priceDecimals) / price;
     }
 
     function _getOrderWeight(uint256 index) internal view virtual returns (uint256);

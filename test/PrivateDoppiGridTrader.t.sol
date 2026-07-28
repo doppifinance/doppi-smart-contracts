@@ -701,6 +701,56 @@ contract PrivateDoppiGridTraderTest is Test {
         assertEq(volumeAfter, volumeBefore);
     }
 
+    function test_logBudgetBehaviorAcrossEpochs_afterThreePercentDrops() public {
+        uint24[] memory customWeights = new uint24[](3);
+        customWeights[0] = 2000; // zone[1] = 20%
+        customWeights[1] = 4000; // zone[2] = 40%
+        customWeights[2] = 4000; // zone[3] = 40%
+
+        (address botAddr,,,,) = _deployAndCaptureWithWeights(trader, customWeights);
+        DoppiGridTrader bot = DoppiGridTrader(botAddr);
+
+        vm.startPrank(trader);
+        bot.setForwarderAddress(forwarder);
+        // Force deterministic triggers at exact 3% moves.
+        bot.setOpportunityBufferParams(10000, 0);
+        usdt.approve(address(bot), type(uint256).max);
+        bot.start(20_000 ether, 0);
+        vm.stopPrank();
+
+        uint256 rounds = 15;
+        for (uint256 i = 0; i < rounds; ) {
+            (, uint64 expiryBefore, uint256 anchorBefore) = bot.getEpochInfo();
+
+            // Step 2: price down 3% and execute opportunity orders.
+            uint256 downPrice = (anchorBefore * 97) / 100;
+            vm.prank(owner);
+            oracle.setPrice(int256(downPrice));
+            _performIfNeeded(bot);
+
+            // Step 3: fast-forward to new epoch.
+            vm.warp(uint256(expiryBefore) + 1);
+            _performIfNeeded(bot);
+
+            // Step 4: log the new budget for this epoch.
+            uint256 epochBuyBudget = _sumEpochOriginalBuyBudget(bot);
+            uint256 availableA = usdt.balanceOf(address(bot));
+            (, uint64 expiryAfter, uint256 anchorAfter) = bot.getEpochInfo();
+
+            emit log_named_uint("round", i + 1);
+            // emit log_named_uint("anchorBefore", anchorBefore / 1e8);
+            // emit log_named_uint("downPrice", downPrice / 1e8);
+            // emit log_named_uint("newAnchor", anchorAfter / 1e8);
+            emit log_named_uint("newEpochBuyBudget", epochBuyBudget / 1e18);
+            emit log_named_uint("availableA", availableA / 1e18);
+            // emit log_named_uint("nextExpiry", expiryAfter);
+
+            unchecked {
+                ++i;
+            }
+        }
+    }
+
     function _deployAndCapture(address _trader) internal returns (
         address bot,
         address core,
@@ -711,6 +761,38 @@ contract PrivateDoppiGridTraderTest is Test {
         vm.recordLogs();
         vm.prank(_trader);
         privateFactory.deployPrivateBot(weights);
+
+        
+
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+        bytes32 sig = keccak256("GridBotDeployed(address,address,uint32)");
+        for (uint256 i = 0; i < logs.length; i++) {
+            if (logs[i].topics[0] == sig) {
+                bot = address(uint160(uint256(logs[i].topics[2])));
+                core = address(0);
+                opp = address(0);
+                privLP = address(sharedLP);
+                privRouter = address(0);
+                DoppiGridTrader botInstance = DoppiGridTrader(bot);
+                vm.startPrank(_trader);
+                botInstance.setBudgetRampParams(10000, 0, 10000);
+                vm.stopPrank();
+                return (bot, core, opp, privLP, privRouter);
+            }
+        }
+        revert("GridBotDeployed event not found");
+    }
+
+    function _deployAndCaptureWithWeights(address _trader, uint24[] memory _weights) internal returns (
+        address bot,
+        address core,
+        address opp,
+        address privLP,
+        address privRouter
+    ) {
+        vm.recordLogs();
+        vm.prank(_trader);
+        privateFactory.deployPrivateBot(_weights);
 
         Vm.Log[] memory logs = vm.getRecordedLogs();
         bytes32 sig = keccak256("GridBotDeployed(address,address,uint32)");
@@ -725,6 +807,24 @@ contract PrivateDoppiGridTraderTest is Test {
             }
         }
         revert("GridBotDeployed event not found");
+    }
+
+    function _performIfNeeded(DoppiGridTrader bot) internal {
+        (bool upkeepNeeded, bytes memory performData) = bot.checkUpkeep("");
+        if (upkeepNeeded) {
+            vm.prank(forwarder);
+            bot.performUpkeep(performData);
+        }
+    }
+
+    function _sumEpochOriginalBuyBudget(DoppiGridTrader bot) internal view returns (uint256 totalBuyBudget) {
+        DoppiGridTrader.EpochZoneInfo[] memory zones = bot.getEpochZoneInfo();
+        for (uint256 i = 0; i < zones.length; ) {
+            totalBuyBudget += zones[i].originalBuyAmount;
+            unchecked {
+                ++i;
+            }
+        }
     }
 
     function _setRegression(DoppiOffer _iv) internal {

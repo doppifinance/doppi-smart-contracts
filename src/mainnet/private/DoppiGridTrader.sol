@@ -11,7 +11,6 @@ import {IDoppiLiquidity} from "../../Interface/IDoppiLiquidity.sol";
 import {IDoppiOffer} from "../../Interface/IDoppiOffer.sol";
 import {IDoppiPoints} from "../../Interface/IDoppiPoints.sol";
 import {DALiquidityLib} from "../../Library/DALiquidityLib.sol";
-import {OrderConfig, UndoStat} from "../DoppiTraderTypes.sol";
 import {DoppiTraderAdminView} from "../DoppiTraderAdminView.sol";
 // import "forge-std/console.sol";
 
@@ -20,9 +19,7 @@ contract DoppiGridTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCom
 
     uint16 private constant BPS = 10000;
     bytes4 private constant RECORD_SELECTOR = bytes4(keccak256("recordTrade(address,uint256)"));
-    OrderConfig[] public orderConfigs;
-    UndoStat public undoStat;
-
+    
     mapping(uint256 => uint256) public opportunityBuy;
     mapping(uint256 => uint256) public opportunitySell;
     mapping(uint256 => uint8) private buyStrikeZone;
@@ -31,8 +28,6 @@ contract DoppiGridTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCom
     uint256[] private activeSellOpportunityStrikes;
 
     // Cost trackers for unwind buckets.
-    // unWindBuy (amount in assetB) cost is tracked in assetA.
-    // unWindSell (amount in assetA) cost is tracked in assetB.
     mapping(uint256 => uint256) public unWindBuyCostA;
     mapping(uint256 => uint256) public unWindSellCostB;
 
@@ -44,6 +39,9 @@ contract DoppiGridTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCom
     uint16 public opportunityBufferCutBps;
     uint16 public opportunityMinBufferBps;
     uint32 public epochDuration;
+    uint16 public firstEpochBudgetScaleBps;
+    uint16 public epochBudgetScaleStepBps;
+    uint16 public maxEpochBudgetScaleBps;
     uint256 public minOrderA;
     uint256 public minOrderB;
     address public feePool;
@@ -101,7 +99,6 @@ contract DoppiGridTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCom
         _initializeOrderConfigs(_weights);
         traderDefaultDay = 1;
         maxOrder = 5;
-        ratioLP = 0;
         maxSwap = 30000 ether;
         unwindGapMultiplier = 1;
         priceDecimals = 10 ** doppiLP.getPriceDecimals();
@@ -111,6 +108,11 @@ contract DoppiGridTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCom
         opportunityBufferCutBps = 2000;
         opportunityMinBufferBps = 100;
         profitFeeBps = 2000;
+
+        // Default to no behavior change. Budget ramp is opt-in via setBudgetRampParams.
+        firstEpochBudgetScaleBps = 5000;
+        epochBudgetScaleStepBps = 9000;
+        maxEpochBudgetScaleBps = BPS * 3;
     }
 
     function start(uint256 _amountA, uint256 _amountB) external nonReentrant {
@@ -200,28 +202,6 @@ contract DoppiGridTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCom
         }
     }
 
-    function setMultipleOrderConfigs(uint8[] calldata strikeZones, uint24[] calldata weights) external {
-        _onlyTrader();
-        if (strikeZones.length != weights.length) revert ArrayMismatch();
-        if (strikeZones.length > maxOrder || weights.length > maxOrder) revert MaxLimit();
-
-        uint24 sum = DALiquidityLib.sumArray(weights);
-        if (sum != BPS) revert MustHundred();
-
-        delete orderConfigs;
-        for (uint256 i = 0; i < weights.length; ) {
-            if (strikeZones[i] >= maxOrder) revert ExceedMaxZone();
-            orderConfigs.push(OrderConfig(strikeZones[i], weights[i]));
-            unchecked {
-                ++i;
-            }
-        }
-    }
-
-    function getOrderConfigs() external view returns (OrderConfig[] memory) {
-        return orderConfigs;
-    }
-
     function getOpportunityInfo(bool isBuy, uint256 strikePrice) external view returns (uint256) {
         return isBuy ? opportunityBuy[strikePrice] : opportunitySell[strikePrice];
     }
@@ -305,7 +285,7 @@ contract DoppiGridTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCom
     }
 
     function setOpportunityBufferParams(uint16 _bufferCutBps, uint16 _minBufferBps) external {
-        _onlyTraderOrOwner();
+        _onlyTrader();
         if (_bufferCutBps > BPS || _minBufferBps > BPS) revert InvalidBps();
         opportunityBufferCutBps = _bufferCutBps;
         opportunityMinBufferBps = _minBufferBps;
@@ -318,15 +298,31 @@ contract DoppiGridTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCom
     }
 
     function setEpochDuration(uint32 _epochDuration) external {
-        _onlyTraderOrOwner();
+        _onlyTrader();
         require(_epochDuration > 0, "invalid epoch duration");
         epochDuration = _epochDuration;
     }
 
     function setMinOrder(uint256 _minOrderA, uint256 _minOrderB) external {
-        _onlyTraderOrOwner();
+        _onlyTrader();
         minOrderA = _minOrderA;
         minOrderB = _minOrderB;
+    }
+
+    function setBudgetRampParams(
+        uint16 _firstEpochBudgetScaleBps,
+        uint16 _epochBudgetScaleStepBps,
+        uint16 _maxEpochBudgetScaleBps
+    ) external {
+        _onlyTrader();
+        if (_firstEpochBudgetScaleBps == 0 || _firstEpochBudgetScaleBps > BPS) revert InvalidBps();
+        if (_maxEpochBudgetScaleBps == 0 || _maxEpochBudgetScaleBps > BPS) revert InvalidBps();
+        if (_firstEpochBudgetScaleBps > _maxEpochBudgetScaleBps) revert InvalidBps();
+        if (_epochBudgetScaleStepBps > BPS) revert InvalidBps();
+
+        firstEpochBudgetScaleBps = _firstEpochBudgetScaleBps;
+        epochBudgetScaleStepBps = _epochBudgetScaleStepBps;
+        maxEpochBudgetScaleBps = _maxEpochBudgetScaleBps;
     }
 
     function setOffer(address _offer) external onlyOwner {
@@ -572,8 +568,10 @@ contract DoppiGridTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCom
         uint256 minB = minOrderB;
         uint256 availableA = _availableBalance(true);
         uint256 availableB = _availableBalance(false);
-        uint256 buyBudget = _getRoundBudget(true, availableA, minA, length);
-        uint256 sellBudget = _getRoundBudget(false, availableB, minB, length);
+        uint256 buyBudget = _getRoundBudget(true, availableA, minA, maxOrder);
+        uint256 sellBudget = _getRoundBudget(false, availableB, minB, maxOrder);
+        buyBudget = _applyBudgetRamp(buyBudget, true, availableA);
+        sellBudget = _applyBudgetRamp(sellBudget, false, availableB);
         if (buyBudget == 0 && sellBudget == 0) return;
 
         uint256 gap = _priceGapWithDecimals();
@@ -625,6 +623,49 @@ contract DoppiGridTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCom
         currentEpochStart = uint64(block.timestamp);
         currentEpochExpiry = uint64(block.timestamp + (uint64(traderDefaultDay) * uint64(epochDuration)));
         emit OrdersPlaced(currentEpochStart, currentEpochExpiry, currentAnchorPrice, buyBudget, sellBudget);
+    }
+
+    function _applyBudgetRamp(
+        uint256 baseBudget,
+        bool isBuy,
+        uint256 availableBalance
+    )
+        internal
+        view
+        returns (uint256)
+    {
+        if (baseBudget == 0 || availableBalance == 0) {
+            return 0;
+        }
+
+        uint256 sideCostBasis = isBuy ? costBasis : costBasisB;
+
+        if (sideCostBasis == 0) {
+            return baseBudget;
+        }
+
+        uint256 drawdownBps = 0;
+
+        if (availableBalance < sideCostBasis) {
+            drawdownBps =
+                ((sideCostBasis - availableBalance) * BPS)
+                / sideCostBasis;
+        }
+
+        uint256 scaleBps =
+            firstEpochBudgetScaleBps +
+            (drawdownBps * 2 * epochBudgetScaleStepBps) / BPS;
+
+        if (scaleBps > maxEpochBudgetScaleBps) {
+            scaleBps = maxEpochBudgetScaleBps;
+        }
+
+        uint256 adjustedBudget =
+            (baseBudget * scaleBps) / BPS;
+
+        return adjustedBudget > availableBalance
+            ? availableBalance
+            : adjustedBudget;
     }
 
     function _clearOpportunityOrders() internal {
@@ -720,32 +761,6 @@ contract DoppiGridTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCom
         if (volumeInA == 0 || address(doppiPoints) == address(0) || doppiPoints.paused()) return;
         (bool ok, ) = address(doppiPoints).call(abi.encodeWithSelector(RECORD_SELECTOR, validTrader, volumeInA));
         if (!ok) revert RecordTradeFailed();
-    }
-
-    function _initializeOrderConfigs(uint24[] memory _weights) internal {
-        uint256 length = _weights.length;
-        for (uint256 i = 0; i < length; ) {
-            if (_weights[i] > 0) {
-                orderConfigs.push(OrderConfig(uint8(i), _weights[i]));
-            }
-            unchecked {
-                ++i;
-            }
-        }
-    }
-
-    function _availableBalance(bool _isBuy) private view returns (uint256 availableAmount) {
-        uint256 balance;
-        uint256 undoAmount;
-        if (_isBuy) {
-            balance = assetA.balanceOf(address(this));
-            undoAmount = undoStat.undo_assetA;
-        } else {
-            balance = assetB.balanceOf(address(this));
-            undoAmount = undoStat.undo_assetB;
-        }
-        if (balance <= undoAmount) return 0;
-        availableAmount = balance - undoAmount;
     }
 
     function _removeMapping() internal {

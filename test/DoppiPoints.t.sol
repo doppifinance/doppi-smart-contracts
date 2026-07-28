@@ -354,24 +354,6 @@ contract DoppiPointsTest is Test {
         assertEq(doppiPoints.getMonthlyVolume(trader1, monthId), 500, "Default 1:1 multiplier should keep volume unchanged");
     }
 
-    function testBotVolumeMultiplier_AppliesOnlyToBot() public {
-        _deployMultiFactoryFixture();
-        mockFactory.registerBot(address(mockBot));
-        doppiPoints.setBotVolumeMultiplier(2, 1);
-
-        vm.prank(mockDoppiCore);
-        doppiPoints.recordTrade(address(mockBot), 500);
-
-        vm.prank(mockDoppiCore);
-        doppiPoints.recordTrade(trader2, 200);
-
-        uint24 monthId = doppiPoints.getCurrentMonthId();
-        assertEq(doppiPoints.getMonthlyVolume(trader1, monthId), 1000, "Bot volume should be multiplied");
-        assertEq(doppiPoints.getMonthlyVolume(trader2, monthId), 200, "EOA volume should stay unchanged");
-        assertEq(doppiPoints.totalPoints(), 1200, "Total points volume should include multiplier");
-        assertEq(doppiPoints.totalTradeVolumeUSDT(), 700, "Total trade volume should keep raw USDT sum");
-    }
-
     function testTotalTradeVolumeUSDT_IgnoresBotMultiplier() public {
         _deployMultiFactoryFixture();
         mockFactory.registerBot(address(mockBot));

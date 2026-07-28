@@ -277,6 +277,10 @@ contract PrivateDoppiSimpleTraderTest is Test {
         bot.setOpportunityBufferParams(10000, 0);
         bot.setMaxOrderPerRound(0, 0);
         bot.setMinOrder(50 ether, 0.0005 ether);
+        bot.setFirstOrderScaleBps(7500);
+        bot.setOrderCountMultiplierBps(2000);
+        bot.setMaxSwap(100000 ether);
+
         usdt.approve(address(bot), type(uint256).max);
         btc.approve(address(bot), type(uint256).max);
 
@@ -290,7 +294,7 @@ contract PrivateDoppiSimpleTraderTest is Test {
         vm.prank(forwarder);
         bot.performUpkeep(data);
 
-        assertEq(bot.buyCostAOutstanding(), 200 ether);
+        assertEq(bot.buyCostAOutstanding(), 150 ether);
     }
 
     function test_getPositionInfoReportsCurrentState() public {

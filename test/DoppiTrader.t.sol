@@ -1058,6 +1058,7 @@ contract DoppiTraderTest is Test {
         vm.startPrank(trader);
         usdt.approve(address(doppiTrader), 10_000_000 ether);
         btc.approve(address(doppiTrader), 100 ether);
+        doppiTrader.setMaxSwap(100000 ether);
 
         // Expect Deposited event
         vm.expectEmit(true, true, true, true);

@@ -10,7 +10,6 @@ import {AutomationCompatibleInterface} from "../../Interface/AutomationCompatibl
 import {IDoppiLiquidity} from "../../Interface/IDoppiLiquidity.sol";
 import {IDoppiOffer} from "../../Interface/IDoppiOffer.sol";
 import {IDoppiPoints} from "../../Interface/IDoppiPoints.sol";
-import {UndoStat} from "../DoppiTraderTypes.sol";
 import {DoppiTraderAdminView} from "../DoppiTraderAdminView.sol";
 
 contract DoppiSimpleTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCompatibleInterface, Initializable {
@@ -18,8 +17,6 @@ contract DoppiSimpleTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationC
 
     uint16 private constant BPS = 10000;
     bytes4 private constant RECORD_SELECTOR = bytes4(keccak256("recordTrade(address,uint256)"));
-
-    UndoStat public undoStat;
 
     mapping(uint256 => uint256) public unWindBuyCostA;
     mapping(uint256 => uint256) public unWindSellCostB;
@@ -92,7 +89,6 @@ contract DoppiSimpleTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationC
         assetB.safeIncreaseAllowance(_doppiLP, type(uint256).max);
 
         maxSwap = 10000 ether;
-        unwindGapMultiplier = 1;
         priceDecimals = 10 ** doppiLP.getPriceDecimals();
 
         minOrderA = 50 ether;
@@ -536,7 +532,7 @@ contract DoppiSimpleTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationC
         if (cap > 0) {
             uint256 baseBudget = availableBalance < cap ? availableBalance : cap;
             uint256 candidateBudget = (baseBudget * _nextOrderMultiplierBps(isBuy)) / BPS;
-            uint256 maxSwapForSide = _maxSwapForSide(isBuy);
+            uint256 maxSwapForSide = _getSideMaxSwap(isBuy);
 
             // In capped mode, maxOrderPerRound remains the hard ceiling.
             if (candidateBudget > baseBudget) candidateBudget = baseBudget;
@@ -556,7 +552,7 @@ contract DoppiSimpleTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationC
         if (availableBalance == 0) return 0;
         bool isBuy = sideHint != 2;
         uint256 currentOpenCount = isBuy ? openBuyOrderCount : openSellOrderCount;
-        uint256 maxSwapForSide = _maxSwapForSide(isBuy);
+        uint256 maxSwapForSide = _getSideMaxSwap(isBuy);
 
         if (currentOpenCount >= 5) {
             return availableBalance > maxSwapForSide ? maxSwapForSide : availableBalance;
@@ -583,30 +579,8 @@ contract DoppiSimpleTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationC
         return firstOrderScaleBps + ((nextOrderIndex - 1) * orderCountMultiplierBps);
     }
 
-    function _maxSwapForSide(bool isBuy) internal view returns (uint256) {
-        if (isBuy) return maxSwap;
-
-        uint256 price = doppiLP.getPrice();
-        if (price == 0) return 0;
-        return (maxSwap * priceDecimals) / price;
-    }
-
     function _getOrderWeight(uint256) internal pure override returns (uint256) {
         return 0;
-    }
-
-    function _availableBalance(bool isBuy) internal view returns (uint256 availableAmount) {
-        uint256 balance;
-        uint256 undoAmount;
-        if (isBuy) {
-            balance = assetA.balanceOf(address(this));
-            undoAmount = undoStat.undo_assetA;
-        } else {
-            balance = assetB.balanceOf(address(this));
-            undoAmount = undoStat.undo_assetB;
-        }
-        if (balance <= undoAmount) return 0;
-        availableAmount = balance - undoAmount;
     }
 
     function _bufferAmount(uint256 price, bool isBuy) internal view returns (uint256) {
