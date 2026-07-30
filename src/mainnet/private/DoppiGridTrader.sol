@@ -292,7 +292,7 @@ contract DoppiGridTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCom
     }
 
     function setFeeConfig(address _feePool, uint16 _profitFeeBps) external onlyOwner {
-        if (_profitFeeBps > BPS) revert InvalidBps();
+        if (_profitFeeBps > 3000) revert InvalidBps();
         feePool = _feePool;
         profitFeeBps = _profitFeeBps;
     }
@@ -316,17 +316,16 @@ contract DoppiGridTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCom
     ) external {
         _onlyTrader();
         if (_firstEpochBudgetScaleBps == 0 || _firstEpochBudgetScaleBps > BPS) revert InvalidBps();
-        if (_maxEpochBudgetScaleBps == 0 || _maxEpochBudgetScaleBps > BPS) revert InvalidBps();
+        if (_maxEpochBudgetScaleBps == 0 || _maxEpochBudgetScaleBps > BPS * 5) revert InvalidBps();
         if (_firstEpochBudgetScaleBps > _maxEpochBudgetScaleBps) revert InvalidBps();
         if (_epochBudgetScaleStepBps > BPS) revert InvalidBps();
 
         firstEpochBudgetScaleBps = _firstEpochBudgetScaleBps;
         epochBudgetScaleStepBps = _epochBudgetScaleStepBps;
         maxEpochBudgetScaleBps = _maxEpochBudgetScaleBps;
-    }
 
-    function setOffer(address _offer) external onlyOwner {
-        impliedVol = IDoppiOffer(_offer);
+        maxOrderPerRoundA = 0;
+        maxOrderPerRoundB = 0;
     }
 
     function _performOpportunityBuy(uint256 price) internal {
@@ -570,10 +569,16 @@ contract DoppiGridTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCom
         uint256 availableB = _availableBalance(false);
         uint256 buyBudget = _getRoundBudget(true, availableA, minA, maxOrder);
         uint256 sellBudget = _getRoundBudget(false, availableB, minB, maxOrder);
-        buyBudget = _applyBudgetRamp(buyBudget, true, availableA);
-        sellBudget = _applyBudgetRamp(sellBudget, false, availableB);
+        
+        if(maxOrderPerRoundA == 0) {
+            buyBudget = _applyBudgetRamp(buyBudget, true, availableA);
+        }
+        if(maxOrderPerRoundB == 0) {
+            sellBudget = _applyBudgetRamp(sellBudget, false, availableB);
+        }
+        
         if (buyBudget == 0 && sellBudget == 0) return;
-
+        
         uint256 gap = _priceGapWithDecimals();
         uint256 anchor = _roundPrice(price, gap);
 

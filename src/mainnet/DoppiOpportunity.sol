@@ -23,7 +23,7 @@ contract DoppiOpportunity is Ownable, Pausable, AutomationCompatibleInterface, I
     DoppiCore public doppiCore;
     IDoppiLiquidity public doppiLP;
     address public s_forwarderAddress;
-    uint16 public opportunityBufferCutBps = 3000; // 30% cut from one-day buffer
+    uint16 public opportunityBufferCutBps = 2000; // 20% cut from one-day buffer
     uint16 public opportunityMinBufferBps = 100; // 1% floor
 
     // Opportunity storage by strike price (for private combined mode)

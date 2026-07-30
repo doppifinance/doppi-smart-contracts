@@ -466,7 +466,7 @@ contract PrivateBotFlowTest is Test {
         DoppiTrader dt = DoppiTrader(bot);
         DoppiOpportunity privateOpportunity = DoppiOpportunity(opp);
 
-        vm.prank(owner);
+        vm.prank(trader1);
         privateFactory.setPrivateBotForwarder(bot, forwarder);
 
         vm.startPrank(trader1);
@@ -492,7 +492,7 @@ contract PrivateBotFlowTest is Test {
         DoppiTrader dt = DoppiTrader(bot);
         DoppiOpportunity privateOpportunity = DoppiOpportunity(opp);
 
-        vm.prank(owner);
+        vm.prank(trader1);
         privateFactory.setPrivateBotForwarder(bot, forwarder);
 
         vm.prank(trader1);
@@ -596,7 +596,7 @@ contract PrivateBotFlowTest is Test {
             _deployAndCapture(trader1);
 
         DoppiCore dc = DoppiCore(core);
-        vm.prank(owner);
+        vm.prank(trader1);
         privateFactory.setPrivateBotForwarder(bot, forwarder);
 
         vm.startPrank(trader1);
@@ -666,14 +666,6 @@ contract PrivateBotFlowTest is Test {
         vm.prank(trader1);  
         privateFactory.setPrivateCoreMaxSwap(bot, 777_777 ether);
         assertEq(dc.maxSwap(), 777_777 ether, "maxSwap not updated");
-
-        // vm.prank(trader1);
-        // privateFactory.setPrivateCoreAPRTolerance(bot, 250);
-        // assertEq(dc.aprToleranceBP(), 250, "apr tolerance not updated");
-
-        vm.prank(trader1);
-        privateFactory.setPrivateCoreUpkeepsPerCheck(bot, 33);
-        assertEq(dc.UPKEEPS_PER_CHECK(), 33, "upkeeps per check not updated");
 
         vm.prank(trader1);
         privateFactory.setPrivateCorePause(bot);
@@ -811,4 +803,5 @@ contract PrivateBotFlowTest is Test {
         int256 c_sell =  1485.8762857142906        * 1e27;
         _iv.setRegression(86400, a_buy, b_buy, c_buy, a_sell, b_sell, c_sell);
     }
+
 }

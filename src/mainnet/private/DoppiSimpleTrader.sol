@@ -208,30 +208,24 @@ contract DoppiSimpleTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationC
     }
 
     function setFeeConfig(address _feePool, uint16 _profitFeeBps) external onlyOwner {
-        if (_profitFeeBps > BPS) revert InvalidBps();
+        if (_profitFeeBps > 3000) revert InvalidBps();
         feePool = _feePool;
         profitFeeBps = _profitFeeBps;
     }
 
-    function setOrderCountMultiplierBps(uint16 _orderCountMultiplierBps) external {
+    function setAutoBudgetAggressive(uint16 _firstOrderScaleBps, uint16 _orderCountMultiplierBps) external {
         _onlyTrader();
-        orderCountMultiplierBps = _orderCountMultiplierBps;
-    }
-
-    function setFirstOrderScaleBps(uint16 _firstOrderScaleBps) external {
-        _onlyTrader();
-        if (_firstOrderScaleBps > BPS) revert InvalidBps();
+        if (_firstOrderScaleBps > BPS || _orderCountMultiplierBps > BPS) revert InvalidBps();
         firstOrderScaleBps = _firstOrderScaleBps;
+        orderCountMultiplierBps = _orderCountMultiplierBps;
+        maxOrderPerRoundA = 0;
+        maxOrderPerRoundB = 0;
     }
 
     function setMinOrder(uint256 _minOrderA, uint256 _minOrderB) external {
         _onlyTrader();
         minOrderA = _minOrderA;
         minOrderB = _minOrderB;
-    }
-
-    function setOffer(address _offer) external onlyOwner {
-        impliedVol = IDoppiOffer(_offer);
     }
 
     function placeOrders() external nonReentrant {
@@ -525,12 +519,15 @@ contract DoppiSimpleTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationC
         if (availableBalance == 0) return 0;
 
         uint256 minOrder = isBuy ? minOrderA : minOrderB;
-        uint256 cap = isBuy ? maxOrderPerRoundA : maxOrderPerRoundB;
+        uint256 amountToTrade = isBuy ? maxOrderPerRoundA : maxOrderPerRoundB;
+
+        if(amountToTrade > 0) return amountToTrade;
+
         uint256 sideHint = isBuy ? 1 : 2;
-        uint256 autoRoundBudget = _getAutoRoundBudget(availableBalance, minOrder, sideHint);
-        cap = cap == 0 ? autoRoundBudget : cap;
-        if (cap > 0) {
-            uint256 baseBudget = availableBalance < cap ? availableBalance : cap;
+        amountToTrade = _getAutoRoundBudget(availableBalance, minOrder, sideHint);            
+        
+        if (amountToTrade > 0) {
+            uint256 baseBudget = availableBalance < amountToTrade ? availableBalance : amountToTrade;
             uint256 candidateBudget = (baseBudget * _nextOrderMultiplierBps(isBuy)) / BPS;
             uint256 maxSwapForSide = _getSideMaxSwap(isBuy);
 

@@ -277,8 +277,7 @@ contract PrivateDoppiSimpleTraderTest is Test {
         bot.setOpportunityBufferParams(10000, 0);
         bot.setMaxOrderPerRound(0, 0);
         bot.setMinOrder(50 ether, 0.0005 ether);
-        bot.setFirstOrderScaleBps(7500);
-        bot.setOrderCountMultiplierBps(2000);
+        bot.setAutoBudgetAggressive(7500, 2000);
         bot.setMaxSwap(100000 ether);
 
         usdt.approve(address(bot), type(uint256).max);

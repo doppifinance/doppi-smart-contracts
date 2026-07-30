@@ -220,9 +220,9 @@ contract PrivateDoppiTraderFactory is Ownable, IDoppiTraderFactory {
     }
 
     /// @notice Update the forwarder on all components of a private bot in one call.
-    /// @dev Callable by owner OR the bot's validTrader EOA.
-    function setPrivateBotForwarder(address bot, address forwarderAddress) external onlyOwner {
-        _requireRegisteredBot(bot);
+    /// @dev Callable by the bot's validTrader EOA.
+    function setPrivateBotForwarder(address bot, address forwarderAddress) external {
+        _requireTrader(bot);
         if (forwarderAddress == address(0)) revert ZeroForwarder();
 
         ISetForwarder(botPrivateCore[bot]).setForwarderAddress(forwarderAddress);
@@ -266,11 +266,6 @@ contract PrivateDoppiTraderFactory is Ownable, IDoppiTraderFactory {
         IPrivateCoreAdmin(botPrivateCore[bot]).setUnPause();
     }
 
-    function setPrivateCoreUpkeepsPerCheck(address bot, uint16 _percheck) external {
-        _requireTrader(bot);
-        IPrivateCoreAdmin(botPrivateCore[bot]).setUpkeeps_per_check(_percheck);
-    }
-
     function setPrivateCoreMaxSwap(address bot, uint256 _maxSwap) external {
         _requireTrader(bot);
         IPrivateCoreAdmin(botPrivateCore[bot]).setMaxSwap(_maxSwap);
@@ -283,8 +278,8 @@ contract PrivateDoppiTraderFactory is Ownable, IDoppiTraderFactory {
     }
 
     
-    function setPrivateLiquidityConfig(address bot) external onlyOwner {
-        _requireRegisteredBot(bot);
+    function setPrivateLiquidityConfig(address bot) external {
+        _requireTrader(bot);
         IPrivateLiquidityAdmin(botPrivateLiquidity[bot]).setConfig(lpConfig);
     }
 

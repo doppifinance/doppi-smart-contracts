@@ -715,7 +715,8 @@ contract PrivateDoppiGridTraderTest is Test {
         // Force deterministic triggers at exact 3% moves.
         bot.setOpportunityBufferParams(10000, 0);
         usdt.approve(address(bot), type(uint256).max);
-        bot.start(20_000 ether, 0);
+        btc.approve(address(bot), type(uint256).max);
+        bot.start(5_000 ether, 0.08 ether);
         vm.stopPrank();
 
         uint256 rounds = 15;
@@ -723,7 +724,7 @@ contract PrivateDoppiGridTraderTest is Test {
             (, uint64 expiryBefore, uint256 anchorBefore) = bot.getEpochInfo();
 
             // Step 2: price down 3% and execute opportunity orders.
-            uint256 downPrice = (anchorBefore * 97) / 100;
+            uint256 downPrice = (anchorBefore * 103) / 100;
             vm.prank(owner);
             oracle.setPrice(int256(downPrice));
             _performIfNeeded(bot);
@@ -734,15 +735,19 @@ contract PrivateDoppiGridTraderTest is Test {
 
             // Step 4: log the new budget for this epoch.
             uint256 epochBuyBudget = _sumEpochOriginalBuyBudget(bot);
+            uint256 epochSellBudget = _sumEpochOriginalSellBudget(bot);
             uint256 availableA = usdt.balanceOf(address(bot));
+            uint256 availableB = btc.balanceOf(address(bot));
             (, uint64 expiryAfter, uint256 anchorAfter) = bot.getEpochInfo();
 
-            emit log_named_uint("round", i + 1);
+            console.log("round", i + 1);
             // emit log_named_uint("anchorBefore", anchorBefore / 1e8);
             // emit log_named_uint("downPrice", downPrice / 1e8);
             // emit log_named_uint("newAnchor", anchorAfter / 1e8);
-            emit log_named_uint("newEpochBuyBudget", epochBuyBudget / 1e18);
-            emit log_named_uint("availableA", availableA / 1e18);
+            console.log("newEpochBuyBudget", epochBuyBudget / 1e18);
+            console.log("newEpochSellBudget", epochSellBudget);
+            console.log("availableA", availableA / 1e18);
+            console.log("availableB", availableB);
             // emit log_named_uint("nextExpiry", expiryAfter);
 
             unchecked {
@@ -821,6 +826,16 @@ contract PrivateDoppiGridTraderTest is Test {
         DoppiGridTrader.EpochZoneInfo[] memory zones = bot.getEpochZoneInfo();
         for (uint256 i = 0; i < zones.length; ) {
             totalBuyBudget += zones[i].originalBuyAmount;
+            unchecked {
+                ++i;
+            }
+        }
+    }
+
+    function _sumEpochOriginalSellBudget(DoppiGridTrader bot) internal view returns (uint256 totalSellBudget) {
+        DoppiGridTrader.EpochZoneInfo[] memory zones = bot.getEpochZoneInfo();
+        for (uint256 i = 0; i < zones.length; ) {
+            totalSellBudget += zones[i].originalSellAmount;
             unchecked {
                 ++i;
             }

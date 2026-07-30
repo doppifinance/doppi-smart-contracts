@@ -20,7 +20,7 @@ abstract contract DoppiCoreAdmin is Ownable, Pausable {
     uint16 public UPKEEPS_PER_CHECK = 20; 
     mapping(address => bool) public opportunityBots;
     uint16 public aprToleranceBP = 0; 
-    uint256 public maxSwap = 100000 ether;
+    uint256 public maxSwap = 20000 ether;
     
     IDoppiTraderFactory public doppiTraderFactory;
     

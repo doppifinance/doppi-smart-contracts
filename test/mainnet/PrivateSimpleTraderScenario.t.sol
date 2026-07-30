@@ -240,8 +240,7 @@ contract PrivateSimpleTraderScenarioTest is Test {
         traderBot.setOpportunityBufferParams(2000, 100);
         traderBot.setMaxOrderPerRound(0, 0);
         traderBot.setMinOrder(50 ether, 0.0005 ether);
-        traderBot.setFirstOrderScaleBps(7500);
-        traderBot.setOrderCountMultiplierBps(1500);
+        traderBot.setAutoBudgetAggressive(7500, 1500);
 
         usdt.approve(address(traderBot), 10_000 ether);
         traderBot.start(10_000 ether, 0);
