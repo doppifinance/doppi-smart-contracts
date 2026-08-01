@@ -400,6 +400,9 @@ contract DoppiOffer is IDoppiOffer, Ownable {
         returns (uint256 hedgeCost)
     {
         uint256 onedaybuffer = _price * _iv * blackScholes.sqrt(_timeToExpiry * 1e7 / SECONDS_PER_YEAR * 1e7) / 1e25; // format to 1e18
+        if (onedaybuffer >= _strikeprice) {
+            return 0;
+        }
         uint256 downsideMove = _strikeprice - onedaybuffer;
         if(downsideMove > _strikeprice) return 0;
         hedgeCost = (_strikeprice - downsideMove) * _delta / 10000 / HEDGE_ADJUST;

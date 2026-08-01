@@ -268,6 +268,74 @@ contract PrivateDoppiSimpleTraderTest is Test {
         assertEq(bot.nextSellTriggerPrice(), expectedSellTrigger);
     }
 
+    function test_resetEntryTriggersWhenFlatWithBothAssets() public {
+        address botAddr = _deployAndCapture(trader);
+        DoppiSimpleTrader bot = DoppiSimpleTrader(botAddr);
+
+        vm.startPrank(trader);
+        bot.setForwarderAddress(forwarder);
+        bot.setOpportunityBufferParams(10000, 0);
+        bot.setMaxOrderPerRound(0, 0);
+        bot.setMinOrder(type(uint256).max, type(uint256).max);
+        usdt.approve(address(bot), type(uint256).max);
+        btc.approve(address(bot), type(uint256).max);
+
+        oracle.setPrice(int256(65_000 * 1e8));
+        bot.start(100_000 ether, 1 ether);
+        vm.stopPrank();
+
+        vm.prank(owner);
+        oracle.setPrice(int256(80_000 * 1e8));
+
+        (bool needed, bytes memory data) = bot.checkUpkeep("");
+        assertTrue(needed);
+
+        (bool placeBuy, bool placeSell, bool unwindBuy, bool unwindSell, bool refreshTriggers) =
+            abi.decode(data, (bool, bool, bool, bool, bool));
+        assertFalse(placeBuy || placeSell || unwindBuy || unwindSell, "flat bot should not place or unwind");
+        assertTrue(refreshTriggers, "refresh triggers should be true");
+
+        vm.prank(forwarder);
+        bot.performUpkeep(data);
+
+        assertEq(bot.nextBuyTriggerPrice(), 80_000 * 1e8, "buy trigger reset mismatch");
+        assertEq(bot.nextSellTriggerPrice(), 80_000 * 1e8, "sell trigger reset mismatch");
+    }
+
+    function test_resetEntryTriggersWhenFlatWithOnlyAssetA() public {
+        address botAddr = _deployAndCapture(trader);
+        DoppiSimpleTrader bot = DoppiSimpleTrader(botAddr);
+
+        vm.startPrank(trader);
+        bot.setForwarderAddress(forwarder);
+        bot.setOpportunityBufferParams(10000, 0);
+        bot.setMaxOrderPerRound(0, 0);
+        bot.setMinOrder(type(uint256).max, type(uint256).max);
+        usdt.approve(address(bot), type(uint256).max);
+        btc.approve(address(bot), type(uint256).max);
+
+        oracle.setPrice(int256(65_000 * 1e8));
+        bot.start(100_000 ether, 0);
+        vm.stopPrank();
+
+        vm.prank(owner);
+        oracle.setPrice(int256(80_000 * 1e8));
+
+        (bool needed, bytes memory data) = bot.checkUpkeep("");
+        assertTrue(needed);
+
+        (bool placeBuy, bool placeSell, bool unwindBuy, bool unwindSell, bool refreshTriggers) =
+            abi.decode(data, (bool, bool, bool, bool, bool));
+        assertFalse(placeBuy || placeSell || unwindBuy || unwindSell, "flat bot should not place or unwind");
+        assertTrue(refreshTriggers, "refresh triggers should be true");
+
+        vm.prank(forwarder);
+        bot.performUpkeep(data);
+
+        assertEq(bot.nextBuyTriggerPrice(), 80_000 * 1e8, "buy trigger reset mismatch");
+        assertEq(bot.nextSellTriggerPrice(), 80_000 * 1e8, "sell trigger reset mismatch");
+    }
+
     function test_autoBudgetUsesFiveWaySplitAndHonorsMinOrder() public {
         address botAddr = _deployAndCapture(trader);
         DoppiSimpleTrader bot = DoppiSimpleTrader(botAddr);

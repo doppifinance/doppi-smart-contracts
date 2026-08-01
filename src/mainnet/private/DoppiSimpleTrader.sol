@@ -27,7 +27,7 @@ contract DoppiSimpleTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationC
     uint256 public lastSellPlacedPrice;
     uint16 public firstOrderScaleBps;
     uint16 public orderCountMultiplierBps; 
-
+    uint16 public triggerRefreshThresholdBps;
     uint16 public opportunityBufferCutBps;
     uint16 public opportunityMinBufferBps;
     uint256 public minOrderA;
@@ -60,7 +60,8 @@ contract DoppiSimpleTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationC
     event TriggerInitialized(uint256 buyTrigger, uint256 sellTrigger);
     event OrderPlaced(bool indexed isBuy, uint256 indexed executionPrice, uint256 amountIn, uint256 amountOut, uint256 nextTrigger);
     event UnwindExecuted(bool indexed fromBuyBucket, uint256 amountIn, uint256 amountOut, uint256 profit);
-
+    event ResetTriggerPrice(uint256 nextTriggerBuyOld, uint256 nextTriggerSellOld, uint256 nextTriggerBuy, uint256 nextTriggerSell);
+    
     error AmountNotSpecified();
     error OnlyForwarder();
     error InvalidBps();
@@ -98,6 +99,7 @@ contract DoppiSimpleTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationC
         profitFeeBps = 2000;
         firstOrderScaleBps = 6000;
         orderCountMultiplierBps = 1000;
+        triggerRefreshThresholdBps = 500;
     }
 
     function start(uint256 _amountA, uint256 _amountB) external nonReentrant {
@@ -167,9 +169,10 @@ contract DoppiSimpleTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationC
         bool placeSell = price >= nextSellTriggerPrice && sellOrderAmount >= minOrderB;
         bool unwindBuy = _shouldUnwindBuy(price);
         bool unwindSell = _shouldUnwindSell(price);
+        bool refreshTriggers = _shouldResetTriggers(price);
 
-        upkeepNeeded = placeBuy || placeSell || unwindBuy || unwindSell;
-        performData = abi.encode(placeBuy, placeSell, unwindBuy, unwindSell);
+        upkeepNeeded = placeBuy || placeSell || unwindBuy || unwindSell || refreshTriggers;
+        performData = abi.encode(placeBuy, placeSell, unwindBuy, unwindSell, refreshTriggers);
     }
 
     function performUpkeep(bytes calldata performData) external override nonReentrant {
@@ -179,8 +182,8 @@ contract DoppiSimpleTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationC
         uint256 price = doppiLP.getPrice();
         if (price == 0) return;
 
-        (bool placeBuy, bool placeSell, bool unwindBuy, bool unwindSell) =
-            abi.decode(performData, (bool, bool, bool, bool));
+        (bool placeBuy, bool placeSell, bool unwindBuy, bool unwindSell, bool refreshTriggers) =
+            abi.decode(performData, (bool, bool, bool, bool, bool));
 
         if (unwindBuy && _shouldUnwindBuy(price)) {
             _performUnwindBuyBuckets(price);
@@ -196,6 +199,10 @@ contract DoppiSimpleTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationC
 
         if (placeSell && price >= nextSellTriggerPrice) {
             _executeSellOrder(price);
+        }
+
+        if (refreshTriggers && _shouldResetTriggers(price)) {
+            _refreshEntryTriggers(price);
         }
 
     }
@@ -222,6 +229,19 @@ contract DoppiSimpleTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationC
         maxOrderPerRoundB = 0;
     }
 
+    function setTriggerRefreshThresholdBps(uint16 bps) external {
+        _onlyTrader();
+        if (bps > BPS) revert InvalidBps();
+        triggerRefreshThresholdBps = bps;
+    }
+
+    function refreshEntryTriggers() external {
+        _onlyTrader();
+        uint256 price = doppiLP.getPrice();
+        if(price == 0) revert InvalidPrice();
+        _refreshEntryTriggers(price);
+    }
+    
     function setMinOrder(uint256 _minOrderA, uint256 _minOrderB) external {
         _onlyTrader();
         minOrderA = _minOrderA;
@@ -272,6 +292,39 @@ contract DoppiSimpleTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationC
         info.averageSellPrice = _averageSellEntryPrice();
         info.nextBuyPrice = nextBuyTriggerPrice;
         info.nextSellPrice = nextSellTriggerPrice;
+    }
+
+    function _canResetTriggers() internal view returns (bool) {
+        return
+            openBuyOrderCount == 0 &&
+            openSellOrderCount == 0 &&
+            undoStat.undo_assetA == 0 &&
+            undoStat.undo_assetB == 0;
+    }
+
+    function _shouldResetTriggers(uint256 currentPrice)
+        internal
+        view
+        returns (bool)
+    {
+        if (!_canResetTriggers()) return false;
+
+        uint256 expectedBuy = _lowerTriggerPrice(currentPrice);
+        uint256 expectedSell = _upperTriggerPrice(currentPrice);
+
+        uint256 buyDiff =
+            nextBuyTriggerPrice > expectedBuy
+                ? nextBuyTriggerPrice - expectedBuy
+                : expectedBuy - nextBuyTriggerPrice;
+
+        uint256 sellDiff =
+            nextSellTriggerPrice > expectedSell
+                ? nextSellTriggerPrice - expectedSell
+                : expectedSell - nextSellTriggerPrice;
+
+        return
+            buyDiff * BPS / currentPrice >= triggerRefreshThresholdBps ||
+            sellDiff * BPS / currentPrice >= triggerRefreshThresholdBps;
     }
 
     function _executeBuyOrder(uint256 price) internal {

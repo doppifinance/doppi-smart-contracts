@@ -64,10 +64,6 @@ contract DoppiGridTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCom
     event OpportunityExecuted(bool indexed isBuy, uint256 indexed strikePrice, uint256 amountIn, uint256 amountOut, uint256 unwindStrike);
     event UnwindExecuted(bool indexed fromBuyBucket, uint256 amountIn, uint256 amountOut, uint256 profit);
 
-    error ArrayMismatch();
-    error MaxLimit();
-    error MustHundred();
-    error ExceedMaxZone();
     error AmountNotSpecified();
     error OnlyForwarder();
     error InvalidBps();
@@ -397,8 +393,7 @@ contract DoppiGridTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCom
     }
 
     function _performUnwindBuyBuckets(uint256 price) internal {
-        uint256 threshold = price > _getBufferAmount(price, false) ? price - _getBufferAmount(price, false) : 0;
-        if (threshold == 0) return;
+        if (price == 0) return;
 
         uint256 maxIn = maxSwap * priceDecimals / price;
         uint256 totalIn;
@@ -407,7 +402,7 @@ contract DoppiGridTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCom
         uint256[] memory usedAmounts = new uint256[](activeBuyStrikeCount);
 
         uint256 strike = buyHead;
-        while (strike != 0 && strike <= threshold) {
+        while (strike != 0 && strike <= price) {
             uint256 nextStrike = buyStrikeNodes[strike].next;
             uint256 amount = unWindBuy[strike];
             if (amount > 0) {
@@ -447,7 +442,6 @@ contract DoppiGridTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCom
     }
 
     function _performUnwindSellBuckets(uint256 price) internal {
-        uint256 threshold = price + _getBufferAmount(price, true);
         uint256 maxIn = maxSwap;
         uint256 totalIn;
         uint256 strikesCount;
@@ -455,7 +449,7 @@ contract DoppiGridTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCom
         uint256[] memory usedAmounts = new uint256[](activeSellStrikeCount);
 
         uint256 strike = sellTail;
-        while (strike != 0 && strike >= threshold) {
+        while (strike != 0 && strike >= price) {
             uint256 prevStrike = sellStrikeNodes[strike].prev;
             uint256 amount = unWindSell[strike];
             if (amount > 0) {
@@ -714,21 +708,17 @@ contract DoppiGridTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCom
     }
 
     function _hasTriggeredUnwind(uint256 price) internal view returns (bool) {
-        uint256 sellBuffer = _getBufferAmount(price, false);
-        uint256 buyThreshold = price > sellBuffer ? price - sellBuffer : 0;
-        if (buyThreshold > 0) {
+        if (price > 0) {
             uint256 strikeBuy = buyHead;
             while (strikeBuy != 0) {
-                if (strikeBuy <= buyThreshold && unWindBuy[strikeBuy] > 0) return true;
+                if (strikeBuy <= price && unWindBuy[strikeBuy] > 0) return true;
                 strikeBuy = buyStrikeNodes[strikeBuy].next;
             }
         }
 
-        uint256 buyBuffer = _getBufferAmount(price, true);
-        uint256 sellThreshold = price + buyBuffer;
         uint256 strikeSell = sellTail;
         while (strikeSell != 0) {
-            if (strikeSell >= sellThreshold && unWindSell[strikeSell] > 0) return true;
+            if (strikeSell >= price && unWindSell[strikeSell] > 0) return true;
             strikeSell = sellStrikeNodes[strikeSell].prev;
         }
         return false;

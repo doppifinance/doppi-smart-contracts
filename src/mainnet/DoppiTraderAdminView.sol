@@ -9,6 +9,7 @@ import {IDoppiLiquidityRouter} from "../Interface/IDoppiLiquidityRouter.sol";
 import {IPrivateAutomationHub} from "../Interface/IPrivateAutomationHub.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import {DALiquidityLib} from "../Library/DALiquidityLib.sol";
 import {DualAssetPosition, StrikeNode, BulkDepositParam, DualAssetOffer} from "./DoppiCoreTypes.sol";
 import {BotBillingState} from "./private/PrivateAutomationHubTypes.sol";
 import {OrderConfig, UndoStat} from "./DoppiTraderTypes.sol";
@@ -76,6 +77,10 @@ abstract contract DoppiTraderAdminView is Ownable, Pausable {
     error NotValidTraderOrUpkeep();
     error InsufficientTopUpAmount();
     error InvalidPrice();
+    error ArrayMismatch();
+    error MaxLimit();
+    error MustHundred();
+    error ExceedMaxZone();
     
     function getTotalBalancesInLP() external view returns (uint256 totalAssetA, uint256 totalAssetB) {
         return doppiLP.getBalances(address(this));
@@ -195,6 +200,27 @@ abstract contract DoppiTraderAdminView is Ownable, Pausable {
         maxOrderPerRoundA = _maxOrderPerRoundA;
         maxOrderPerRoundB = _maxOrderPerRoundB;
     }
+
+    function setMultipleOrderConfigs(
+        uint8[] calldata strikeZones, 
+        uint24[] calldata weights
+    ) external {
+        _onlyTrader();
+        if(strikeZones.length != weights.length) revert ArrayMismatch();
+        if(strikeZones.length > maxOrder 
+            && weights.length > maxOrder
+        ) revert MaxLimit();
+        
+        uint24 sum = DALiquidityLib.sumArray(weights);
+        if(sum != 10000) revert MustHundred();
+        
+        delete orderConfigs;
+        for (uint256 i = 0; i < weights.length; i++) {
+            if(strikeZones[i] > maxOrder) revert ExceedMaxZone();
+            orderConfigs.push(OrderConfig(strikeZones[i], weights[i]));
+        }
+    }
+
 
     function _getRoundBudget(bool isBuy, uint256 availableBalance, uint256 minOrder, uint256 length)
         internal

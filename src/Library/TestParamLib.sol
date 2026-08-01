@@ -67,13 +67,13 @@ library TestParamLib {
 			chainLinkFeed : CHAINLINK_ETH_USD,
 			router : PCSWAP_V3_ROUTER,
 			poolFee: 500,  // fee for PCSWAP_V3Pool 0.05%
-			slippage: 100, // 1.00% swap slippage
-			liquidityFee: 1500, // 0.15% to the LP pool for internal swap
+			slippage: 50, // 1.00% swap slippage
+			liquidityFee: 0, // 0.15% to the LP pool for internal swap
 			priceDecimals: 8,
 			decimals: 10 ** 8,
 			v3Pool: PCSWAP_V3Pool,
 			twapDuration: 3600,
-			maxDepositPercentage: 12000, // 2x
+			maxDepositPercentage: 10000, // 2x
 			maxDelay: 1 minutes,
 			maxSwap: 10000 ether, // maxswap per once for unwinding 
 			priceGap: 25,

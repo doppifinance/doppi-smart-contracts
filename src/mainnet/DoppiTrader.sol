@@ -3,7 +3,6 @@ pragma solidity ^0.8.26;
 import {Initializable} from "@openzeppelin/contracts/proxy/utils/Initializable.sol"; 
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import {AutomationCompatibleInterface} from "../Interface/AutomationCompatibleInterface.sol";
-import {DALiquidityLib} from "../Library/DALiquidityLib.sol";
 import "./DoppiTraderAdminView.sol";
 // import "forge-std/console.sol"; // removed: debug-only import, not for production
 
@@ -13,10 +12,6 @@ contract DoppiTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCompati
     event BulkDeposited(address indexed trader, uint256 totalAmount, bool isBuy);
     event UnwindPerformed(address indexed trader, bool isBuy, uint256 amountIn, uint256 amountOut);
 
-    error ArrayMismatch();
-    error MaxLimit();
-    error MustHundred();
-    error ExceedMaxZone();
     error NotEmergency();
     error AmountNotSpecified();
     error ActiveOrders();
@@ -146,26 +141,7 @@ contract DoppiTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCompati
         _removeMapping();
     }
 
-    function setMultipleOrderConfigs(
-        uint8[] calldata strikeZones, 
-        uint24[] calldata weights
-    ) external {
-        _onlyTrader();
-        if(strikeZones.length != weights.length) revert ArrayMismatch();
-        if(strikeZones.length > maxOrder 
-            && weights.length > maxOrder
-        ) revert MaxLimit();
-        
-        uint24 sum = DALiquidityLib.sumArray(weights);
-        if(sum != 10000) revert MustHundred();
-        
-        delete orderConfigs;
-        for (uint256 i = 0; i < weights.length; i++) {
-            if(strikeZones[i] > maxOrder) revert ExceedMaxZone();
-            orderConfigs.push(OrderConfig(strikeZones[i], weights[i]));
-        }
-    }
-
+    
     
 
     function createUnwindPosition(uint256 _payout, uint256 _strikePrice, bool _isBuyUndo) external nonReentrant {

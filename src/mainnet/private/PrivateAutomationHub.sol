@@ -6,6 +6,7 @@ import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {IPrivateAutomationHub} from "../../Interface/IPrivateAutomationHub.sol";
+import {IDoppiPoints} from "../../Interface/IDoppiPoints.sol";
 import {AggregatorV3Interface} from "../../Interface/AggregatorV3Interface.sol";
 import {DALiquidityLib} from "../../Library/DALiquidityLib.sol";
 import {
@@ -17,12 +18,6 @@ import {
     BotBillingState
 } from "./PrivateAutomationHubTypes.sol";
 // import "forge-std/console2.sol";
-
-
-interface IDoppiPoints {
-    function getAllPointData(address trader) external view returns (uint256 totalClaimed, uint256 readyPoints, uint256 currentMonth);
-    function deductPointsForFee(address trader, uint256 points) external;
-}
 
 /// @notice Shared upkeep target: schedules and executes private bot module jobs in bounded batches.
 /// @dev Billing: per-bot fundToken credit deducted at gas-cost + platform markup per successful execution.
@@ -348,7 +343,7 @@ contract PrivateAutomationHub is IPrivateAutomationHub, Ownable, ReentrancyGuard
     function getPointValueInUSDT(uint256 numPoints) external view returns (uint256) {
         if (useDynamicPointPrice && doppiPointsPriceFeed != address(0)) {
             // Dynamic pricing: query Doppi price from oracle
-            uint256 doppiPrice = DALiquidityLib.getPrice(AggregatorV3Interface(doppiPointsPriceFeed), maxOracleDelay);
+            uint256 doppiPrice = DALiquidityLib.getTWAPPrice(doppiPointsPriceFeed, 3600);
             if (doppiPrice == 0) return 0;
             return (numPoints * doppiPrice) / priceDecimals;
         } else {
@@ -625,7 +620,8 @@ contract PrivateAutomationHub is IPrivateAutomationHub, Ownable, ReentrancyGuard
         // Calculate points needed: feeInFundToken * 10000 / exchangeRate
         uint256 pointsNeeded;
         if (useDynamicPointPrice && doppiPointsPriceFeed != address(0)) {
-            uint256 doppiPrice = DALiquidityLib.getPrice(AggregatorV3Interface(doppiPointsPriceFeed), maxOracleDelay);
+            uint256 doppiPrice = DALiquidityLib.getTWAPPrice(doppiPointsPriceFeed, 3600);
+            
             if (doppiPrice == 0) return 0;
             // pointsNeeded = feeInFundToken / doppiPrice * priceDecimals
             pointsNeeded = (feeInFundToken * priceDecimals) / doppiPrice;
@@ -646,7 +642,7 @@ contract PrivateAutomationHub is IPrivateAutomationHub, Ownable, ReentrancyGuard
     /// @dev Get fundToken value of a specific number of points
     function _getPointValueInFundToken(uint256 numPoints) internal view returns (uint256) {
         if (useDynamicPointPrice && doppiPointsPriceFeed != address(0)) {
-            uint256 doppiPrice = DALiquidityLib.getPrice(AggregatorV3Interface(doppiPointsPriceFeed), maxOracleDelay);
+            uint256 doppiPrice = DALiquidityLib.getTWAPPrice(doppiPointsPriceFeed, 3600);
             if (doppiPrice == 0) return 0;
             return (numPoints * doppiPrice) / priceDecimals;
         } else {
