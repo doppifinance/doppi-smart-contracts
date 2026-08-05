@@ -9,6 +9,7 @@ import {DoppiTraderFactory} from "../src/mainnet/DoppiTraderFactory.sol";
 import {DoppiTrader} from "../src/mainnet/DoppiTrader.sol";
 import {BlackScholes} from "../src/mainnet/BlackScholes.sol";
 import {DoppiOffer} from "../src/mainnet/DoppiOffer.sol";
+import {DoppiOpportunity} from "../src/mainnet/DoppiOpportunity.sol";
 import {IDoppiOffer} from "../src/Interface/IDoppiOffer.sol";
 import {DoppiPoints} from "../src/mainnet/DoppiPoints.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
@@ -28,6 +29,7 @@ contract DoppiCoreExtTest is Test {
     DoppiTraderFactory traderFactory;
     BlackScholes blackScholes;
     DoppiOffer impliedVol;
+    DoppiOpportunity doppiOpportunity;
     MockToken usdt;
     MockToken btc;
     MockOracle oracle;
@@ -76,7 +78,7 @@ contract DoppiCoreExtTest is Test {
         configLP.router = address(swapper);
         
         doppiLP =
-            new DoppiLiquidity("Dual Asset Liquidity Pool", "DALP", IERC20(usdt), IERC20(btc));
+            new DoppiLiquidity("Dual Asset Liquidity Pool", "DALP", address(IERC20(usdt)), address(IERC20(btc)));
 
         doppiLP.setConfig(configLP);
         doppiLP.approveRouter();
@@ -92,10 +94,12 @@ contract DoppiCoreExtTest is Test {
         doppiLP.setEntryPoint(address(doppiRouter.entryPointB()), true);
         
         traderFactory =
-            new DoppiTraderFactory(IERC20(usdt), IERC20(btc), address(doppiCore), address(doppiLP), address(doppiRouter));
+            new DoppiTraderFactory(IERC20(usdt), IERC20(btc), address(doppiCore), address(doppiLP), address(doppiRouter), address(impliedVol), address(doppiPoints));
 
         doppiCore.setDoppiTraderFactory(traderFactory);
-        doppiCore.setOpportunityBot(admin, true);
+        doppiOpportunity = new DoppiOpportunity(address(doppiCore), address(doppiLP));
+        doppiOpportunity.setForwarderAddress(mockForwarder);
+        doppiCore.setOpportunityBot(address(doppiOpportunity), true);
         doppiCore.setForwarderAddress(mockForwarder);
         doppiCore.setTreasury(treasury, 1000);
         
@@ -357,14 +361,14 @@ contract DoppiCoreExtTest is Test {
 
 
         // ***** START perform opportunityBot.checkUpkeep
-        vm.startPrank(admin);
+        vm.startPrank(mockForwarder);
         oracle.setPrice(int256(101_600 * 1e8));
         uint256[] memory targetprices = new uint256[](1);
         uint256[] memory targetPricesUnwind = new uint256[](0);
         uint256 totalAmountUnwind = 0;
         targetprices[0] = 100_500 * 1e8;
         uint256 totalAmount = PRINCIPAL;
-        doppiCore.performOpportunity(targetprices, targetPricesUnwind, totalAmount, totalAmountUnwind, false);
+        doppiOpportunity.performOpportunity(targetprices, targetPricesUnwind, totalAmount, totalAmountUnwind, false);
         vm.stopPrank();
 
         OpportunityOrders memory opp = doppiCore.getOpportunityOrders(false, sellOffer.strikePrice);
@@ -408,14 +412,14 @@ contract DoppiCoreExtTest is Test {
 
 
         // ***** START perform opportunityBot.checkUpkeep
-        vm.startPrank(admin);
+        vm.startPrank(mockForwarder);
         oracle.setPrice(int256(98_000 * 1e8));
         uint256[] memory targetprices = new uint256[](1);
         uint256[] memory targetPricesUnwind = new uint256[](0);
         uint256 totalAmount = PRINCIPAL;
         uint256 totalAmountUnwind = 0;
         targetprices[0] = 99_500 * 1e8;
-        doppiCore.performOpportunity(targetprices, targetPricesUnwind, totalAmount, totalAmountUnwind, true);
+        doppiOpportunity.performOpportunity(targetprices, targetPricesUnwind, totalAmount, totalAmountUnwind, true);
         vm.stopPrank();
 
         uint256 usdtInterestReceived = APR_BASIS_POINTS * PRINCIPAL / BASIS_POINTS_DENOMINATOR / DAYS_IN_YEAR;

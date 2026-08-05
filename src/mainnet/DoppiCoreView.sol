@@ -1,10 +1,12 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.26;
 import {IDoppiLiquidity} from "../Interface/IDoppiLiquidity.sol";
+import {IDoppiOpportunity} from "../Interface/IDoppiOpportunity.sol";
 import "./DoppiCoreTypes.sol";
 // import "forge-std/console.sol";
 
 abstract contract DoppiCoreView {
+    error OpportunityViewFailed();
     
     uint256 public totalBuyDeposits;
     uint256 public totalSellDeposits;
@@ -14,12 +16,16 @@ abstract contract DoppiCoreView {
     mapping(uint8 => uint64) public nextProcessId;
     mapping(uint8 => uint64) public nextPositionId;
     
-    IDoppiLiquidity public immutable doppiLP; // Made immutable
+    IDoppiLiquidity public doppiLP;
     
     mapping(uint32 => mapping(uint64 => DualAssetPosition)) public positions_buy;
     mapping(uint32 => mapping(uint64 => DualAssetPosition)) public positions_sell;
-    mapping(uint256 => OpportunityOrders) public opportunityBuy;
-    mapping(uint256 => OpportunityOrders) public opportunitySell;
+    uint256 internal nextPendingSettlementId = 1;
+    mapping(uint256 => PendingSettlement) internal pendingSettlements;
+    mapping(address => uint256[]) internal pendingSettlementIdsByOwner;
+
+    /// @notice Reference to external DoppiOpportunity storage
+    IDoppiOpportunity public doppiOpportunity;
     
     // View functions for positions    
     function get_positions_buy(address _owner) external view returns (DualAssetPosition[] memory) {
@@ -110,7 +116,16 @@ abstract contract DoppiCoreView {
     }
 
     function getOpportunityOrders(bool isBuy, uint256 strikePrice) external view returns (OpportunityOrders memory) {
-        return isBuy ? opportunityBuy[strikePrice] : opportunitySell[strikePrice];
+        if (address(doppiOpportunity) == address(0)) revert OpportunityViewFailed();
+        return doppiOpportunity.getOpportunityOrders(isBuy, strikePrice);
+    }
+
+    function getPendingSettlementIds(address owner) external view returns (uint256[] memory) {
+        return pendingSettlementIdsByOwner[owner];
+    }
+
+    function getPendingSettlement(uint256 pendingId) external view returns (PendingSettlement memory) {
+        return pendingSettlements[pendingId];
     }
 
     function _getBuyPositionCount(address _owner) internal view returns (uint256 count) {

@@ -5,6 +5,8 @@ import "forge-std/Script.sol";
 import "../../src/mainnet/DoppiOffer.sol";
 import "../../src/mainnet/DoppiLiquidity.sol";
 import "../../src/mainnet/DoppiCore.sol";
+import {IDoppiOpportunity} from "../../src/Interface/IDoppiOpportunity.sol";
+import "../../src/mainnet/DoppiCoreTypes.sol";
 import "../../src/mainnet/DoppiOpportunity.sol";
 import "../../src/mainnet/DoppiTrader.sol";
 import {DoppiTraderFactory} from "../../src/mainnet/DoppiTraderFactory.sol";
@@ -81,16 +83,23 @@ contract MyScript is Script {
     function _getOpportunityData() internal view {
 
         console.log("start OpportunityData");
-        (uint256 lowerBound, uint256 upperBound) = doppiCore.getLowerUpperBound();
+        IDoppiOpportunity opportunityStore = doppiCore.doppiOpportunity();
+        (uint256 lowerBound, uint256 upperBound) = opportunityStore.getLowerUpperBound();
         console.log(lowerBound, upperBound);
         for (uint256 price = upperBound; price >= lowerBound; ) {
             // console.log(price, "price");
             bool isBuy = true;
-            (uint256 amount, uint256 swappedAmount, uint256 outAmount) = doppiCore.opportunityBuy(price);
+            OpportunityOrders memory order = opportunityStore.getBuyOpportunity(price);
+            uint256 amount = order.amount;
+            uint256 swappedAmount = order.swappedAmount;
+            uint256 outAmount = order.outAmount;
             
             if(amount == 0){
                 isBuy = false;
-                (amount, swappedAmount, outAmount) = doppiCore.opportunitySell(price);
+                order = opportunityStore.getSellOpportunity(price);
+                amount = order.amount;
+                swappedAmount = order.swappedAmount;
+                outAmount = order.outAmount;
             }
             console.log(isBuy, amount, price, outAmount);
             price -= (500 * 1e8); 

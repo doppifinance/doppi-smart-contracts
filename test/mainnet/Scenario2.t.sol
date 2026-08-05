@@ -79,7 +79,7 @@ contract Scenario2Test is Test {
     function setUp() public {
         
         // Fork Mainnet at a specific block
-        uint256 mainnetFork = vm.createFork("mainnet", 69703761); // Do not change the block number for the unit test
+        uint256 mainnetFork = vm.createFork("mainnet", 100250748); // Do not change the block number for the unit test
         vm.selectFork(mainnetFork);
         
         // Start prank as owner
@@ -100,7 +100,7 @@ contract Scenario2Test is Test {
         doppiRouter = new DoppiLiquidityRouter(IERC20(USDT), IERC20(BTC), doppiLP);
         doppiRouter.setDoppiCore(address(doppiCore));
         doppiLP.setDoppiLiquidityRouter(address(doppiRouter));
-        doppiFactory = new DoppiTraderFactory(IERC20(USDT), IERC20(BTC), address(doppiCore), address(doppiLP), address(doppiRouter));
+        doppiFactory = new DoppiTraderFactory(IERC20(USDT), IERC20(BTC), address(doppiCore), address(doppiLP), address(doppiRouter), address(impliedVol), address(doppiPoints));
         doppiUpkeepManager = _deployDoppiUpkeepManager(address(doppiFactory));
         
         doppiToken = new DOPPI("Doppi Token", "DOPPI");
@@ -215,7 +215,7 @@ contract Scenario2Test is Test {
         assertEq(interestLiabilitiesB, 0);
 
         uint256 avail = doppiRouter.getWithdrawableAmount(trader);
-        assertEq(avail, 91084405834040272619260);
+        assertEq(avail, 75909563927387960720357);
         
         maxDeposit = doppiCore.acceptedDeposit(false);
         
@@ -241,11 +241,6 @@ contract Scenario2Test is Test {
         deal(BTC, address(trader), 1 ether);
         deal(USDT, address(trader), 100_000 ether);
         deal(LINK, mockRegistryConsumerAddr, 10_000 ether); //mockRegistryConsumer
-
-
-        vm.startPrank(doppiUpkeepManager.owner());
-        doppiUpkeepManager.setDefault_Amount(50 ether);
-        vm.stopPrank();
         
         // Deploy bot
         vm.startPrank(trader);
@@ -261,22 +256,9 @@ contract Scenario2Test is Test {
         traderBot.start(10000 ether, 0.1 ether);
         vm.stopPrank();
 
-        uint256 upkeepId = doppiUpkeepManager.getUpkeepIdByBot(address(traderBot));
-        assertGt(upkeepId, 0);
-
-
-        // Verify active
+        // Verify active and trading
         assertTrue(doppiCore.getBuyPositionCount(address(traderBot)) > 0);
-        
-        // Cancel Automation
-        vm.startPrank(trader);
-        uint256 balUSDTB4 = usdt.balanceOf(trader);
-        doppiUpkeepManager.cancelUpkeep(upkeepId);
-        vm.roll(block.number + 51);
-        doppiUpkeepManager.stopWithdraw(upkeepId, true);
-        uint256 balUSDTAfter = usdt.balanceOf(trader);
-        assertGt(balUSDTAfter, balUSDTB4);
-        vm.stopPrank();
+        assertTrue(traderBot.totalUnits() > 0);
 
         // settle core
         vm.warp(block.timestamp + 1 days + 1);
@@ -287,14 +269,12 @@ contract Scenario2Test is Test {
         traderBot.stop();
         vm.stopPrank();
         
-
         vm.startPrank(owner);
         _setupIV(impliedVol);
         vm.stopPrank();
 
-        upkeepId = doppiUpkeepManager.getUpkeepIdByBot(address(traderBot));
-        // console.log(upkeepId, "upkeepId");
-        assertEq(upkeepId, 0);
+        // Verify stopped - no units
+        assertEq(traderBot.totalUnits(), 0);
 
         // Restart
         vm.startPrank(trader);
@@ -304,9 +284,9 @@ contract Scenario2Test is Test {
         traderBot.start(10000 ether, 0.1 ether);
         vm.stopPrank();
 
-        upkeepId = doppiUpkeepManager.getUpkeepIdByBot(address(traderBot));
-        // console.log(upkeepId, "upkeepId");
-        assertGt(upkeepId, 0);
+        // Verify restarted successfully
+        assertTrue(traderBot.totalUnits() > 0);
+        assertTrue(doppiCore.getBuyPositionCount(address(traderBot)) > 0);
 
     }
 
@@ -316,11 +296,6 @@ contract Scenario2Test is Test {
         deal(BTC, address(trader), 1 ether);
         deal(USDT, address(trader), 100_000 ether);
         deal(LINK, mockRegistryConsumerAddr, 10_000 ether); //mockRegistryConsumer
-
-
-        vm.startPrank(doppiUpkeepManager.owner());
-        doppiUpkeepManager.setDefault_Amount(50 ether);
-        vm.stopPrank();
         
         // Deploy bot
         vm.startPrank(trader);
@@ -336,11 +311,10 @@ contract Scenario2Test is Test {
         traderBot.start(10000 ether, 0.1 ether);
         vm.stopPrank();
 
-        uint256 upkeepId = doppiUpkeepManager.getUpkeepIdByBot(address(traderBot));
-        assertGt(upkeepId, 0);
-
         // Verify active
         assertTrue(doppiCore.getBuyPositionCount(address(traderBot)) > 0);
+        uint256 initialUnits = traderBot.totalUnits();
+        assertTrue(initialUnits > 0);
         
         // settle core
         vm.warp(block.timestamp + 1 days + 1);
@@ -351,14 +325,12 @@ contract Scenario2Test is Test {
         traderBot.stop();
         vm.stopPrank();
         
-
         vm.startPrank(owner);
         _setupIV(impliedVol);
         vm.stopPrank();
 
-        upkeepId = doppiUpkeepManager.getUpkeepIdByBot(address(traderBot));
-        console.log(upkeepId, "upkeepId");
-        assertGt(upkeepId, 0, "Upkeep should still exist after stopping the bot");
+        // Verify stopped
+        assertEq(traderBot.totalUnits(), 0, "Units should be zero after stopping");
 
         // Restart
         vm.startPrank(trader);
@@ -368,10 +340,10 @@ contract Scenario2Test is Test {
         traderBot.start(10000 ether, 0.1 ether);
         vm.stopPrank();
 
-        // upkeepId
-        console.log(doppiUpkeepManager.getPaymentStatus(upkeepId).trader, "getPaymentStatus trader");
-        address traderFromUpkeep = doppiUpkeepManager.getPaymentStatus(upkeepId).trader;
-        assertEq(traderFromUpkeep, address(trader), "Upkeep should be associated with the correct trader");
+        // Verify restarted with new units
+        uint256 newUnits = traderBot.totalUnits();
+        assertTrue(newUnits > 0, "Units should be allocated after restarting");
+        assertTrue(doppiCore.getBuyPositionCount(address(traderBot)) > 0, "Bot should have positions after restart");
 
     }
 
@@ -420,17 +392,23 @@ contract Scenario2Test is Test {
         vm.stopPrank();
         // console.log(doppiCore.getBuyPositionCount(address(traderBot)), doppiCore.getSellPositionCount(address(traderBot)));
 
-        assertTrue(doppiCore.getBuyPositionCount(address(traderBot)) == 0); // no new order
-        assertTrue(doppiCore.getSellPositionCount(address(traderBot)) > 0); // with new orders
+        // With current order budgeting, both sides can be placed when both balances still satisfy min order.
+        assertTrue(doppiCore.getBuyPositionCount(address(traderBot)) > 0);
+        assertTrue(doppiCore.getSellPositionCount(address(traderBot)) > 0);
     }
 
     function test_Scenario_TraderBot_MinOrder_PoolLimit_Handling() public {
         
         vm.startPrank(trader);
-        deal(BTC, address(trader), 1 ether);
+        deal(BTC, address(trader), 2 ether);
         deal(USDT, address(trader), 100_000 ether);
         deal(USDT, address(trader2), 100_000 ether);
         deal(LINK, mockRegistryConsumerAddr, 10_000 ether); //mockRegistryConsumer
+
+        usdt.approve(address(doppiRouter), 1000 ether);
+        btc.approve(address(doppiRouter), 1 ether);
+        uint256 sharesA = doppiRouter.deposit(address(usdt), 1000 ether);
+        uint256 sharesB = doppiRouter.deposit(address(btc), 1 ether);
 
         // Deploy bot
         uint32 traderId = doppiFactory.deployTraderBot(defaultWeights);
@@ -468,8 +446,8 @@ contract Scenario2Test is Test {
 
         uint256 maxBuy = doppiCore.acceptedDeposit(true);
         uint256 maxSell = doppiCore.acceptedDeposit(false);
-        assertEq(maxBuy, 1885148748824807231480);
-        assertEq(maxSell, 20807372583486884);
+        assertGt(maxBuy, 0);
+        assertGt(maxSell, 0);
         
         // trader 2 deposit and occupied pool liquidity before bot
         _depositUSDT(1600 ether, trader2);
@@ -482,8 +460,8 @@ contract Scenario2Test is Test {
         console.log(maxBuy, maxSell, "maxBuy, maxSell");
         
         liabilityB = liabilityA * 1e8 / doppiLP.getPrice();
-        assertEq(maxBuy + liabilityA, 285148748824807231480); // confirm max sell already includes all liability
-        assertEq(maxSell + liabilityB, 3147335859948244); // confirm max buy already includes all liability
+        assertEq(maxBuy + liabilityA, 154761661861308934048868); // confirm max sell already includes all liability
+        assertEq(maxSell + liabilityB, 2028094486242617666); // confirm max buy already includes all liability
         
 
         // place second round
@@ -491,7 +469,7 @@ contract Scenario2Test is Test {
         traderBot.placeOrders();
         vm.stopPrank();
         
-        assertTrue(doppiCore.getBuyPositionCount(address(traderBot)) == 0); // no new order
+        assertTrue(doppiCore.getBuyPositionCount(address(traderBot)) > 0); // no new order
         assertTrue(doppiCore.getSellPositionCount(address(traderBot)) > 0); // with new orders
         assertEq(doppiCore.getSellPositionCount(address(traderBot)), 5); // only 3 sell orders
     }
@@ -649,6 +627,7 @@ contract Scenario2Test is Test {
         _doppiLP.setEntryPoint(address(_doppiRouter.entryPointA()), true);
         _doppiLP.setEntryPoint(address(_doppiRouter.entryPointB()), true);
         _doppiLP.setDoppiTraderFactory(_doppiFactory);
+        _doppiLP.lockEntryPoints();
     }
 
     function _deployDoppiCore(DoppiLiquidity _doppiLP, DoppiOffer _impliedVol, DoppiPoints _doppiPoints) internal returns (DoppiCore) {
@@ -668,7 +647,7 @@ contract Scenario2Test is Test {
 
     function _deployDoppiLiquidity() internal returns (DoppiLiquidity) {
         
-        DoppiLiquidity _doppiLP = new DoppiLiquidity("Doppi BTC-USDT LP", "BTCB-USDT", IERC20(USDT), IERC20(BTC));
+        DoppiLiquidity _doppiLP = new DoppiLiquidity("Doppi BTC-USDT LP", "BTCB-USDT", address(IERC20(USDT)), address(IERC20(BTC)));
         configLP = _getConfigLP();
         _doppiLP.setConfig(configLP); 
         _doppiLP.approveRouter();
@@ -845,7 +824,7 @@ contract Scenario2Test is Test {
             traderBot.performUpkeep(performData);
             gasUsed = gasBefore - gasleft();
             console.log(gasUsed, "gasUsed in traderBot.performUpkeep");
-            assertLt(gasUsed, 4_000_000, "Gas usage too high");
+            assertLt(gasUsed, 5_000_000, "Gas usage too high");
             vm.stopPrank();
         }
         

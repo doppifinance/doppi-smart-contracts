@@ -77,7 +77,7 @@ contract DeployDoppiAll is Script {
         console.log("DoppiLiquidityRouter deployed at:", address(doppiRouter));
         
         console.log("Deploying DoppiTraderFactory...");
-        DoppiTraderFactory doppiFactory = new DoppiTraderFactory(IERC20(USDT), IERC20(BTC), address(doppiCore), address(doppiLP), address(doppiRouter));
+        DoppiTraderFactory doppiFactory = new DoppiTraderFactory(IERC20(USDT), IERC20(BTC), address(doppiCore), address(doppiLP), address(doppiRouter), address(impliedVol), address(doppiPoints));
         console.log("DoppiTraderFactory deployed at:", address(doppiFactory));
         
         DoppiUpkeepManager doppiUpkeepManager = _deployDoppiUpkeepManager(doppiFactory);
@@ -138,6 +138,7 @@ contract DeployDoppiAll is Script {
         _doppiLP.setEntryPoint(address(_doppiRouter.entryPointA()), true);
         _doppiLP.setEntryPoint(address(_doppiRouter.entryPointB()), true);
         _doppiLP.setDoppiTraderFactory(_doppiFactory);
+        _doppiLP.lockEntryPoints();
     }
 
     function _deployDoppiCore(DoppiLiquidity _doppiLP, DoppiOffer _impliedVol, DoppiPoints _doppiPoints) internal returns (DoppiCore) {
@@ -163,7 +164,7 @@ contract DeployDoppiAll is Script {
     function _deployDoppiLiquidity() internal returns (DoppiLiquidity) {
         
         console.log("Deploying DoppiLiquidity...");
-        DoppiLiquidity _doppiLP = new DoppiLiquidity("Doppi ETH-USDT LP", "ETH-USDT", IERC20(USDT), IERC20(BTC));
+        DoppiLiquidity _doppiLP = new DoppiLiquidity("Doppi ETH-USDT LP", "ETH-USDT", address(IERC20(USDT)), address(IERC20(BTC)));
         console.log("DoppiLiquidity deployed at:", address(_doppiLP));
         _doppiLP.setConfig(configLP); 
         _doppiLP.approveRouter();
@@ -234,6 +235,10 @@ contract DeployDoppiAll is Script {
         console.log("DoppiUpkeepManager deployed at:", address(doppiUpkeepManager));
         doppiUpkeepManager.setMaxDelay(10 days);
         doppiUpkeepManager.setForwarderAddress(forwarder);
+        
+        // Note: setDoppiUpKeepManager is deprecated for shared bots
+        // Shared bots no longer use doppiUpkeepManager (removed in favor of PrivateAutomationHub)
+        // Use setPrivateAutomationHub() instead for shared bot billing in new deployments
         _doppiFactory.setDoppiUpKeepManager(address(doppiUpkeepManager));
         return doppiUpkeepManager;
     }  

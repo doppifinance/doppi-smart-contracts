@@ -18,12 +18,20 @@ import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol
 
 contract DoppiUpkeepManager is Ownable {
     using SafeERC20 for IERC20;
+
+    error ZeroFactory();
+    error FactoryAlreadyApproved();
+    error FactoryNotApproved();
+    error OnlyTraderBot();
     
     // Chainlink Registrar and LINK token interfaces
     IAutomationRegistrar public registrar;
     IAutomationRegistryConsumer public registryConsumer;
     LinkTokenInterface public linkToken;
+    // Backward-compatibility handle for existing integrations.
     IDoppiTraderFactory public doppiTraderFactory;
+    mapping(address => bool) public approvedTraderFactories;
+    address[] public traderFactories;
     IERC20 public fundToken;
     IERC20 public link;
     
@@ -57,6 +65,7 @@ contract DoppiUpkeepManager is Ownable {
     event UpkeepCanceled(uint256 indexed upkeepId);
     event TopUpPerformed(uint256 indexed upkeepId, address bot, uint256 topUpAmountInfundToken, uint256 linkOut, uint256 fee);
     event UpkeepGasLimitSet(uint256 indexed upkeepId, uint32 gasLimit);
+    event TraderFactoryUpdated(address indexed factory, bool approved);
     
     modifier onlyTrader(uint256 _upkeepId) {
         require(doppiUpkeeps[doppiUpKeepsId[_upkeepId]].trader == msg.sender, "only trader");
@@ -94,6 +103,9 @@ contract DoppiUpkeepManager is Ownable {
         router = _router; 
         pegSwap = IPegSwap(_pegSwap);
         doppiTraderFactory = IDoppiTraderFactory(_doppiTraderFactory);
+        approvedTraderFactories[_doppiTraderFactory] = true;
+        traderFactories.push(_doppiTraderFactory);
+        emit TraderFactoryUpdated(_doppiTraderFactory, true);
         linkToken = LinkTokenInterface(_linkToken);
         link = IERC20(_link); 
         
@@ -129,6 +141,37 @@ contract DoppiUpkeepManager is Ownable {
 
     function setRegistryConsumer(address _registryConsumer) external onlyOwner {
         registryConsumer = IAutomationRegistryConsumer(_registryConsumer);
+    }
+
+    function addTraderFactory(address factory) external onlyOwner {
+        if (factory == address(0)) revert ZeroFactory();
+        if (approvedTraderFactories[factory]) revert FactoryAlreadyApproved();
+        approvedTraderFactories[factory] = true;
+        traderFactories.push(factory);
+        emit TraderFactoryUpdated(factory, true);
+    }
+
+    function removeTraderFactory(address factory) external onlyOwner {
+        if (!approvedTraderFactories[factory]) revert FactoryNotApproved();
+        approvedTraderFactories[factory] = false;
+
+        uint256 length = traderFactories.length;
+        for (uint256 i = 0; i < length; ) {
+            if (traderFactories[i] == factory) {
+                traderFactories[i] = traderFactories[length - 1];
+                traderFactories.pop();
+                emit TraderFactoryUpdated(factory, false);
+                return;
+            }
+            unchecked { ++i; }
+        }
+
+        // Defensive: mapping said approved, but it was not found in the array.
+        revert FactoryNotApproved();
+    }
+
+    function getTraderFactories() external view returns (address[] memory) {
+        return traderFactories;
     }
 
     function setMinSpent(uint24 _min) external onlyOwner {
@@ -268,7 +311,7 @@ contract DoppiUpkeepManager is Ownable {
 
     function insertNewBot(address trader, address bot) external {
 
-        require(doppiTraderFactory.isTraderBot(msg.sender), "only traderbot can call");
+        if (!_isTraderBot(msg.sender)) revert OnlyTraderBot();
         require(DEFAULT_AMOUNT > 0, "cannot register upkeep");
 
         DoppiUpkeepInfo storage info = doppiUpkeeps[bot];
@@ -325,7 +368,7 @@ contract DoppiUpkeepManager is Ownable {
     
     function performTopUpkeep(uint256 upkeepId) external validUpkeepId(upkeepId) {
         
-        require(doppiTraderFactory.isTraderBot(msg.sender), "only traderbot can call");
+        if (!_isTraderBot(msg.sender)) revert OnlyTraderBot();
         (TopUpInfo memory topUpInfo, bool needTopUp) = _getTopUpInfo(upkeepId); 
         
         require(needTopUp == true, "no need to top up"); 
@@ -447,5 +490,17 @@ contract DoppiUpkeepManager is Ownable {
         uint256 out = ISwapRouter(router).exactInput(params);
         require(out > 0, "swap output zero");
         return out;
+    }
+
+    function _isTraderBot(address bot) internal view returns (bool) {
+        uint256 length = traderFactories.length;
+        for (uint256 i = 0; i < length; ) {
+            address factory = traderFactories[i];
+            if (approvedTraderFactories[factory] && IDoppiTraderFactory(factory).isTraderBot(bot)) {
+                return true;
+            }
+            unchecked { ++i; }
+        }
+        return false;
     }
 }

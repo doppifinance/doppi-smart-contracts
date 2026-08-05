@@ -74,7 +74,7 @@ contract LivePriceTest is Test {
 
         vm.startPrank(owner);
         DoppiLiquidity doppiLPCakeUSDT =
-            new DoppiLiquidity("Doppi CAKE-USDT LP", "CAKE-USDT", IERC20(address(usdt)), IERC20(address(CAKE)));
+            new DoppiLiquidity("Doppi CAKE-USDT LP", "CAKE-USDT", address(usdt), address(CAKE));
         configLP = TestParamLib.get_configLP();
         configLP.chainLinkFeed = chainlinkcakeusdt;
         configLP.v3Pool = cakeusdt;
@@ -101,7 +101,7 @@ contract LivePriceTest is Test {
 
     function _setupLP(address _assetA, address _assetB) internal returns (DoppiLiquidity _doppiLP) {
         _doppiLP =
-            new DoppiLiquidity("Doppi BTC-USDT LP", "BTCB-USDT", IERC20(_assetA), IERC20(_assetB));
+            new DoppiLiquidity("Doppi BTC-USDT LP", "BTCB-USDT", address(IERC20(_assetA)), address(IERC20(_assetB)));
         configLP = TestParamLib.get_configLP();
         _doppiLP.setConfig(configLP);
     }

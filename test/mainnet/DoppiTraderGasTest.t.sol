@@ -100,7 +100,7 @@ contract DoppiTraderGasTest is Test {
         doppiRouter = new DoppiLiquidityRouter(IERC20(USDT), IERC20(BTC), doppiLP);
         doppiRouter.setDoppiCore(address(doppiCore));
         doppiLP.setDoppiLiquidityRouter(address(doppiRouter));
-        doppiFactory = new DoppiTraderFactory(IERC20(USDT), IERC20(BTC), address(doppiCore), address(doppiLP), address(doppiRouter));
+        doppiFactory = new DoppiTraderFactory(IERC20(USDT), IERC20(BTC), address(doppiCore), address(doppiLP), address(doppiRouter), address(impliedVol), address(doppiPoints));
         doppiUpkeepManager = _deployDoppiUpkeepManager(address(doppiFactory));
         
         doppiToken = new DOPPI("Doppi Token", "DOPPI");
@@ -472,7 +472,7 @@ contract DoppiTraderGasTest is Test {
 
         (uint256 undo_assetB, uint256 undo_assetA) = traderBot.undoStat();
         console.log(totalPayoutBuy, totalPayoutSell, "totalPayoutBuy, totalPayoutSell");
-        assertEq(undo_assetA, 740000000000000000000000);
+        assertEq(undo_assetA, 900000000000000000000000);
         // assertEq(undo_assetB, 5321094126146880050);
         // console.log(traderBot.lowerBound(), traderBot.upperBound());
         (uint256 lower, uint256 upper) = traderBot.getLowerUpperBound();
@@ -645,6 +645,7 @@ contract DoppiTraderGasTest is Test {
         _doppiLP.setEntryPoint(address(_doppiRouter.entryPointA()), true);
         _doppiLP.setEntryPoint(address(_doppiRouter.entryPointB()), true);
         _doppiLP.setDoppiTraderFactory(_doppiFactory);
+        _doppiLP.lockEntryPoints();
     }
 
     function _deployDoppiCore(DoppiLiquidity _doppiLP, DoppiOffer _impliedVol, DoppiPoints _doppiPoints) internal returns (DoppiCore) {
@@ -664,7 +665,7 @@ contract DoppiTraderGasTest is Test {
 
     function _deployDoppiLiquidity() internal returns (DoppiLiquidity) {
         
-        DoppiLiquidity _doppiLP = new DoppiLiquidity("Doppi BTC-USDT LP", "BTCB-USDT", IERC20(USDT), IERC20(BTC));
+        DoppiLiquidity _doppiLP = new DoppiLiquidity("Doppi BTC-USDT LP", "BTCB-USDT", address(IERC20(USDT)), address(IERC20(BTC)));
         configLP = _getConfigLP();
         _doppiLP.setConfig(configLP); 
         _doppiLP.approveRouter();

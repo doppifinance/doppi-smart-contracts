@@ -24,6 +24,10 @@ contract MockOracle {
         return _decimals;
     }
 
+    function getPriceDecimals() external view returns (uint8) {
+        return _decimals;
+    }
+
     function latestRoundData()
         external
         view

@@ -63,6 +63,10 @@ contract RedeployDoppiUpkeepManager is Script {
         // doppiUpkeepManager.setMaxDelay(10 minutes);
         doppiUpkeepManager.setDefault_Amount(50 ether);
         doppiUpkeepManager.setDefault_GasLimit(2_500_000);
+        
+        // Note: setDoppiUpKeepManager is deprecated for shared bots
+        // Shared bots no longer use doppiUpkeepManager (removed in favor of PrivateAutomationHub)
+        // Use setPrivateAutomationHub() instead for shared bot billing in new deployments
         _doppiFactory.setDoppiUpKeepManager(address(doppiUpkeepManager));
         return doppiUpkeepManager;
     }  

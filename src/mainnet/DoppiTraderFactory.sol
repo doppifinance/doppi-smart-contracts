@@ -7,6 +7,11 @@ import {IDoppiTraderFactory} from "../Interface/IDoppiTraderFactory.sol";
 import {BotRegistryLib} from "../Library/BotRegistryLib.sol";
 import {DoppiTrader} from "./DoppiTrader.sol";
 import {Clones} from "@openzeppelin/contracts/proxy/Clones.sol";
+import {IPrivateAutomationHub} from "../Interface/IPrivateAutomationHub.sol";
+
+interface ISetForwarder {
+    function setForwarderAddress(address forwarderAddress) external;
+}
 
 
 contract DoppiTraderFactory is Ownable, IDoppiTraderFactory {
@@ -14,7 +19,6 @@ contract DoppiTraderFactory is Ownable, IDoppiTraderFactory {
 
     using BotRegistryLib for BotRegistryLib.BotRegistry;
 
-    // Add this line - the implementation contract address
     address public traderBotImplementation;
 
     IERC20 public immutable assetA;
@@ -24,6 +28,12 @@ contract DoppiTraderFactory is Ownable, IDoppiTraderFactory {
     address public immutable doppiCore;
     address public immutable doppiLP;
     address public immutable doppiRouter;
+    address public immutable doppiOffer;
+    address public immutable doppiPoints;
+    address public privateAutomationHub;
+
+    uint32 public defaultRatioLP = 5000; // 20% of capital go to LP
+    
     BotRegistryLib.BotRegistry internal botRegistry;
     
     event BotDeployed(address indexed user, address traderBot, uint32 botId);
@@ -33,13 +43,17 @@ contract DoppiTraderFactory is Ownable, IDoppiTraderFactory {
         IERC20 _assetB,
         address _da,
         address _daLP,
-        address _router
+        address _router,
+        address _doppiOffer,
+        address _doppiPoints
     ) Ownable(msg.sender) {
         assetA = _assetA;
         assetB = _assetB;
         doppiCore = _da;
         doppiLP = _daLP;
         doppiRouter = _router;
+        doppiOffer = _doppiOffer;
+        doppiPoints = _doppiPoints;
         botRegistry.nextBotId = 1;
 
         // Deploy the implementation contract once
@@ -47,7 +61,6 @@ contract DoppiTraderFactory is Ownable, IDoppiTraderFactory {
     }
 
     function deployTraderBot(uint24[] calldata _weights) external returns (uint32) {
-        require(msg.sender.code.length == 0, "contracts not allowed");
         // Use Clones to create minimal proxy
         address traderBot = Clones.clone(traderBotImplementation);
         
@@ -59,11 +72,24 @@ contract DoppiTraderFactory is Ownable, IDoppiTraderFactory {
             doppiLP, 
             doppiRouter, 
             doppiCore, 
-            doppiUpKeepManager,
             _weights
         );
         
         uint32 id = botRegistry.deployBot(msg.sender, traderBot);
+        
+        DoppiTrader(traderBot).setRatioLP(defaultRatioLP);
+        // Register with hub if available
+        if (privateAutomationHub != address(0)) {
+            DoppiTrader(traderBot).setPrivateAutomationHub(privateAutomationHub);
+            IPrivateAutomationHub(privateAutomationHub).registerSharedBotJob(
+                msg.sender,
+                traderBot,
+                id
+            );
+            // Auto-set hub as the forwarder for shared bot trader job
+            ISetForwarder(traderBot).setForwarderAddress(privateAutomationHub);
+        }
+        
         emit BotDeployed(msg.sender, traderBot, id);
         return id;
     }
@@ -74,7 +100,16 @@ contract DoppiTraderFactory is Ownable, IDoppiTraderFactory {
     }
 
     function setDoppiUpKeepManager(address _doppiUpKeepManager) external onlyOwner {
+        // Deprecated: use setPrivateAutomationHub instead for new deployments
         doppiUpKeepManager = _doppiUpKeepManager;
+    }
+
+    function setPrivateAutomationHub(address _hub) external onlyOwner {
+        privateAutomationHub = _hub;
+    }
+
+    function setDefaultRatioLP(uint32 _ratioLP) external onlyOwner {
+        defaultRatioLP = _ratioLP;
     }
 
     function traderBotId(address _addr) external view returns (uint32) {

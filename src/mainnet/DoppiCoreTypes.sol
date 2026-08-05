@@ -11,6 +11,17 @@ struct SettlementPlan {
     uint256 myAmountOut;   // proportional outAmount allocated to this position (pre-allocated in plan phase)
 }
 
+struct PendingSettlement {
+    address owner;
+    uint256 strikePrice;
+    uint256 settlePrice;
+    address payoutToken;
+    address interestToken;
+    uint256 pendingPayout;
+    uint256 pendingInterest;
+    bool claimed;
+}
+
 struct StrikeNode {
         uint256 prev;
         uint256 next;

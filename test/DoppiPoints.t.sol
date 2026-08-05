@@ -29,6 +29,7 @@ contract DoppiPointsTest is Test {
         uint256 volume = doppiPoints.getMonthlyVolume(trader1, currentMonthId);
         
         assertEq(volume, 100, "Volume should equal 100");
+        assertEq(doppiPoints.totalTradeVolumeUSDT(), 100, "Raw USDT trade volume should equal 100");
         
         vm.stopPrank();
     }
@@ -353,7 +354,7 @@ contract DoppiPointsTest is Test {
         assertEq(doppiPoints.getMonthlyVolume(trader1, monthId), 500, "Default 1:1 multiplier should keep volume unchanged");
     }
 
-    function testBotVolumeMultiplier_AppliesOnlyToBot() public {
+    function testTotalTradeVolumeUSDT_IgnoresBotMultiplier() public {
         _deployMultiFactoryFixture();
         mockFactory.registerBot(address(mockBot));
         doppiPoints.setBotVolumeMultiplier(2, 1);
@@ -361,12 +362,8 @@ contract DoppiPointsTest is Test {
         vm.prank(mockDoppiCore);
         doppiPoints.recordTrade(address(mockBot), 500);
 
-        vm.prank(mockDoppiCore);
-        doppiPoints.recordTrade(trader2, 200);
-
-        uint24 monthId = doppiPoints.getCurrentMonthId();
-        assertEq(doppiPoints.getMonthlyVolume(trader1, monthId), 1000, "Bot volume should be multiplied");
-        assertEq(doppiPoints.getMonthlyVolume(trader2, monthId), 200, "EOA volume should stay unchanged");
+        assertEq(doppiPoints.totalPoints(), 1000, "Points volume should be multiplied");
+        assertEq(doppiPoints.totalTradeVolumeUSDT(), 500, "Raw trade volume should not be multiplied");
     }
 
     function testSetBotVolumeMultiplier_RevertsOnZeroDenominator() public {

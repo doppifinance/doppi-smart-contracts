@@ -1,6 +1,9 @@
 # Compiler files
 cache/
 out/
+trace/
+tmp/
+.tmp/
 
 # Dependency directories
 node_modules/

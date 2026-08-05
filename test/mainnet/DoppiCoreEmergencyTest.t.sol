@@ -9,6 +9,7 @@ import {IBlackScholes} from "../../src/Interface/IBlackScholes.sol";
 import {DoppiTraderFactory} from "../../src/mainnet/DoppiTraderFactory.sol";
 import {DoppiTrader} from "../../src/mainnet/DoppiTrader.sol";
 import {DoppiCore} from "../../src/mainnet/DoppiCore.sol";
+import {IDoppiOpportunity} from "../../src/Interface/IDoppiOpportunity.sol";
 import {DoppiLiquidity} from "../../src/mainnet/DoppiLiquidity.sol";
 import {DoppiLiquidityRouter} from "../../src/mainnet/DoppiLiquidityRouter.sol";
 import {BlackScholes} from "../../src/mainnet/BlackScholes.sol";
@@ -100,7 +101,7 @@ contract DoppiCoreEmergencyTest is Test {
         doppiRouter = new DoppiLiquidityRouter(IERC20(USDT), IERC20(BTC), doppiLP);
         doppiRouter.setDoppiCore(address(doppiCore));
         doppiLP.setDoppiLiquidityRouter(address(doppiRouter));
-        doppiFactory = new DoppiTraderFactory(IERC20(USDT), IERC20(BTC), address(doppiCore), address(doppiLP), address(doppiRouter));
+        doppiFactory = new DoppiTraderFactory(IERC20(USDT), IERC20(BTC), address(doppiCore), address(doppiLP), address(doppiRouter), address(impliedVol), address(doppiPoints));
         doppiUpkeepManager = _deployDoppiUpkeepManager(address(doppiFactory));
         
         doppiToken = new DOPPI("Doppi Token", "DOPPI");
@@ -117,6 +118,7 @@ contract DoppiCoreEmergencyTest is Test {
     }
 
     function test_doppiCore_scenario_bot_oppo_settle() public {
+        IDoppiOpportunity opportunityStore = doppiCore.doppiOpportunity();
 
         vm.startPrank(doppiCore.owner());
         doppiCore.setUpkeeps_per_check(5);
@@ -143,7 +145,7 @@ contract DoppiCoreEmergencyTest is Test {
         // perform opportunity settlement
         _doppiOpportunityCheckUpkeep_performUpkeep();
         
-        (uint256 lowerBound, uint256 upperBound) = doppiCore.getLowerUpperBound();
+        (uint256 lowerBound, uint256 upperBound) = opportunityStore.getLowerUpperBound();
         // console.log("Lower bound:", lowerBound, "Upper bound:", upperBound);
         assertEq(lowerBound, 6900000000000, "Lower bound should be 69000"); 
         assertEq(upperBound, 7350000000000, "Upper bound should be 73500"); 
@@ -156,7 +158,7 @@ contract DoppiCoreEmergencyTest is Test {
 
         _doppiCoreCheckUpkeep_performUpkeep();
 
-        (lowerBound, upperBound) = doppiCore.getLowerUpperBound();
+        (lowerBound, upperBound) = opportunityStore.getLowerUpperBound();
         // console.log("Lower bound:", lowerBound, "Upper bound:", upperBound);
         assertEq(lowerBound, 7150000000000, "Lower bound should be 71500"); 
         assertEq(upperBound, 7350000000000, "Upper bound should be 73500"); 
@@ -194,17 +196,23 @@ contract DoppiCoreEmergencyTest is Test {
         assertEq(count, 0, "Sell positions should be fully settled after third upkeep");
 
 
-        (uint256 amount, uint256 swappedAmount, uint256 outAmount) = doppiCore.opportunityBuy(7100000000000);
+        OpportunityOrders memory buyOrder = doppiCore.getOpportunityOrders(true, 7100000000000);
+        uint256 amount = buyOrder.amount;
+        uint256 swappedAmount = buyOrder.swappedAmount;
+        uint256 outAmount = buyOrder.outAmount;
         assertEq(amount, 0, "No opportunity should be available at this price");
         assertEq(swappedAmount, 0, "No opportunity should be available at this price");
         assertEq(outAmount, 0, "No opportunity should be available at this price");
 
-        (amount, swappedAmount, outAmount) = doppiCore.opportunityBuy(7050000000000);
+        buyOrder = doppiCore.getOpportunityOrders(true, 7050000000000);
+        amount = buyOrder.amount;
+        swappedAmount = buyOrder.swappedAmount;
+        outAmount = buyOrder.outAmount;
         assertEq(amount, 0, "No opportunity should be available at this price");
         assertEq(swappedAmount, 0, "No opportunity should be available at this price");
         assertEq(outAmount, 0, "No opportunity should be available at this price");
         
-        (lowerBound, upperBound) = doppiCore.getLowerUpperBound();
+        (lowerBound, upperBound) = opportunityStore.getLowerUpperBound();
         assertEq(lowerBound, 0, "Lower bound should be 0"); // reset
         assertEq(upperBound, 0, "Upper bound should be 0"); // reset
 
@@ -269,7 +277,7 @@ contract DoppiCoreEmergencyTest is Test {
         bot_usdtbal = usdt.balanceOf(address(traderBot));
         bot_btcbal = btc.balanceOf(address(traderBot));
         console.log(bot_usdtbal, bot_btcbal, "bot balances after emergency settlement");
-        assertEq(bot_usdtbal, 49975 ether); // 25 is in upkeep manager, so 49975 instead of 50000
+        assertEq(bot_usdtbal, 50000 ether); // No upkeep fee deducted
         assertEq(bot_btcbal, 0.5 ether); 
         
 
@@ -291,7 +299,7 @@ contract DoppiCoreEmergencyTest is Test {
         assertApproxEqAbs(totalAssetsInAssetA, 0, 1);
         assertApproxEqAbs(totalAssetsInAssetB, 0, 1);
 
-        assertApproxEqAbs(end_usdtbal, 100_000 ether, 30 ether); // due to the swap slippage and 25 USDT in UpkeepManager
+        assertApproxEqAbs(end_usdtbal, 100_000 ether, 50 ether); // no upkeep manager fee deduction
         assertApproxEqAbs(end_btcbal, 1 ether, 0.001 ether);
         
     }
@@ -348,6 +356,7 @@ contract DoppiCoreEmergencyTest is Test {
         _doppiLP.setEntryPoint(address(_doppiRouter.entryPointA()), true);
         _doppiLP.setEntryPoint(address(_doppiRouter.entryPointB()), true);
         _doppiLP.setDoppiTraderFactory(_doppiFactory);
+        _doppiLP.lockEntryPoints();
     }
 
     function _deployDoppiCore(DoppiLiquidity _doppiLP, DoppiOffer _impliedVol, DoppiPoints _doppiPoints) internal returns (DoppiCore) {
@@ -370,7 +379,7 @@ contract DoppiCoreEmergencyTest is Test {
 
     function _deployDoppiLiquidity() internal returns (DoppiLiquidity) {
         
-        DoppiLiquidity _doppiLP = new DoppiLiquidity("Doppi BTC-USDT LP", "BTCB-USDT", IERC20(USDT), IERC20(BTC));
+        DoppiLiquidity _doppiLP = new DoppiLiquidity("Doppi BTC-USDT LP", "BTCB-USDT", address(IERC20(USDT)), address(IERC20(BTC)));
         configLP = _getConfigLP();
         _doppiLP.setConfig(configLP); 
         _doppiLP.approveRouter();
@@ -576,15 +585,22 @@ contract DoppiCoreEmergencyTest is Test {
     }
 
     function _displayBound(uint256 lowerBound, uint256 upperBound) internal view {
+        IDoppiOpportunity opportunityStore = doppiCore.doppiOpportunity();
         
         for (uint256 price = upperBound; price >= lowerBound; ) {
             // console.log(price, "price");
             bool isBuy = true;
-            (uint256 amount, uint256 swappedAmount, uint256 outAmount) = doppiCore.opportunityBuy(price);
+            OpportunityOrders memory order = opportunityStore.getBuyOpportunity(price);
+            uint256 amount = order.amount;
+            uint256 swappedAmount = order.swappedAmount;
+            uint256 outAmount = order.outAmount;
             
             if(amount == 0){
                 isBuy = false;
-                (amount, swappedAmount, outAmount) = doppiCore.opportunitySell(price);
+                order = opportunityStore.getSellOpportunity(price);
+                amount = order.amount;
+                swappedAmount = order.swappedAmount;
+                outAmount = order.outAmount;
             }
             console.log(isBuy, price, swappedAmount, outAmount);
             price -= (500 * 1e8); 

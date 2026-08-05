@@ -9,6 +9,7 @@ import {DoppiLiquidityRouter} from "../src/mainnet/DoppiLiquidityRouter.sol";
 import {BlackScholes} from "../src/mainnet/BlackScholes.sol";
 import {DoppiOffer} from "../src/mainnet/DoppiOffer.sol";
 import {IDoppiOffer} from "../src/Interface/IDoppiOffer.sol";
+import {IDoppiOpportunity} from "../src/Interface/IDoppiOpportunity.sol";
 import {DoppiPoints} from "../src/mainnet/DoppiPoints.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {MockToken} from "../src/test/MockToken.sol";
@@ -67,7 +68,7 @@ contract DoppiOpportunityTest is Test {
         swapper.setOracle(MockOracle(oracle));    
         doppiPoints = _deployDoppiPoints();
         doppiLP =
-            new DoppiLiquidity("Dual Asset Liquidity Pool", "DALP", IERC20(usdt), IERC20(btc));
+            new DoppiLiquidity("Dual Asset Liquidity Pool", "DALP", address(IERC20(usdt)), address(IERC20(btc)));
         
         configLP = TestParamLib.get_configLP();
         configLP.chainLinkFeed = address(oracle);
@@ -248,15 +249,15 @@ contract DoppiOpportunityTest is Test {
         vm.stopPrank();
 
         DualAssetOffer memory sellOffer = impliedVol.getOffer(false, 1, 1);
-        uint256 depositBTC = 0.01 ether;
+        uint256 depositAmountBtc = 10_000_000_000_000_000;
         // console.log(sellOffer.strikePrice, "sellOffer.strikePrice");
         for (uint256 i = 0; i < 1000; i++) {
             address l1 = address(uint160(0x110 + i));
             vm.startPrank(l1);
             btc.mint(l1, 1 ether);
-            btc.approve(address(doppiCore), depositBTC);
+            btc.approve(address(doppiCore), depositAmountBtc);
             doppiCore.deposit_sell(DepositParams({
-                amount: depositBTC,
+                amount: depositAmountBtc,
                 strikeZone: 1,
                 strikePrice: sellOffer.strikePrice,
                 numDays: 1,
@@ -311,7 +312,6 @@ contract DoppiOpportunityTest is Test {
         doppiCore.setMaxSwap(100000 ether);
         vm.stopPrank();
 
-        uint256 depositUSDT = 1000 ether;
         uint256 totalDeposit = 500;
         uint256 priceChanges = 50; // Change price 50 times during test
         uint256 depPerPrice = totalDeposit / priceChanges;
@@ -412,7 +412,6 @@ contract DoppiOpportunityTest is Test {
         // doppiRouter.deposit(address(btc), depositBTCAmount);
         vm.stopPrank();
 
-        uint256 depositBTC = 0.01 ether;
         uint256 totalDeposit = 500;
         uint256 priceChanges = 50; // Change price 50 times during test
         uint256 depPerPrice = totalDeposit / priceChanges;
@@ -474,7 +473,7 @@ contract DoppiOpportunityTest is Test {
         
         sell = doppiCore.getOpportunityOrders(false, 9900000000000);
         assertEq(sell.swappedAmount, 3356740024692983644);
-        assertEq(sell.outAmount, 340018980855569066294013);
+        assertEq(sell.outAmount, 340018980855569066207999);
 
         newPrice = int256(93556 * 1e8);
         oracle.setPrice(newPrice);
@@ -511,7 +510,6 @@ contract DoppiOpportunityTest is Test {
         doppiRouter.deposit(address(btc), depositBTCAmount);
         vm.stopPrank();
 
-        uint256 depositBTC = 0.01 ether;
         uint256 totalDeposit = 500;
         uint256 priceChanges = 50; // Change price 50 times during test
         uint256 depPerPrice = totalDeposit / priceChanges;
@@ -576,7 +574,8 @@ contract DoppiOpportunityTest is Test {
         int256 newPrice = int256(90556 * 1e8);
         oracle.setPrice(newPrice);
 
-        (uint256 lowerBound, uint256 upperBound) = doppiCore.getLowerUpperBound();
+        IDoppiOpportunity opportunityStore = doppiCore.doppiOpportunity();
+        (uint256 lowerBound, uint256 upperBound) = opportunityStore.getLowerUpperBound();
         console.log(lowerBound, upperBound, "lowerBound, upperBound");
         assertEq(lowerBound, 9700000000000);
         assertEq(upperBound, 10300000000000);
@@ -639,7 +638,7 @@ contract DoppiOpportunityTest is Test {
         assertEq(buy.swappedAmount, 75000000000000000000000);
         assertEq(buy.outAmount, 776254238352379755);
         
-        (lowerBound, upperBound) = doppiCore.getLowerUpperBound();
+        (lowerBound, upperBound) = opportunityStore.getLowerUpperBound();
         assertEq(lowerBound, 9700000000000);
         assertEq(upperBound, 10300000000000);
 
@@ -665,14 +664,14 @@ contract DoppiOpportunityTest is Test {
         vm.stopPrank();
 
         DualAssetOffer memory buyOffer = impliedVol.getOffer(true, 1, 1);
-        uint256 depositUSDT = 1000 ether;
+        uint256 depositAmountUsdt = 1000 ether;
         for (uint256 i = 0; i < 1000; i++) {
             address l1 = address(uint160(0x110 + i));
             vm.startPrank(l1);
             usdt.mint(l1, 100_000 ether);
-            usdt.approve(address(doppiCore), depositUSDT);
+            usdt.approve(address(doppiCore), depositAmountUsdt);
             doppiCore.deposit_buy(DepositParams({
-                amount: depositUSDT,
+                amount: depositAmountUsdt,
                 strikeZone: 1,
                 strikePrice: buyOffer.strikePrice,
                 numDays: 1,
@@ -786,15 +785,22 @@ contract DoppiOpportunityTest is Test {
     }
 
     function _displayBound(uint256 lowerBound, uint256 upperBound) internal view {
+        IDoppiOpportunity opportunityStore = doppiCore.doppiOpportunity();
         
         for (uint256 price = upperBound; price >= lowerBound; ) {
             // console.log(price, "price");
             bool isBuy = true;
-            (uint256 amount, uint256 swappedAmount, uint256 outAmount) = doppiCore.opportunityBuy(price);
+            OpportunityOrders memory order = opportunityStore.getBuyOpportunity(price);
+            uint256 amount = order.amount;
+            uint256 swappedAmount = order.swappedAmount;
+            uint256 outAmount = order.outAmount;
             
             if(amount == 0){
                 isBuy = false;
-                (amount, swappedAmount, outAmount) = doppiCore.opportunitySell(price);
+                order = opportunityStore.getSellOpportunity(price);
+                amount = order.amount;
+                swappedAmount = order.swappedAmount;
+                outAmount = order.outAmount;
             }
             console.log(isBuy, price, swappedAmount, outAmount);
             price -= (500 * 1e8); 

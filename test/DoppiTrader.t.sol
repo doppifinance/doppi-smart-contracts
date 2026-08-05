@@ -20,6 +20,7 @@ import "../src/mainnet/DoppiTraderTypes.sol";
 import "../src/mainnet/DoppiCoreTypes.sol";
 import {TestParamLib} from "../src/Library/TestParamLib.sol";
 import "../src/mainnet/DoppiLiquidityTypes.sol";
+import {MockPrivateAutomationHubForSimple} from "./PrivateDoppiSimpleTraderTopUpMock.sol";
 
 contract DoppiTraderV2Mock is DoppiTrader {
     function version() external pure returns (uint256) {
@@ -39,6 +40,7 @@ contract DoppiTraderTest is Test {
     MockToken btc;
     MockOracle oracle;
     MockDoppiUpKeepManager mockDoppiUpKeepManager;
+    MockPrivateAutomationHubForSimple mockPrivateAutomationHub;
     DoppiOpportunity opportunityBot;
     Swapper swapper;
     DoppiPoints doppiPoints;
@@ -77,13 +79,14 @@ contract DoppiTraderTest is Test {
         doppiPoints = new DoppiPoints();
 
         mockDoppiUpKeepManager = new MockDoppiUpKeepManager(mockForwarder);
+        mockPrivateAutomationHub = new MockPrivateAutomationHubForSimple();
 
         // Deploy Swapper that will act as both router and pool
         swapper = new Swapper(MockToken(usdt), MockToken(btc));
         swapper.setOracle(MockOracle(oracle));    
         
         doppiLP =
-            new DoppiLiquidity("Dual Asset Liquidity Pool", "DALP", IERC20(usdt), IERC20(btc));
+            new DoppiLiquidity("Dual Asset Liquidity Pool", "DALP", address(IERC20(usdt)), address(IERC20(btc)));
         
         configLP = TestParamLib.get_configLP();
         configLP.chainLinkFeed = address(oracle);
@@ -116,7 +119,7 @@ contract DoppiTraderTest is Test {
         doppiLP.setDoppiLiquidityRouter(address(doppiRouter));
 
         doppiFactory =
-            new DoppiTraderFactory(IERC20(usdt), IERC20(btc), address(doppiCore), address(doppiLP), address(doppiRouter));
+            new DoppiTraderFactory(IERC20(usdt), IERC20(btc), address(doppiCore), address(doppiLP), address(doppiRouter), address(impliedVol), address(doppiPoints));
         doppiLP.setDoppiTraderFactory(address(doppiFactory));
         doppiCore.setDoppiTraderFactory(doppiFactory);
         doppiFactory.setDoppiUpKeepManager(address(mockDoppiUpKeepManager));
@@ -127,6 +130,8 @@ contract DoppiTraderTest is Test {
         doppiTrader = DoppiTrader(doppiFactory.traderBots(id));
         vm.prank(trader);
         doppiTrader.setForwarderAddress(mockForwarder);
+        vm.prank(trader);
+        doppiTrader.setMaxOrderPerRound(type(uint256).max, type(uint256).max);
         vm.stopPrank();
         
         usdt.mint(trader, 10_000_000 ether);
@@ -186,25 +191,47 @@ contract DoppiTraderTest is Test {
         assertEq(positions.length, 5);
 
         // total of USDT 50k in trader bot, 50% in liquidity
-        assertEq(positions[0].amount, 2500 ether); // 5%
-        assertEq(positions[1].amount, 5000 ether); // 10%
+        assertEq(positions[4].amount, 2500 ether); // 5%
+        assertEq(positions[3].amount, 5000 ether); // 10%
         assertEq(positions[2].amount, 7500 ether); // 15%
-        assertEq(positions[3].amount, 12500 ether); // 25%
-        assertEq(positions[4].amount, 22500 ether); // 45%
+        assertEq(positions[1].amount, 12500 ether); // 25%
+        assertEq(positions[0].amount, 22500 ether); // 45%
 
         // total of BTC 0.50 in trader bot, 0.50 in liquidity
         positions = doppiCore.get_positions_sell(address(doppiTrader));
         assertEq(positions.length, 5);
-        assertEq(positions[0].amount, 0.025 ether); // 5%
-        assertEq(positions[1].amount, 0.05 ether); // 10%
+        assertEq(positions[4].amount, 0.025 ether); // 5%
+        assertEq(positions[3].amount, 0.05 ether); // 10%
         assertEq(positions[2].amount, 0.075 ether); // 15%
-        assertEq(positions[3].amount, 0.125 ether); // 25%
-        assertEq(positions[4].amount, 0.225 ether); // 45%
+        assertEq(positions[1].amount, 0.125 ether); // 25%
+        assertEq(positions[0].amount, 0.225 ether); // 45%
 
         // Check BTC balance decreased
         assertEq(btc.balanceOf(address(trader)), 99 ether);
         assertEq(usdt.balanceOf(address(trader)), 9_900_000 ether);
 
+    }
+
+    function test_start_tracksCostBasisAndUnitsB_withBothAssets() public {
+        uint256 amountUSDT = 100_000 ether;
+        uint256 amountBTC = 1 ether;
+
+        uint256 price = doppiLP.getPrice();
+        uint256 priceDecimals = 10 ** doppiLP.getPriceDecimals();
+
+        uint256 expectedA = amountUSDT + (amountBTC * price) / priceDecimals;
+        uint256 expectedB = amountBTC + (amountUSDT * priceDecimals) / price;
+
+        vm.startPrank(trader);
+        usdt.approve(address(doppiTrader), 10_000_000 ether);
+        btc.approve(address(doppiTrader), 100 ether);
+        doppiTrader.start(amountUSDT, amountBTC);
+        vm.stopPrank();
+
+        assertEq(doppiTrader.totalUnits(), expectedA);
+        assertEq(doppiTrader.costBasis(), amountUSDT);
+        assertEq(doppiTrader.totalUnitsB(), expectedB);
+        assertEq(doppiTrader.costBasisB(), amountBTC);
     }
 
     function test_start_less_order() public {
@@ -254,6 +281,83 @@ contract DoppiTraderTest is Test {
 
         // Check USDT balance decreased
         assertEq(usdt.balanceOf(address(trader)), 9_900_000 ether);
+    }
+
+    function test_startWithPrivateHubDoesNotTopUpWhenCreditAboveThreshold() public {
+        mockPrivateAutomationHub.setBillingConfig(IERC20(usdt), 10 ether, false);
+        mockPrivateAutomationHub.setCreditThreshold(0);
+        doppiFactory.setPrivateAutomationHub(address(mockPrivateAutomationHub));
+
+        vm.prank(trader);
+        uint32 id = doppiFactory.deployTraderBot(defaultweights);
+        DoppiTrader bot = DoppiTrader(doppiFactory.traderBots(id));
+
+        vm.startPrank(trader);
+        usdt.approve(address(bot), type(uint256).max);
+        bot.start(100_000 ether, 0);
+        vm.stopPrank();
+
+        assertEq(mockPrivateAutomationHub.depositedByBot(address(bot)), 0);
+        assertEq(usdt.balanceOf(address(mockPrivateAutomationHub)), 0);
+        assertEq(bot.costBasis(), 100_000 ether);
+    }
+
+    function test_startWithPrivateHubTopUpWhenCreditAtThresholdUsesRemainingCapital() public {
+        uint256 defaultTopUp = 10 ether;
+        mockPrivateAutomationHub.setBillingConfig(IERC20(usdt), defaultTopUp, false);
+        mockPrivateAutomationHub.setCreditThreshold(defaultTopUp);
+        mockPrivateAutomationHub.setCreditBalance(defaultTopUp);
+        doppiFactory.setPrivateAutomationHub(address(mockPrivateAutomationHub));
+
+        vm.prank(trader);
+        uint32 id = doppiFactory.deployTraderBot(defaultweights);
+        DoppiTrader bot = DoppiTrader(doppiFactory.traderBots(id));
+
+        vm.startPrank(trader);
+        usdt.approve(address(bot), type(uint256).max);
+        bot.start(100_000 ether, 0);
+        vm.stopPrank();
+
+        assertEq(mockPrivateAutomationHub.depositedByBot(address(bot)), defaultTopUp);
+        assertEq(usdt.balanceOf(address(mockPrivateAutomationHub)), defaultTopUp);
+        assertEq(bot.costBasis(), 100_000 ether - defaultTopUp);
+    }
+
+    function test_startWithPrivateHubTopUpRevertsWhenFundTokenDepositIsInsufficient() public {
+        mockPrivateAutomationHub.setBillingConfig(IERC20(usdt), 10 ether, false);
+        mockPrivateAutomationHub.setCreditThreshold(10 ether);
+        mockPrivateAutomationHub.setCreditBalance(10 ether);
+        doppiFactory.setPrivateAutomationHub(address(mockPrivateAutomationHub));
+
+        vm.prank(trader);
+        uint32 id = doppiFactory.deployTraderBot(defaultweights);
+        DoppiTrader bot = DoppiTrader(doppiFactory.traderBots(id));
+
+        vm.startPrank(trader);
+        usdt.approve(address(bot), type(uint256).max);
+        vm.expectRevert(bytes4(keccak256("InsufficientTopUpAmount()")));
+        bot.start(5 ether, 0);
+        vm.stopPrank();
+    }
+
+    function test_startWithPrivateHubUnsupportedFundTokenLeavesCapitalUnchanged() public {
+        MockToken otherToken = new MockToken("Other", "OTHER");
+        mockPrivateAutomationHub.setBillingConfig(IERC20(otherToken), 10 ether, false);
+        mockPrivateAutomationHub.setCreditThreshold(10 ether);
+        mockPrivateAutomationHub.setCreditBalance(10 ether);
+        doppiFactory.setPrivateAutomationHub(address(mockPrivateAutomationHub));
+
+        vm.prank(trader);
+        uint32 id = doppiFactory.deployTraderBot(defaultweights);
+        DoppiTrader bot = DoppiTrader(doppiFactory.traderBots(id));
+
+        vm.startPrank(trader);
+        usdt.approve(address(bot), type(uint256).max);
+        bot.start(100_000 ether, 0);
+        vm.stopPrank();
+
+        assertEq(mockPrivateAutomationHub.depositedByBot(address(bot)), 0);
+        assertEq(bot.costBasis(), 100_000 ether);
     }
 
     function test_stop_assetA_only() public {
@@ -614,25 +718,18 @@ contract DoppiTraderTest is Test {
         // buy : those buy <= 99000 will trigger, sell : only those sold > 101500 will trigger
         oracle.setPrice(int256(100_100 * 1e8));
         (bool upkeepNeeded, bytes memory performData) = doppiTrader.checkUpkeep("");
-        (bool performUnwind, bool isNetBuy, uint256[] memory targetPricesBuy, uint256[] memory targetPricesSell, uint256 totalAmount, uint256 totalSellAmountInA, uint256 totalBuyAmountInB, bool placeBuy, bool placeSell, bool toTopUp) = 
-            abi.decode(performData, (bool, bool, uint256[], uint256[], uint256, uint256, uint256, bool, bool, bool));
+        (bool performUnwind, bool placeBuy, bool placeSell) = 
+            abi.decode(performData, (bool, bool, bool));
         
-        console.log(targetPricesSell.length, targetPricesBuy.length, isNetBuy);
         assertTrue(performUnwind);
-        assertEq(targetPricesBuy.length, 1);
-        assertEq(targetPricesSell.length, 0);
 
-        
         // buy : those buy <= 100_000 will trigger, sell : only those sold > 102_500 will trigger
         oracle.setPrice(int256(101_100 * 1e8));
         (upkeepNeeded,  performData) = doppiTrader.checkUpkeep("");
-        (performUnwind, isNetBuy, targetPricesBuy, targetPricesSell, totalAmount, totalSellAmountInA, totalBuyAmountInB, placeBuy, placeSell, toTopUp) = 
-            abi.decode(performData, (bool, bool, uint256[], uint256[], uint256, uint256, uint256, bool, bool, bool));
-        
-        console.log(targetPricesSell.length, targetPricesBuy.length, isNetBuy);
+        (performUnwind, placeBuy, placeSell) = 
+            abi.decode(performData, (bool, bool, bool));
+
         assertTrue(performUnwind);
-        assertEq(targetPricesBuy.length, 2);
-        assertEq(targetPricesSell.length, 0);
         
     }
 
@@ -659,31 +756,6 @@ contract DoppiTraderTest is Test {
         assertEq(orderConfig[1].strikeZone, 2);
         assertEq(orderConfig[2].weight, 1000);
         assertEq(orderConfig[2].strikeZone, 4);        
-        vm.stopPrank();
-    }
-
-    function test_ConfigReset() public {
-        vm.startPrank(trader);
-        
-        // Set multiple configs at once
-        uint8[] memory strikeZones = new uint8[](3);
-        uint24[] memory weights = new uint24[](3);
-        strikeZones[0] = 0;
-        weights[0] = 6000;        
-        strikeZones[1] = 2;
-        weights[1] = 3000;
-        strikeZones[2] = 4;
-        weights[2] = 1000;
-        
-        doppiTrader.setMultipleOrderConfigs(strikeZones, weights);
-        
-        // Reset to default
-        doppiTrader.resetToDefaultConfig();
-        OrderConfig[] memory orderConfig = doppiTrader.getOrderConfigs();
-        assertEq(orderConfig.length, 5);
-        for (uint8 i = 0; i < 5; i++) {
-            assertEq(orderConfig[i].weight, 2000);
-        }
         vm.stopPrank();
     }
 
@@ -728,6 +800,200 @@ contract DoppiTraderTest is Test {
         assertEq(positions[2].amount, 0.05 ether); // 10%
 
         vm.stopPrank();
+    }
+
+    function test_placeOrders_maxRoundCap_example1() public {
+        
+        _seedPoolCapacity(10000 ether, 1 ether);
+        
+        // Balance 1000, minOrderA 50, maxOrderPerRoundA 500.
+        // Budget = 500; zone amounts: 25,50,100,125,200.
+        // 25 is skipped, other four are placed.
+        doppiCore.setMinOrder(50 ether, 0.001 ether);
+
+        vm.startPrank(trader);
+        _setExampleOrderConfig_5_10_20_25_40();
+        doppiTrader.setMaxOrderPerRound(500 ether, 0);
+        usdt.transfer(address(doppiTrader), 1000 ether);
+        doppiTrader.placeOrders();
+        vm.stopPrank();
+
+        DualAssetPosition[] memory buyPositions = doppiCore.get_positions_buy(address(doppiTrader));
+        assertEq(buyPositions.length, 4);
+
+        uint256 totalPlaced;
+        for (uint256 i = 0; i < buyPositions.length; ) {
+            totalPlaced += buyPositions[i].amount;
+            unchecked { ++i; }
+        }
+        assertEq(totalPlaced, 475 ether);
+    }
+
+    function test_placeOrders_maxRoundCap_example2() public {
+        
+        _seedPoolCapacity(10000 ether, 1 ether);
+        // Balance 50000, minOrderA 50, maxOrderPerRoundA 5000.
+        // Budget = 5000; all zones are >= min and should be placed.
+        doppiCore.setMinOrder(50 ether, 0.001 ether);
+
+        vm.startPrank(trader);
+        _setExampleOrderConfig_5_10_20_25_40();
+        doppiTrader.setMaxOrderPerRound(5000 ether, 0);
+        usdt.transfer(address(doppiTrader), 50_000 ether);
+        doppiTrader.placeOrders();
+        vm.stopPrank();
+
+        DualAssetPosition[] memory buyPositions = doppiCore.get_positions_buy(address(doppiTrader));
+        assertEq(buyPositions.length, 5);
+
+        uint256 totalPlaced;
+        for (uint256 i = 0; i < buyPositions.length; ) {
+            totalPlaced += buyPositions[i].amount;
+            unchecked { ++i; }
+        }
+        assertEq(totalPlaced, 5000 ether);
+    }
+
+    function test_placeOrders_maxRoundCap_example3_useAvailableWhenBalanceBelowCap() public {
+        
+        _seedPoolCapacity(10000 ether, 1 ether);
+        // Balance 500, minOrderA 50, maxOrderPerRoundA 5000.
+        // Budget uses available balance (500) when below cap.
+        doppiCore.setMinOrder(50 ether, 0.001 ether);
+
+        vm.startPrank(trader);
+        _setExampleOrderConfig_5_10_20_25_40();
+        doppiTrader.setMaxOrderPerRound(5000 ether, 0);
+        usdt.transfer(address(doppiTrader), 500 ether);
+        doppiTrader.placeOrders();
+        vm.stopPrank();
+
+        DualAssetPosition[] memory buyPositions = doppiCore.get_positions_buy(address(doppiTrader));
+        assertEq(buyPositions.length, 4);
+
+        uint256 totalPlaced;
+        for (uint256 i = 0; i < buyPositions.length; ) {
+            totalPlaced += buyPositions[i].amount;
+            unchecked { ++i; }
+        }
+        assertEq(totalPlaced, 475 ether);
+    }
+
+    function test_placeOrders_autoRoundBudget_fallbackFrom5To4() public {
+        // cap == 0 -> auto mode.
+        // available=1000, min=50, equal 5 zones:
+        // split 5 => budget 200 => 40/zone (invalid)
+        // split 4 => budget 250 => 50/zone (valid)
+        doppiCore.setMinOrder(50 ether, 0.001 ether);
+        _seedPoolCapacity(0, 1 ether);
+
+        vm.startPrank(trader);
+        doppiTrader.setMaxOrderPerRound(0, 0);
+        _setEqualOrderConfig5();
+        usdt.transfer(address(doppiTrader), 1000 ether);
+        doppiTrader.placeOrders();
+        vm.stopPrank();
+
+        DualAssetPosition[] memory buyPositions = doppiCore.get_positions_buy(address(doppiTrader));
+        assertEq(buyPositions.length, 5);
+
+        uint256 totalPlaced;
+        for (uint256 i = 0; i < buyPositions.length; ) {
+            assertEq(buyPositions[i].amount, 50 ether);
+            totalPlaced += buyPositions[i].amount;
+            unchecked { ++i; }
+        }
+        assertEq(totalPlaced, 250 ether);
+    }
+
+    function test_placeOrders_autoRoundBudget_fallbackFrom5To2() public {
+        // cap == 0 -> auto mode.
+        // available=1000, min=90, equal 5 zones:
+        // split 5 => 40/zone invalid, split 4 => 50 invalid, split 3 => 66 invalid,
+        // split 2 => 100 valid.
+        doppiCore.setMinOrder(90 ether, 0.001 ether);
+        _seedPoolCapacity(0, 1 ether);
+
+        vm.startPrank(trader);
+        doppiTrader.setMaxOrderPerRound(0, 0);
+        _setEqualOrderConfig5();
+        usdt.transfer(address(doppiTrader), 1000 ether);
+        doppiTrader.placeOrders();
+        vm.stopPrank();
+
+        DualAssetPosition[] memory buyPositions = doppiCore.get_positions_buy(address(doppiTrader));
+        assertEq(buyPositions.length, 5);
+
+        uint256 totalPlaced;
+        for (uint256 i = 0; i < buyPositions.length; ) {
+            assertEq(buyPositions[i].amount, 100 ether);
+            totalPlaced += buyPositions[i].amount;
+            unchecked { ++i; }
+        }
+        assertEq(totalPlaced, 500 ether);
+    }
+
+    function test_placeOrders_scenario1_zone3_zone4_50_50_with_205usdt() public {
+        vm.startPrank(trader);
+
+        uint8[] memory strikeZones = new uint8[](2);
+        uint24[] memory weights = new uint24[](2);
+        strikeZones[0] = 3;
+        weights[0] = 5000;
+        strikeZones[1] = 4;
+        weights[1] = 5000;
+        doppiTrader.setMultipleOrderConfigs(strikeZones, weights);
+
+        uint256 amountUSDT = 500 ether;
+        usdt.approve(address(doppiTrader), amountUSDT);
+        doppiTrader.start(amountUSDT, 0);
+
+        OrderConfig[] memory orderConfig = doppiTrader.getOrderConfigs();
+        console.log(orderConfig[0].weight, orderConfig[0].strikeZone);
+        console.log(orderConfig[1].weight, orderConfig[1].strikeZone);
+        // console.log(orderConfig[2].weight, orderConfig[2].strikeZone);
+        
+    //     assertEq(orderConfig[0].weight, 6000);
+    //     assertEq(orderConfig[0].strikeZone, 0);
+    //     assertEq(orderConfig[1].weight, 3000);
+    //     assertEq(orderConfig[1].strikeZone, 2);
+    //     assertEq(orderConfig[2].weight, 1000);
+    //     assertEq(orderConfig[2].strikeZone, 4);  
+        DualAssetPosition[] memory buyPositions = doppiCore.get_positions_buy(address(doppiTrader));
+        assertEq(buyPositions.length, 2);
+        console.log(buyPositions[0].strikePrice, buyPositions[1].strikePrice);
+        console.log(buyPositions[0].amount, buyPositions[1].amount);
+        // assertEq(buyPositions[0].strikePrice, 3);
+        // assertEq(buyPositions[1].strikePrice, 4);
+
+        // vm.warp(block.timestamp + 1 days + 1);
+        // oracle.setPrice(int256(98_500 * 1e8));
+        // (bool upkeepNeeded, bytes memory performData) = doppiCore.checkUpkeep("");
+        // assertTrue(upkeepNeeded);
+        // vm.stopPrank();
+
+        // vm.prank(mockForwarder);
+        // doppiCore.performUpkeep(performData);
+
+        // _updateIV();
+
+        // vm.prank(trader);
+        // doppiTrader.placeOrders();
+
+        // DualAssetPosition[] memory buyPositions = doppiCore.get_positions_buy(address(doppiTrader));
+        // assertEq(buyPositions.length, 2);
+        // assertEq(buyPositions[0].strikePrice, 3);
+        // assertEq(buyPositions[1].strikePrice, 4);
+
+        // uint256 expectedPerOrder = amountUSDT / 2;
+        // assertApproxEqAbs(buyPositions[0].amount, expectedPerOrder, 1);
+        // assertApproxEqAbs(buyPositions[1].amount, expectedPerOrder, 1);
+
+        // // Integer division may leave 1 wei USDT unallocated.
+        // assertLe(usdt.balanceOf(address(doppiTrader)), 1);
+
+        // DualAssetPosition[] memory sellPositions = doppiCore.get_positions_sell(address(doppiTrader));
+        // assertEq(sellPositions.length, 0);
     }
 
     function test_out_of_strikezone() public {
@@ -801,6 +1067,7 @@ contract DoppiTraderTest is Test {
         vm.startPrank(trader);
         usdt.approve(address(doppiTrader), 10_000_000 ether);
         btc.approve(address(doppiTrader), 100 ether);
+        doppiTrader.setMaxSwap(100000 ether);
 
         // Expect Deposited event
         vm.expectEmit(true, true, true, true);
@@ -867,6 +1134,39 @@ contract DoppiTraderTest is Test {
         
     }
 
+    function test_partialUnwindClearsOnlyExecutedAmount_singleStrike() public {
+        _start();
+
+        // createUnwindPosition occured due to the sell side BTC to USDT striked
+        // So, we expected doppiTrader to have 300 in the trader bot
+        vm.prank(trader);
+        usdt.transfer(address(doppiTrader), 300 ether);
+
+        uint256 strikePrice = 102_000 * 1e8;
+        uint256 initialUnwindSellAmountA = 300 ether;
+
+        vm.prank(address(doppiCore));
+        doppiTrader.createUnwindPosition(initialUnwindSellAmountA, strikePrice, false);
+
+        vm.prank(trader);
+        doppiTrader.setMaxSwap(100 ether);
+
+        // For sell-side unwind trigger: strike >= roundedPrice + 2*gap + unwindGap.
+        oracle.setPrice(int256(100_000 * 1e8));
+
+        (bool upkeepNeeded, bytes memory performData) = doppiTrader.checkUpkeep("");
+        assertTrue(upkeepNeeded);
+
+        vm.prank(mockForwarder);
+        doppiTrader.performUpkeep(performData);
+
+        uint256 remaining = doppiTrader.getUnwindInfo(false, strikePrice);
+        assertEq(remaining, 200 ether, "Remaining unwind amount should be initial - maxSwap");
+
+        (, uint256 undoAssetA) = doppiTrader.undoStat();
+        assertEq(undoAssetA, 200 ether, "undoStat should match remaining sell-side unwind amount");
+    }
+
     function test_doppicore_doppiRouter_emergencyWithdraw() public {
         
         uint256 start_usdtbal = usdt.balanceOf(trader);
@@ -928,7 +1228,8 @@ contract DoppiTraderTest is Test {
         vm.stopPrank();
 
         // Immediately after first deposit the unit price must be exactly 1e18
-        assertEq(doppiTrader.getUnitPrice(), 1e18);
+        (,, uint256 unitPrice,) = doppiTrader.getPerformanceMultipliers();
+        assertEq(unitPrice, 1e18);
 
         // Settle after 1 day — keep oracle price unchanged so LP BTC exposure is neutral;
         // unit price must rise purely from interest earned on DoppiCore positions.
@@ -943,7 +1244,8 @@ contract DoppiTraderTest is Test {
         usdt.mint(address(doppiLP), 100 ether);
 
         // Interest received increases totalValueInA without changing totalUnits
-        assertGt(doppiTrader.getUnitPrice(), 1e18);
+        (,, unitPrice,) = doppiTrader.getPerformanceMultipliers();
+        assertGt(unitPrice, 1e18);
     }
 
     function test_unitPrice_secondDepositDoesNotDilute() public {
@@ -966,7 +1268,7 @@ contract DoppiTraderTest is Test {
         // Set LP gain
         usdt.mint(address(doppiLP), 100 ether);
 
-        uint256 unitPriceBefore = doppiTrader.getUnitPrice();
+        (,, uint256 unitPriceBefore,) = doppiTrader.getPerformanceMultipliers();
         assertGt(unitPriceBefore, 1e18); // confirm portfolio has gains
 
         _updateIV();
@@ -976,7 +1278,8 @@ contract DoppiTraderTest is Test {
         doppiTrader.start(amountUSDT, 0);
 
         // Unit price must be preserved within 0.01% (integer rounding only)
-        assertApproxEqRel(doppiTrader.getUnitPrice(), unitPriceBefore, 1e14);
+        (,, uint256 unitPriceAfter,) = doppiTrader.getPerformanceMultipliers();
+        assertApproxEqRel(unitPriceAfter, unitPriceBefore, 1e14);
     }
 
     function test_stop_resetsUnitTracking() public {
@@ -1033,7 +1336,8 @@ contract DoppiTraderTest is Test {
         assertEq(doppiTrader.costBasis(), expectedUnits);
 
         // unit price should be exactly 1e18 (no gains/losses yet on first deposit)
-        assertEq(doppiTrader.getUnitPrice(), 1e18);
+        (,, uint256 unitPrice,) = doppiTrader.getPerformanceMultipliers();
+        assertEq(unitPrice, 1e18);
     }
 
     // internal
@@ -1043,6 +1347,7 @@ contract DoppiTraderTest is Test {
         vm.startPrank(trader);
         usdt.approve(address(doppiTrader), 10_000_000 ether);
         btc.approve(address(doppiTrader), 100 ether);
+        doppiTrader.setMaxSwap(200000 * 1e18);
         doppiTrader.start(amountUSDT, amountBTC);
         vm.stopPrank();
     }
@@ -1056,5 +1361,45 @@ contract DoppiTraderTest is Test {
         int256 b_sell = -0.02447200000000008 * 1e27;
         int256 c_sell = 1485.8762857142906 * 1e27;
         impliedVol.setRegression(86400, a_buy, b_buy, c_buy, a_sell, b_sell, c_sell);
+    }
+
+    function _setExampleOrderConfig_5_10_20_25_40() internal {
+        uint8[] memory strikeZones = new uint8[](5);
+        uint24[] memory weights = new uint24[](5);
+        strikeZones[0] = 0;
+        weights[0] = 500;
+        strikeZones[1] = 1;
+        weights[1] = 1000;
+        strikeZones[2] = 2;
+        weights[2] = 2000;
+        strikeZones[3] = 3;
+        weights[3] = 2500;
+        strikeZones[4] = 4;
+        weights[4] = 4000;
+        doppiTrader.setMultipleOrderConfigs(strikeZones, weights);
+    }
+
+    function _setEqualOrderConfig5() internal {
+        uint8[] memory strikeZones = new uint8[](5);
+        uint24[] memory weights = new uint24[](5);
+        for (uint8 i = 0; i < 5; ) {
+            strikeZones[i] = i;
+            weights[i] = 2000;
+            unchecked { ++i; }
+        }
+        doppiTrader.setMultipleOrderConfigs(strikeZones, weights);
+    }
+
+    function _seedPoolCapacity(uint256 amountA, uint256 amountB) internal {
+        vm.startPrank(owner);
+        if (amountA > 0) {
+            usdt.approve(address(doppiRouter), amountA);
+            doppiRouter.deposit(address(usdt), amountA);
+        }
+        if (amountB > 0) {
+            btc.approve(address(doppiRouter), amountB);
+            doppiRouter.deposit(address(btc), amountB);
+        }
+        vm.stopPrank();
     }
 }

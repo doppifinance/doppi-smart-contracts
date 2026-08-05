@@ -100,7 +100,7 @@ contract DoppiLiquidityETHTest is Test {
         doppiRouter = new DoppiLiquidityRouter(IERC20(USDT), IERC20(BTC), doppiLP);
         doppiRouter.setDoppiCore(address(doppiCore));
         doppiLP.setDoppiLiquidityRouter(address(doppiRouter));
-        doppiFactory = new DoppiTraderFactory(IERC20(USDT), IERC20(BTC), address(doppiCore), address(doppiLP), address(doppiRouter));
+        doppiFactory = new DoppiTraderFactory(IERC20(USDT), IERC20(BTC), address(doppiCore), address(doppiLP), address(doppiRouter), address(impliedVol), address(doppiPoints));
         doppiUpkeepManager = _deployDoppiUpkeepManager(address(doppiFactory));
         
         doppiToken = new DOPPI("Doppi Token", "DOPPI");
@@ -226,8 +226,10 @@ contract DoppiLiquidityETHTest is Test {
 
         (totalBalancesBotA, totalBalancesBotB, ) = traderBot.getTotalBalances();
         (totalBalancesInLPA, totalBalancesInLPB) = traderBot.getTotalBalancesInLP();
-        assertEq(totalBalancesBotA, 0, "totalBalancesBotA should be 0 after final withdraw");
-        assertEq(totalBalancesBotB, 0, "totalBalancesBotB should be 0 after final withdraw");
+        assertEq(usdt.balanceOf(address(traderBot)), 0, "bot wallet USDT should be 0 after partial withdraw");
+        assertEq(btc.balanceOf(address(traderBot)), 0, "bot wallet ETH should be 0 after partial withdraw");
+        assertEq(totalBalancesBotA, totalBalancesInLPA, "remaining total assetA should come only from LP");
+        assertEq(totalBalancesBotB, totalBalancesInLPB, "remaining total assetB should come only from LP");
         assertGt(totalBalancesInLPA, 0, "totalBalancesInLPA should be remaiining due to the unsettled orders");
         assertGt(totalBalancesInLPB, 0, "totalBalancesInLPB should be remaiining due to the unsettled orders");
         
@@ -243,7 +245,10 @@ contract DoppiLiquidityETHTest is Test {
         traderBot.stop();
         vm.stopPrank();
 
+        (totalBalancesBotA, totalBalancesBotB, ) = traderBot.getTotalBalances();
         (totalBalancesInLPA, totalBalancesInLPB) = traderBot.getTotalBalancesInLP();
+        assertEq(totalBalancesBotA, 0, "totalBalancesBotA should be 0 after final withdraw");
+        assertEq(totalBalancesBotB, 0, "totalBalancesBotB should be 0 after final withdraw");
         assertEq(totalBalancesInLPA, 0, "totalBalancesInLPA should be 0 after final withdraw");
         assertEq(totalBalancesInLPB, 0, "totalBalancesInLPB should be 0 after final withdraw");
 
@@ -321,6 +326,7 @@ contract DoppiLiquidityETHTest is Test {
         _doppiLP.setEntryPoint(address(_doppiRouter.entryPointA()), true);
         _doppiLP.setEntryPoint(address(_doppiRouter.entryPointB()), true);
         _doppiLP.setDoppiTraderFactory(_doppiFactory);
+        _doppiLP.lockEntryPoints();
     }
 
     function _deployDoppiCore(DoppiLiquidity _doppiLP, DoppiOffer _impliedVol, DoppiPoints _doppiPoints) internal returns (DoppiCore) {
@@ -341,7 +347,7 @@ contract DoppiLiquidityETHTest is Test {
 
     function _deployDoppiLiquidity() internal returns (DoppiLiquidity) {
         
-        DoppiLiquidity _doppiLP = new DoppiLiquidity("Doppi BTC-USDT LP", "BTCB-USDT", IERC20(USDT), IERC20(BTC));
+        DoppiLiquidity _doppiLP = new DoppiLiquidity("Doppi BTC-USDT LP", "BTCB-USDT", address(IERC20(USDT)), address(IERC20(BTC)));
         configLP = _getConfigLP();
         _doppiLP.setConfig(configLP); 
         _doppiLP.approveRouter();

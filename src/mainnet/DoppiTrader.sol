@@ -2,30 +2,18 @@
 pragma solidity ^0.8.26;
 import {Initializable} from "@openzeppelin/contracts/proxy/utils/Initializable.sol"; 
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
-import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {AutomationCompatibleInterface} from "../Interface/AutomationCompatibleInterface.sol";
-import {DALiquidityLib} from "../Library/DALiquidityLib.sol";
-import "./DoppiTraderTypes.sol";
 import "./DoppiTraderAdminView.sol";
 // import "forge-std/console.sol"; // removed: debug-only import, not for production
-import {IDoppiUpkeepManager, TopUpInfo} from "../Interface/IDoppiUpkeepManager.sol";
 
 contract DoppiTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCompatibleInterface, Initializable {
     using SafeERC20 for IERC20;
     
-    OrderConfig[] public orderConfigs;
-    UndoStat public undoStat;
-
     event BulkDeposited(address indexed trader, uint256 totalAmount, bool isBuy);
     event UnwindPerformed(address indexed trader, bool isBuy, uint256 amountIn, uint256 amountOut);
 
-    error ArrayMismatch();
-    error MaxLimit();
-    error MustHundred();
-    error ExceedMaxZone();
     error NotEmergency();
     error AmountNotSpecified();
-    error AmountMustGreaterThanUpkeep();
     error ActiveOrders();
     error OnlyForwarder();
     error OnlyDoppiCore();
@@ -42,8 +30,7 @@ contract DoppiTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCompati
         IERC20 _assetB,
         address _doppiLP,
         address _doppiRouter,
-        address _da,
-        address _doppiUpKeepManager,
+        address _doppiCore,
         uint24[] memory _weights
     ) external initializer {
         
@@ -52,13 +39,13 @@ contract DoppiTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCompati
         assetB = _assetB;
         doppiLP = IDoppiLiquidity(_doppiLP);
         doppiRouter = IDoppiLiquidityRouter(_doppiRouter);
-        doppiCore = IDoppiCore(_da);
+        doppiCore = IDoppiCore(_doppiCore);
         validTrader = _trader;
         _transferOwnership(msg.sender); 
 
         // Batch approvals
         address[] memory tokens = new address[](3);
-        tokens[0] = _da;
+        tokens[0] = _doppiCore;
         tokens[1] = _doppiRouter;
         tokens[2] = _doppiLP;
         for (uint256 i = 0; i < tokens.length; i++) {
@@ -67,12 +54,11 @@ contract DoppiTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCompati
         }
         // Initialize with default weights
         _initializeOrderConfigs(_weights);
-        doppiUpkeepManager = IDoppiUpkeepManager(_doppiUpKeepManager);
         impliedVol = doppiCore.doppiOffer();
         traderDefaultDay = 1;
         maxOrder = 5;
         ratioLP = 5000;
-        maxSwap = 200000 ether;
+        maxSwap = 30000 ether;
         unwindGapMultiplier = 1;
         priceDecimals = 10 ** doppiLP.getPriceDecimals();
     }
@@ -82,40 +68,20 @@ contract DoppiTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCompati
         _onlyTrader();
         if(_amountA == 0 && _amountB == 0) revert AmountNotSpecified();
 
-        uint256 forUpkeep;
-        bool shouldInsertNewBot = doppiUpkeepManager.shouldInsertNew(address(this));
-        if(shouldInsertNewBot) {
-            forUpkeep = doppiUpkeepManager.getDefault_Amount();
-            if(_amountA <= forUpkeep) revert AmountMustGreaterThanUpkeep();
-            _amountA = _amountA - forUpkeep;
-        }
-
-        // Unit price tracking: snapshot value BEFORE deposit, then issue proportional units.
         uint256 price = doppiLP.getPrice();
-        uint256 depositValueInA = _amountA;
-        if (_amountB > 0 && price > 0) {
-            depositValueInA += _amountB * price / priceDecimals;
-        }
-        if (depositValueInA > 0) {
-            if (totalUnits == 0) {
-                totalUnits = depositValueInA;
-            } else {
-                uint256 currentValueInA = _getTotalValueInA(price);
-                if (currentValueInA > 0) {
-                    totalUnits += depositValueInA * totalUnits / currentValueInA;
-                }
-            }
-            costBasis += depositValueInA;
-        }
+        if(price == 0) revert InvalidPrice();
 
-        _processDeposit(_amountA, _amountB);
+        (uint256 currentBalanceA, uint256 currentBalanceB, ) = getTotalBalances();
+        
+        if (_amountA > 0) assetA.safeTransferFrom(msg.sender, address(this), _amountA);
+        if (_amountB > 0) assetB.safeTransferFrom(msg.sender, address(this), _amountB);
+
+        (uint256 finalAmountA, uint256 finalAmountB) = _performTopUp(_amountA, _amountB);
+
+        _updateUnitAndCostBasis(finalAmountA, finalAmountB, currentBalanceA, currentBalanceB, price);
+
+        _processDeposit(finalAmountA, finalAmountB);
         _placeBulk();
-        
-        if(shouldInsertNewBot && forUpkeep > 0){
-            assetA.safeTransferFrom(msg.sender, address(doppiUpkeepManager), forUpkeep);
-            doppiUpkeepManager.insertNewBot(msg.sender, address(this));
-        }
-        
     }
 
     function placeOrders() external nonReentrant {
@@ -147,6 +113,8 @@ contract DoppiTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCompati
         undoStat.undo_assetA = 0;
         totalUnits = 0;
         costBasis = 0;
+        totalUnitsB = 0;
+        costBasisB = 0;
         _removeMapping();
     }
 
@@ -158,7 +126,7 @@ contract DoppiTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCompati
         uint256 sellPosCount = doppiCore.getSellPositionCount(address(this));
         if (buyPosCount > 0 || sellPosCount > 0) revert ActiveOrders();
 
-        IERC20(doppiLP).safeIncreaseAllowance(address(doppiRouter), doppiLP.balanceOf(address(this)));
+        IERC20(address(doppiLP)).safeIncreaseAllowance(address(doppiRouter), IERC20(address(doppiLP)).balanceOf(address(this)));
         doppiRouter.emergencyWithdraw();
 
         assetA.safeTransfer(msg.sender, assetA.balanceOf(address(this)));
@@ -168,47 +136,13 @@ contract DoppiTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCompati
         undoStat.undo_assetA = 0;
         totalUnits = 0;
         costBasis = 0;
+        totalUnitsB = 0;
+        costBasisB = 0;
         _removeMapping();
     }
 
-    function setMultipleOrderConfigs(
-        uint8[] calldata strikeZones, 
-        uint24[] calldata weights
-    ) external {
-        _onlyTrader();
-        if(strikeZones.length != weights.length) revert ArrayMismatch();
-        if(strikeZones.length > maxOrder 
-            && weights.length > maxOrder
-        ) revert MaxLimit();
-        
-        uint24 sum = DALiquidityLib.sumArray(weights);
-        if(sum != 10000) revert MustHundred();
-        
-        delete orderConfigs;
-        for (uint256 i = 0; i < weights.length; i++) {
-            if(strikeZones[i] > maxOrder) revert ExceedMaxZone();
-            orderConfigs.push(OrderConfig(strikeZones[i], weights[i]));
-        }
-    }
-
-    function getOrderConfigs() external view returns (OrderConfig[] memory) {
-        return orderConfigs;
-    }
-
-    function resetToDefaultConfig() external {
-        _onlyTrader();
-        delete orderConfigs;
-        uint24[] memory defaultWeights = new uint24[](maxOrder);
-        uint24 equalWeight = uint24(10000 / maxOrder);
-        uint24 total = 0;
-        
-        for (uint8 i = 0; i < maxOrder - 1; i++) {
-            defaultWeights[i] = equalWeight;
-            total += equalWeight;
-        }
-        defaultWeights[maxOrder - 1] = 10000 - total;
-        _initializeOrderConfigs(defaultWeights);
-    }
+    
+    
 
     function createUnwindPosition(uint256 _payout, uint256 _strikePrice, bool _isBuyUndo) external nonReentrant {
         
@@ -235,10 +169,9 @@ contract DoppiTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCompati
         uint256[] memory targetPricesSell;
         uint256 totalBuyAmountInB;
         uint256 totalSellAmountInA;
-        bool toTopUp;
         
         (bool toBuy, bool toSell) = _shouldPlaceOrders(price);
-        if(toBuy || toSell) return (true, abi.encode(false, false, targetPricesBuy, targetPricesSell, 0, 0, 0, toBuy, toSell, false));
+        if(toBuy || toSell) return (true, abi.encode(false, toBuy, toSell));
 
         (targetPricesBuy, totalBuyAmountInB) =_checkUndoTrade(true, price);
         (targetPricesSell, totalSellAmountInA) =_checkUndoTrade(false, price);
@@ -246,12 +179,8 @@ contract DoppiTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCompati
         if (totalBuyAmountInB > 0 || totalSellAmountInA > 0) {
             (bool isNetBuy, uint256 netAmount) = _netoutBuySell(totalSellAmountInA, totalBuyAmountInB, price);
             if(netAmount > 0){
-                return (true, abi.encode(true, isNetBuy, targetPricesBuy, targetPricesSell, netAmount, totalSellAmountInA, totalBuyAmountInB, false, false, false));
+                return (true, abi.encode(true, false, false));
             }
-        }
-        (toTopUp) = _shouldTopupUpkeep();
-        if(toTopUp) {
-            return (true, abi.encode(false, false, targetPricesBuy, targetPricesSell, 0, 0, 0, false, false, true));
         }
         return (false, bytes(""));
     }
@@ -259,24 +188,31 @@ contract DoppiTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCompati
     function performUpkeep(bytes calldata performData) external override nonReentrant {
         
         _onlyForwarder();
-        (bool performUnwind, bool isNetBuy, uint256[] memory targetPricesBuy, uint256[] memory targetPricesSell, uint256 totalAmount, uint256 totalSellAmountInA, uint256 totalBuyAmountInB, bool placeBuy, bool placeSell, bool toTopUp) = 
-            abi.decode(performData, (bool, bool, uint256[], uint256[], uint256, uint256, uint256, bool, bool, bool));
+        (bool performUnwind, bool placeBuy, bool placeSell) = 
+            abi.decode(performData, (bool, bool, bool));
 
         uint256 currentPrice = doppiLP.getPrice();
+        if (currentPrice == 0) return;
+
         if (placeBuy || placeSell) {
-            _handleOrderPlacement(placeBuy, placeSell);
+            (bool toBuy, bool toSell) = _shouldPlaceOrders(currentPrice);
+            _handleOrderPlacement(toBuy, toSell);
             return;
         }
 
         if (performUnwind) {
-            uint256 amountOut = doppiLP.swap(totalAmount, currentPrice, isNetBuy);
-            _clearUnwindMap(targetPricesBuy, true, totalBuyAmountInB);
-            _clearUnwindMap(targetPricesSell, false, totalSellAmountInA);  
-            emit UnwindPerformed(address(this), isNetBuy, totalAmount, amountOut);
-        }
-        if(toTopUp) {
-            _processTopUp();
-            return;
+
+            (uint256[] memory targetPricesBuy, uint256 totalBuyAmountInB) =_checkUndoTrade(true, currentPrice);
+            (uint256[] memory targetPricesSell, uint256 totalSellAmountInA) =_checkUndoTrade(false, currentPrice);
+            if (totalBuyAmountInB > 0 || totalSellAmountInA > 0) {
+                (bool isNetBuy, uint256 netAmount) = _netoutBuySell(totalSellAmountInA, totalBuyAmountInB, currentPrice);
+                if(netAmount > 0){
+                    uint256 amountOut = doppiLP.swap(netAmount, currentPrice, isNetBuy);
+                    _clearUnwindMap(targetPricesBuy, true, totalBuyAmountInB);
+                    _clearUnwindMap(targetPricesSell, false, totalSellAmountInA);  
+                    emit UnwindPerformed(address(this), isNetBuy, netAmount, amountOut);
+                }
+            }
         }
     }
 
@@ -293,9 +229,11 @@ contract DoppiTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCompati
                 delete unWindMap[prices[index]];
                 reduced -= unwind;
             }else{
-                unWindMap[prices[index]] = reduced;
+                unWindMap[prices[index]] = unwind - reduced;
+                reduced = 0;
             }
             _syncStrikeState(prices[index], isBuy);
+            if (reduced == 0) break;
             unchecked { --i; }
         }
         if (isBuy) {
@@ -315,23 +253,6 @@ contract DoppiTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCompati
         }
     }
 
-    function _shouldTopupUpkeep() internal view returns (bool topUp) {
-        uint256 upkeepId = doppiUpkeepManager.getUpkeepIdByBot(address(this));
-        if(upkeepId == 0) {
-            return false;
-        }
-        (, topUp) = doppiUpkeepManager.shouldTopUpkeep(upkeepId);
-    }
-
-    function _processTopUp() internal {
-        uint256 upkeepId = doppiUpkeepManager.getUpkeepIdByBot(address(this));
-        (TopUpInfo memory topUpInfo, ) = doppiUpkeepManager.shouldTopUpkeep(upkeepId);
-        assetA.safeTransferFrom(validTrader, address(this), topUpInfo.totalInfundToken);
-        assetA.safeTransfer(address(doppiUpkeepManager), topUpInfo.totalInfundToken);
-        doppiUpkeepManager.performTopUpkeep(upkeepId);
-    }
-
-
     function _shouldPlaceOrders(uint256 price) internal view returns (bool toBuy, bool toSell) {
         if(doppiCore.paused()) return (false, false); 
         
@@ -349,12 +270,25 @@ contract DoppiTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCompati
 
         bool hasValidBuyOrder = false;
         bool hasValidSellOrder = false;
-        
+        uint256 configLength = orderConfigs.length;
+
         if (buyPosCount == 0 && availableA > 0 && offerBuy.apr > 0) {
-            hasValidBuyOrder = _hasValidOrderConfig(true, availableA);
+
+            (, , uint256 availableCapacity) = doppiLP.getPoolCapacityInfo(true);
+            uint256 budgetRound = _getRoundBudget(true, availableA, doppiCore.minOrderA(), configLength);
+            if(budgetRound > availableCapacity) {
+                budgetRound = availableCapacity;
+            }
+            hasValidBuyOrder = _hasValidOrderConfig(true, budgetRound);
         }
         if (sellPosCount == 0 && availableB > 0 && offerSell.apr > 0) {
-            hasValidSellOrder = _hasValidOrderConfig(false, availableB);
+            
+            (, , uint256 availableCapacity) = doppiLP.getPoolCapacityInfo(false);
+            uint256 budgetRound = _getRoundBudget(false, availableB, doppiCore.minOrderB(), configLength);
+            if(budgetRound > availableCapacity) {
+                budgetRound = availableCapacity;
+            }
+            hasValidSellOrder = _hasValidOrderConfig(false, budgetRound);
         }
         return (hasValidBuyOrder, hasValidSellOrder);
     }
@@ -394,7 +328,6 @@ contract DoppiTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCompati
     }
 
     function _transferAndDeposit(IERC20 token, uint256 amount) internal {
-        token.safeTransferFrom(msg.sender, address(this), amount);
         uint256 toLP = amount * ratioLP / 10000;
         _deposit(address(token), toLP);
     }
@@ -410,10 +343,18 @@ contract DoppiTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCompati
         uint256 length = orderConfigs.length;
         if (length == 0) return (params, 0);
 
-        availableAsset = _availableBalance(isBuy);
-        if (availableAsset == 0) return (params, 0);
+        uint256 availableBalance = _availableBalance(isBuy);
+        if (availableBalance == 0) return (params, 0);
 
         uint256 min = isBuy ? doppiCore.minOrderA() : doppiCore.minOrderB();
+        availableAsset = _getRoundBudget(isBuy, availableBalance, min, length);
+        if (availableAsset == 0) return (params, 0);
+        
+        (, , uint256 availableCapacity) = doppiLP.getPoolCapacityInfo(isBuy);
+        if(availableAsset > availableCapacity) {
+            availableAsset = availableCapacity;
+        }
+        
         uint256 validCount = 0;
 
         for (uint256 i = 0; i < length; ) {
@@ -431,14 +372,20 @@ contract DoppiTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCompati
 
         // Populate array
         uint256 count = 0;
-        for (uint256 i = 0; i < validCount; ) {
+        for (uint256 i = 0; i < length; ) {
             uint256 depositAmount = (availableAsset * orderConfigs[i].weight) / 10000;
-            params[count] = _prepareOrder(depositAmount, orderConfigs[i]);
-            unchecked { ++count; }
+            if (depositAmount >= min) {
+                params[count] = _prepareOrder(depositAmount, orderConfigs[i]);
+                unchecked { ++count; }
+            }
             unchecked { ++i; }
         }
 
         return (params, availableAsset);
+    }
+
+    function _getOrderWeight(uint256 index) internal view override returns (uint256) {
+        return orderConfigs[index].weight;
     }
 
     function _prepareOrder(uint256 depositAmount, OrderConfig memory _orderConfig) internal view returns (BulkDepositParam memory param) {
@@ -545,33 +492,8 @@ contract DoppiTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCompati
     }
 
     function _withdrawFromLP(uint256 _shares) internal {
-        IERC20(doppiLP).safeIncreaseAllowance(address(doppiRouter), _shares);
+        IERC20(address(doppiLP)).safeIncreaseAllowance(address(doppiRouter), _shares);
         doppiRouter.redeem(_shares);
-    }
-
-    function _initializeOrderConfigs(uint24[] memory _weights) internal {
-        uint256 length = _weights.length;
-        for (uint8 i = 0; i < length; ) {
-            orderConfigs.push(OrderConfig(i, _weights[i]));
-            unchecked { ++i; }
-        }
-    }
-
-    function _availableBalance(bool _isBuy) private view returns (uint256 availableAmount) {
-        uint256 balance;
-        uint256 undoAmount; 
-        
-        if (_isBuy) {
-            balance = assetA.balanceOf(address(this));
-            undoAmount = undoStat.undo_assetA;
-        } else {
-            balance = assetB.balanceOf(address(this));
-            undoAmount = undoStat.undo_assetB;
-        }        
-        if (balance <= undoAmount) {
-            return 0;
-        }
-        availableAmount = balance - undoAmount;
     }
     
     function _onlyDoppiCore() internal view {
@@ -580,5 +502,9 @@ contract DoppiTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCompati
 
     function _onlyForwarder() internal view {
         if (msg.sender != s_forwarderAddress) revert OnlyForwarder();
+    }
+
+    function _getFeePool() internal view override returns (address) {
+        return address(0);
     }
 }

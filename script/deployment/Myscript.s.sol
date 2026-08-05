@@ -10,6 +10,7 @@ import "../../src/mainnet/DoppiUpkeepManager.sol";
 import "../../src/mainnet/DoppiTrader.sol";
 import "../../src/mainnet/DoppiPoints.sol";
 import "../../src/mainnet/DoppiReferral.sol";
+import {IDoppiOpportunity} from "../../src/Interface/IDoppiOpportunity.sol";
 import {MockOracle} from "../../src/test/MockOracle.sol";
 import {DoppiTraderFactory} from "../../src/mainnet/DoppiTraderFactory.sol";
 import {TestParamLib} from "../../src/Library/TestParamLib.sol";
@@ -26,36 +27,39 @@ contract MyScript is Script {
     address DOPPI_CORE = address(0xa2d49d1c8b89Cd0b11AeA445887661CDcF9e9611);
     address DOPPI_CORE_ETH = address(0x8532f74529F4295f882f73Cd3D3cCfBcD6900e08);
     address DOPPI_OPPO = address(0x66C4e3c5A73d0fF469462a7fE7D740DF972CbB6D);
+    address DOPPI_OPPO_ETH = address(0xF2Abe0Bed649D5925E10C16B67F6C0622F2C1eaA);
     address DOPPI_UPKEEP = address(0x72F662ebf6d2E4c89BDD6f5Ca2EfAaBebf6A715a);
     address DOPPI_REF = address(0xAA9CBB0221638720F3b73C50DFC08Ed1E6e878b3);
     address DOPPI_POINTS = address(0x656AC29F67fd8FA3f273f4594E9B07ee53eC8D5D);
+    address OWNER = address(0xDF138a6BE1cF2c397bF2359b7C355087fECFb79d);
     
+
     function run() external {
         
-        uint256 deployerPrivateKey = vm.envUint("PRIVATE_KEY");
+        uint256 deployerPrivateKey = vm.envUint("PRIVATE_KEY_MAINNET");
         
         // Start broadcasting transactions
         vm.startBroadcast(deployerPrivateKey);
         
 
-        AggregatorV3Interface chainLinkFeed = AggregatorV3Interface(address(0xca236E327F629f9Fc2c30A4E95775EbF0B89fac8));
-        uint256 price = DALiquidityLib.getPrice(chainLinkFeed, 10 minutes);
-        console.log("Price from DALiquidityLib:", block.timestamp, price);
+        // AggregatorV3Interface chainLinkFeed = AggregatorV3Interface(address(0x9ef1B8c0E4F7dc8bF5719Ea496883DC6401d5b2e));
+        // uint256 price = DALiquidityLib.getPrice(chainLinkFeed, 1 minutes);
+        // console.log("Price from DALiquidityLib:", block.timestamp, price);
 
         // _getDoppiPoints();
-        address bot = address(0x1E389F00c11D6B6721D8F703e2D9eCb38F54BB95);
+        // address bot = address(0x1E389F00c11D6B6721D8F703e2D9eCb38F54BB95);
         // _traderBotInfo(bot);
         // _getDoppiTraderUnwindData(bot);
         // console.log("-----", block.timestamp, block.number);
 
-        _getUpkeepData(bot);
+        // _getUpkeepData(bot);
         // _getBuffer(DOPPI_OFFER, DOPPI_LP);
-        // _getBuffer(DOPPI_OFFER_ETH, DOPPI_LP_ETH);
+        _getBuffer(DOPPI_OFFER_ETH, DOPPI_LP_ETH);
         // _getTotalOrders(DOPPI_CORE);
-        // _getTotalOrders(DOPPI_CORE_ETH);
+        _getTotalOrders(DOPPI_CORE_ETH);
 
         // _manipulateRealChainlink(int256(79_400 * 1e8)); 
-        // _getOpportunityData();
+        _getOpportunityDataETH();
 
         // _updateMaxOfferDoppiOffers(DOPPI_OFFER);
         // _updateMaxOfferDoppiOffers(DOPPI_OFFER_ETH);
@@ -88,7 +92,7 @@ contract MyScript is Script {
         (uint256 totalClaimedPointBot2, uint256 readyPointBot2, uint256 currentMonthPointBot2) = doppiPoints.getAllPointData(bot2);
         (uint256 totalClaimedPointBot3, uint256 readyPointBot3, uint256 currentMonthPointBot3) = doppiPoints.getAllPointData(bot3);
 
-        uint256 totalVolume = doppiPoints.totalVolume();
+        uint256 totalVolume = doppiPoints.totalPoints();
             
         console.log("Total Claimed Point:", totalClaimedPoint);
         console.log("Ready Point:", readyPoint); 
@@ -196,11 +200,13 @@ contract MyScript is Script {
         uint64 length = doppiCore.getPositionLength(1);
         uint64 nextId = doppiCore.nextProcessId(1);
         uint64 end = nextId + length;
-        
+        console.log("length:", length);
+
         if(length == 0){
             console.log("No unsettled orders");
             return;
         }
+        uint256 totalOrders = 0;
         for (uint64 i = nextId; i < end; ) {
             bool isBuy = true;
             (uint256 amount, , uint256 strikePrice, uint32 expiryTimestamp, , address owner, ,) = doppiCore.positions_buy(1, i);
@@ -208,20 +214,25 @@ contract MyScript is Script {
                 isBuy = false;
                 (amount, , strikePrice, expiryTimestamp, , owner, , ) = doppiCore.positions_sell(1, i);
             }
-            console.log(isBuy, amount, strikePrice, owner);
+            console.log(i, amount, strikePrice, owner);
+            totalOrders++;
             unchecked { ++i; }
         }
-        uint256 totalOrders = length - nextId + 1;
         console.log("Total Unsettled Orders", totalOrders);
     }
     
-    function _getOpportunityData() internal {
+    function _getOpportunityDataETH() internal {
 
-        DoppiOpportunity doppiOpportunity = DoppiOpportunity(DOPPI_OPPO);
-        DoppiCore doppiCore = DoppiCore(DOPPI_CORE);
-        (uint256 lowerBound, uint256 upperBound) = doppiCore.getLowerUpperBound();
+        DoppiOpportunity doppiOpportunity = DoppiOpportunity(DOPPI_OPPO_ETH);
+        DoppiCore doppiCore = DoppiCore(DOPPI_CORE_ETH);
+        IDoppiOpportunity opportunityStore = doppiCore.doppiOpportunity();
+        (uint256 lowerBound, uint256 upperBound) = opportunityStore.getLowerUpperBound();
         console.log(lowerBound, upperBound, "lowerBound, upperBound");
         
+        if(doppiOpportunity.s_forwarderAddress() != OWNER){
+            doppiOpportunity.setForwarderAddress(OWNER);
+        }
+
         if(upperBound == 0){
             console.log("No orders in the book");
             return;
@@ -230,14 +241,20 @@ contract MyScript is Script {
         for (uint256 price = upperBound; price >= lowerBound; ) {
             // console.log(price, "price");
             bool isBuy = true;
-            (uint256 amount, uint256 swappedAmount, uint256 outAmount) = doppiCore.opportunityBuy(price);
-            console.log("Buy", price, swappedAmount, outAmount);
-            (amount, swappedAmount, outAmount) = doppiCore.opportunitySell(price);
-            console.log("Sell", price, swappedAmount, outAmount);
-            price -= (500 * 1e8); 
+            OpportunityOrders memory order = doppiCore.getOpportunityOrders(true, price);
+            uint256 amount = order.amount;
+            uint256 swappedAmount = order.swappedAmount;
+            uint256 outAmount = order.outAmount;
+            console.log(price, amount, swappedAmount, outAmount);
+            // order = doppiCore.getOpportunityOrders(false, price);
+            // amount = order.amount;
+            // swappedAmount = order.swappedAmount;
+            // outAmount = order.outAmount;
+            // console.log("Sell", price, amount, swappedAmount, outAmount);
+            price -= (25 * 1e8); 
         }
 
-        DoppiLiquidity doppiLP = DoppiLiquidity(DOPPI_LP);
+        DoppiLiquidity doppiLP = DoppiLiquidity(DOPPI_LP_ETH);
         uint256 price = doppiLP.getPrice();
         console.log(price, "Current price");
 
@@ -246,11 +263,28 @@ contract MyScript is Script {
         if (upkeepNeeded) {
             console.log("Performing upkeep for opportunity");
             // // Perform the upkeep
-            // doppiOpportunity.performUpkeep(performData);
+            doppiOpportunity.performUpkeep(performData);
             console.log("Upkeep performed successfully");
         } else {
             console.log("No upkeep needed at this time");
         }
+
+        for (uint256 price = upperBound; price >= lowerBound; ) {
+            // console.log(price, "price");
+            bool isBuy = true;
+            OpportunityOrders memory order = doppiCore.getOpportunityOrders(true, price);
+            uint256 amount = order.amount;
+            uint256 swappedAmount = order.swappedAmount;
+            uint256 outAmount = order.outAmount;
+            console.log(price, amount, swappedAmount, outAmount);
+            // order = doppiCore.getOpportunityOrders(false, price);
+            // amount = order.amount;
+            // swappedAmount = order.swappedAmount;
+            // outAmount = order.outAmount;
+            // console.log("Sell", price, amount, swappedAmount, outAmount);
+            price -= (25 * 1e8); 
+        }
+
 
         
     }

@@ -45,6 +45,7 @@ contract RedeployDoppiTrader is Script {
         
         // Update factory with new implementation and upkeep manager
         doppiFactory.updateImplementation(traderBotImplementation);
+        // Note: setDoppiUpKeepManager is deprecated for shared bots (shared bots no longer use doppiUpkeepManager)
         doppiFactory.setDoppiUpKeepManager(address(doppiUpkeepManager));
         console.log("Factory BTCB-USDT updated with new implementation and upkeep manager");
         
@@ -62,6 +63,7 @@ contract RedeployDoppiTrader is Script {
         
         // Update factory with new implementation and upkeep manager
         doppiFactoryETH.updateImplementation(traderBotImplementationETH);
+        // Note: setDoppiUpKeepManager is deprecated for shared bots (shared bots no longer use doppiUpkeepManager)
         doppiFactoryETH.setDoppiUpKeepManager(address(doppiUpkeepManagerETH));
         console.log("Factory ETH-USDT updated with new implementation and upkeep manager");
 

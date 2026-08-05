@@ -69,7 +69,7 @@ contract BasicFlowTest is Test {
         doppiCore = new DoppiCore(address(usdt), address(btc), doppiLP, impliedVol, address(doppiPoints));
         opportunityBot = new DoppiOpportunity(address(doppiCore), address(doppiLP));
         doppiRouter = new DoppiLiquidityRouter(IERC20(usdt), IERC20(btc), doppiLP);
-        doppiFactory = new DoppiTraderFactory(IERC20(usdt), IERC20(btc), address(doppiCore), address(doppiLP), address(doppiRouter));
+        doppiFactory = new DoppiTraderFactory(IERC20(usdt), IERC20(btc), address(doppiCore), address(doppiLP), address(doppiRouter), address(impliedVol), address(doppiPoints));
 
         doppiPoints.setDoppiCore(address(doppiCore), true);
         opportunityBot.setForwarderAddress(mockForwarder);
@@ -181,7 +181,7 @@ contract BasicFlowTest is Test {
 
     function _setupLP(address _assetA, address _assetB) internal returns (DoppiLiquidity _doppiLP) {
         _doppiLP =
-            new DoppiLiquidity("Dual Asset Liquidity Pool", "DALP", IERC20(_assetA), IERC20(_assetB));
+            new DoppiLiquidity("Dual Asset Liquidity Pool", "DALP", address(IERC20(_assetA)), address(IERC20(_assetB)));
         _doppiLP.setConfig(configLP);
         _doppiLP.approveRouter();
     }

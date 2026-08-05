@@ -2,9 +2,6 @@
 pragma solidity ^0.8.26;
 
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
-import {IERC20, ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
-import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
-import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {ISwapRouter} from "../Interface/ISwapRouter.sol";
 import {IDoppiLiquidity} from "../Interface/IDoppiLiquidity.sol";
 import {IDoppiCore} from "../Interface/IDoppiCore.sol";
@@ -15,10 +12,14 @@ import {AutomationCompatibleInterface} from "../Interface/AutomationCompatibleIn
 import {Pausable} from "@openzeppelin/contracts/utils/Pausable.sol";
 import {AggregatorV3Interface} from "../Interface/AggregatorV3Interface.sol";
 import "./DoppiLiquidityTypes.sol";
+import {ERC20 as SoladyERC20} from "solady/tokens/ERC20.sol";
+import {Ownable as SoladyOwnable} from "solady/auth/Ownable.sol";
+import {Initializable as SoladyInitializable} from "solady/utils/Initializable.sol";
+import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 // import "forge-std/console.sol";
 
-contract DoppiLiquidity is ERC20, Ownable, Pausable, IDoppiLiquidity, AutomationCompatibleInterface, ReentrancyGuard {
-    using SafeERC20 for IERC20;
+contract DoppiLiquidity is SoladyERC20, SoladyOwnable, Pausable, IDoppiLiquidity, AutomationCompatibleInterface, ReentrancyGuard, SoladyInitializable {
+    using SafeTransferLib for address;
     using Math for uint256;
 
     struct StrikeNode {
@@ -29,13 +30,19 @@ contract DoppiLiquidity is ERC20, Ownable, Pausable, IDoppiLiquidity, Automation
 
     Config public config;
     uint16 public constant BASIS_POINTS = 10000;
-    IERC20 public immutable assetA;
-    IERC20 public immutable assetB;
+    address public assetA;
+    address public assetB;
     address public doppiCore;
-    address public doppiTraderFactory;
+    
+    mapping(address => bool) public allowedTraderFactories;
+    mapping(address => bool) private traderFactoryListed;
+    address[] private traderFactoryList;
     address public doppiLiquidityRouter;
     mapping(address => bool) public validEntryPoints;
+    bool public entryPointsLocked;
     address public s_forwarderAddress;
+    string private _tokenName;
+    string private _tokenSymbol;
     mapping(uint256 => uint256) public amountToBuy;
     mapping(uint256 => uint256) public amountToSell;
     mapping(uint256 => StrikeNode) internal buyStrikeNodes;
@@ -51,9 +58,17 @@ contract DoppiLiquidity is ERC20, Ownable, Pausable, IDoppiLiquidity, Automation
 
     event Swapped(address indexed trader, address assetIn, address assetOut, uint256 amountIn, uint256 amountOut, uint256 price);
     event UnwindPerformed(bool isNetBuy, uint256 totalAmount, uint256 totalAmountOut);
-    
+    event EntryPointSet(address indexed entryPoint, bool isValid);
+    event EntryPointsLocked();
+    event TraderFactoryAllowed(address indexed traderFactory, bool allowed);
+
     modifier onlyDoppiCore() {
-        require(msg.sender == doppiCore || IDoppiTraderFactory(doppiTraderFactory).isTraderBot(msg.sender), "only doppicore or trader bot");
+        require(msg.sender == doppiCore, "only doppicore");
+        _;
+    }
+
+    modifier onlySwapCaller() {
+        require(msg.sender == doppiCore || _isTraderBotCaller(msg.sender), "only doppicore or trader bot");
         _;
     }
 
@@ -62,12 +77,41 @@ contract DoppiLiquidity is ERC20, Ownable, Pausable, IDoppiLiquidity, Automation
         _;
     }
 
-    constructor(string memory _name, string memory _symbol, IERC20 _assetA, IERC20 _assetB)
-        ERC20(_name, _symbol)
-        Ownable(msg.sender)
-    {
+    constructor(string memory _name, string memory _symbol, address _assetA, address _assetB) {
+        _initializeLiquidity(_name, _symbol, _assetA, _assetB, msg.sender);
+        _disableInitializers();
+    }
+
+    function initialize(
+        string memory _name,
+        string memory _symbol,
+        address _assetA,
+        address _assetB,
+        address initialOwner
+    ) external initializer {
+        _initializeLiquidity(_name, _symbol, _assetA, _assetB, initialOwner);
+    }
+
+    function _initializeLiquidity(
+        string memory _name,
+        string memory _symbol,
+        address _assetA,
+        address _assetB,
+        address initialOwner
+    ) internal {
+        _tokenName = _name;
+        _tokenSymbol = _symbol;
         assetA = _assetA;
         assetB = _assetB;
+        _initializeOwner(initialOwner);
+    }
+
+    function name() public view override returns (string memory) {
+        return _tokenName;
+    }
+
+    function symbol() public view override returns (string memory) {
+        return _tokenSymbol;
     }
 
     function interestGet(
@@ -76,11 +120,10 @@ contract DoppiLiquidity is ERC20, Ownable, Pausable, IDoppiLiquidity, Automation
         uint256 price,
         bool isBuy
     ) external nonReentrant onlyDoppiCore {
-        
-        IERC20 interestToken = IERC20(_interestToken);
-        uint256 interestbal = interestToken.balanceOf(address(this));
+
+        uint256 interestbal = _interestToken.balanceOf(address(this));
         if(interestbal > interest){
-            interestToken.safeTransfer(msg.sender, interest);
+            _interestToken.safeTransfer(msg.sender, interest);
         }else{
             // swap interest in dex 
             uint256 diff = interest - interestbal;
@@ -89,23 +132,23 @@ contract DoppiLiquidity is ERC20, Ownable, Pausable, IDoppiLiquidity, Automation
                 ? (diff * config.decimals) / price
                 : (diff * price) / config.decimals;
 
-            _swapExactOutputV3(diff, assetIn, address(interestToken), address(this), amountInInterest); 
-            uint256 balInt = interestToken.balanceOf(address(this));
+            _swapExactOutputV3(diff, assetIn, _interestToken, address(this), amountInInterest); 
+            uint256 balInt = _interestToken.balanceOf(address(this));
             uint256 interestTosend = balInt > interest ? interest : balInt;
-            interestToken.safeTransfer(msg.sender, interestTosend);
+            _interestToken.safeTransfer(msg.sender, interestTosend);
         }   
     }
 
     function settle(uint256 _amountIn, uint256 _payout, uint256 _price, bool _isBuy) external nonReentrant onlyDoppiCore returns (uint256) {
-        IERC20 assetIn = _isBuy ? assetA : assetB;
-        IERC20 assetOut = _isBuy ? assetB : assetA;
+        address assetIn = _isBuy ? assetA : assetB;
+        address assetOut = _isBuy ? assetB : assetA;
 
         assetIn.safeTransferFrom(msg.sender, address(this), _amountIn);
         uint256 balance = assetOut.balanceOf(address(this));
         if(_payout > balance){
             uint256 diff = _payout - balance;
             uint256 newAmountIn = _isBuy ? (diff * _price) / config.decimals : (diff * config.decimals) / _price;
-            _swapExactOutputV3(diff, address(assetIn), address(assetOut), address(this), newAmountIn); 
+            _swapExactOutputV3(diff, assetIn, assetOut, address(this), newAmountIn); 
             assetOut.safeTransfer(msg.sender, _payout);
         } else {
             assetOut.safeTransfer(msg.sender, _payout);
@@ -114,9 +157,32 @@ contract DoppiLiquidity is ERC20, Ownable, Pausable, IDoppiLiquidity, Automation
         return _payout;
     }
 
-    function swap(uint256 _amountIn, uint256 _price, bool _isBuy) external nonReentrant onlyDoppiCore returns (uint256) {
+    function swap(uint256 _amountIn, uint256 _price, bool _isBuy) external nonReentrant onlySwapCaller returns (uint256) {
         uint256 fee = _amountIn * config.liquidityFee / 1_000_000;
         return _swap(_amountIn, _price, _isBuy, fee, false);
+    }
+
+    function _isTraderBotCaller(address caller) internal view returns (bool) {
+        uint256 length = traderFactoryList.length;
+        for (uint256 i = 0; i < length; ) {
+            address factory = traderFactoryList[i];
+            if (allowedTraderFactories[factory] && _isBotFromFactory(factory, caller)) {
+                return true;
+            }
+            unchecked {
+                ++i;
+            }
+        }
+        return false;
+    }
+
+    function _isBotFromFactory(address factory, address caller) internal view returns (bool) {
+        if (factory == address(0) || factory.code.length == 0) return false;
+        try IDoppiTraderFactory(factory).isTraderBot(caller) returns (bool ok) {
+            return ok;
+        } catch {
+            return false;
+        }
     }
 
     function assetRatio() external view returns (uint256 ratioA, uint256 ratioB) {
@@ -202,18 +268,40 @@ contract DoppiLiquidity is ERC20, Ownable, Pausable, IDoppiLiquidity, Automation
     }
 
     function setDoppiTraderFactory(address _traderFactory) external onlyOwner {
-        doppiTraderFactory = _traderFactory;
+        _setTraderFactoryAllowed(_traderFactory, true);
+    }
+
+    function setTraderFactoryAllowed(address _traderFactory, bool _allowed) external onlyOwner {
+        _setTraderFactoryAllowed(_traderFactory, _allowed);
+    }
+
+    function _setTraderFactoryAllowed(address _traderFactory, bool _allowed) internal {
+        if (_traderFactory == address(0)) return;
+        if (!traderFactoryListed[_traderFactory]) {
+            traderFactoryList.push(_traderFactory);
+            traderFactoryListed[_traderFactory] = true;
+        }
+        allowedTraderFactories[_traderFactory] = _allowed;
+        emit TraderFactoryAllowed(_traderFactory, _allowed);
     }
 
     function setEntryPoint(address entryPoint, bool isValid) external onlyOwner {
+        require(!entryPointsLocked, "entry points locked");
         validEntryPoints[entryPoint] = isValid;
         if (isValid) {
-            assetA.approve(entryPoint, type(uint256).max);
-            assetB.approve(entryPoint, type(uint256).max);
+            assetA.safeApprove(entryPoint, type(uint256).max);
+            assetB.safeApprove(entryPoint, type(uint256).max);
         } else {
-            assetA.approve(entryPoint, 0);  // revoke stale approval
-            assetB.approve(entryPoint, 0);
+            assetA.safeApprove(entryPoint, 0);  // revoke stale approval
+            assetB.safeApprove(entryPoint, 0);
         }
+        emit EntryPointSet(entryPoint, isValid);
+    }
+
+    function lockEntryPoints() external onlyOwner {
+        require(!entryPointsLocked, "already locked");
+        entryPointsLocked = true;
+        emit EntryPointsLocked();
     }
 
     function setPause() external onlyOwner {
@@ -225,8 +313,8 @@ contract DoppiLiquidity is ERC20, Ownable, Pausable, IDoppiLiquidity, Automation
     }
 
     function approveRouter() external onlyOwner {
-        assetA.approve(config.router, type(uint256).max);
-        assetB.approve(config.router, type(uint256).max);
+        assetA.safeApprove(config.router, type(uint256).max);
+        assetB.safeApprove(config.router, type(uint256).max);
     }
 
     function mintShares(address to, uint256 amount) external onlyEntryPoints {
@@ -478,8 +566,8 @@ contract DoppiLiquidity is ERC20, Ownable, Pausable, IDoppiLiquidity, Automation
         
         require(_amountIn > _fee, "Insufficient amount after fee");
         
-        IERC20 assetIn = _isBuy ? assetA : assetB;
-        IERC20 assetOut = _isBuy ? assetB : assetA;
+        address assetIn = _isBuy ? assetA : assetB;
+        address assetOut = _isBuy ? assetB : assetA;
 
         assetIn.safeTransferFrom(msg.sender, address(this), _amountIn);
 
@@ -511,9 +599,9 @@ contract DoppiLiquidity is ERC20, Ownable, Pausable, IDoppiLiquidity, Automation
 
     function _swapPancake(uint256 _amount, uint256 _amountOutQuote, bool _isBuy) internal returns (uint256 shares){
         if (_isBuy) {
-            shares = _swapExactInputV3(_amount, address(assetA), address(assetB), address(this), _amountOutQuote);
+            shares = _swapExactInputV3(_amount, assetA, assetB, address(this), _amountOutQuote);
         } else {
-            shares = _swapExactInputV3(_amount, address(assetB), address(assetA), address(this), _amountOutQuote);
+            shares = _swapExactInputV3(_amount, assetB, assetA, address(this), _amountOutQuote);
         }
     }
 

@@ -15,9 +15,11 @@ contract DoppiPoints is Ownable, Pausable {
     
     address public doppiClaim;
     mapping(address => IDoppiTraderFactory) public coreToTraderFactory;
+    mapping(address => bool) public coreRegistrars;
     IDoppiReferral public doppiReferral;
     mapping(address => bool) public doppiCore;
-    uint256 public totalVolume;
+    uint256 public totalPoints;
+    uint256 public totalTradeVolumeUSDT;
     uint256 public botVolumeMultiplierNum = 1;
     uint256 public botVolumeMultiplierDen = 1;
 
@@ -37,6 +39,8 @@ contract DoppiPoints is Ownable, Pausable {
     mapping(uint24 => mapping(address => uint256)) public monthlyVolume;
     mapping(address => ClaimedPoint) public claimedPoint; 
     mapping(uint24 => mapping(address => ReferralAggregates)) public monthlyReferralVolume;
+    mapping(address => uint256) public pointsUsedForFees;  // Track points deducted for fees since last claim
+    mapping(address => bool) public authorizedPointsDeductors;  // e.g., PrivateAutomationHub
     
     uint32 public constant startTimestamp = 1735689600; // Jan 1, 2025
 
@@ -44,7 +48,11 @@ contract DoppiPoints is Ownable, Pausable {
     event PointsReset(address indexed trader, uint256 points);
     event ReferralChainUpdated(address indexed trader, address l1, address l2, address l3);
     event CoreTraderFactorySet(address indexed core, address indexed factory);
+    event CoreRegistrarSet(address indexed registrar, bool allowed);
+    event CoreRegistered(address indexed core, address indexed factory, address indexed registrar);
     event BotVolumeMultiplierUpdated(uint256 numerator, uint256 denominator);
+    event PointsDeductedForFee(address indexed trader, uint256 points);
+    event AuthorizedPointsDeductorSet(address indexed deductor, bool allowed);
 
     constructor()
         Ownable(msg.sender)
@@ -57,32 +65,31 @@ contract DoppiPoints is Ownable, Pausable {
         require(volumeInUSDT > 0, "volume must be > 0");
 
         // Determine actual trader and whether position owner is a registered bot
-        (address actualTrader, bool isTraderBot) = _resolveTrader(msg.sender, trader);
-        uint256 effectiveVolume = volumeInUSDT;
-        if (isTraderBot) {
-            effectiveVolume = (volumeInUSDT * botVolumeMultiplierNum) / botVolumeMultiplierDen;
-        }
+        (address actualTrader, ) = _resolveTrader(msg.sender, trader);
+        uint256 effectivePoints = volumeInUSDT;
+        effectivePoints = (volumeInUSDT * botVolumeMultiplierNum) / botVolumeMultiplierDen;
         uint24 monthId = _currentMonthId();
 
-        monthlyVolume[monthId][actualTrader] += effectiveVolume;
-        totalVolume += effectiveVolume;
+        monthlyVolume[monthId][actualTrader] += effectivePoints;
+        totalPoints += effectivePoints;
+        totalTradeVolumeUSDT += volumeInUSDT;
         _ensureMonthId(monthId);
 
         // cache referral volume per level from the current active referral chain
         if (address(doppiReferral) != address(0)) {
             (address l1, address l2, address l3) = doppiReferral.getUplineChain(actualTrader);
             if (l1 != address(0)) {
-                monthlyReferralVolume[monthId][l1].level1Volume += effectiveVolume;
+                monthlyReferralVolume[monthId][l1].level1Volume += effectivePoints;
             }
             if (l2 != address(0)) {
-                monthlyReferralVolume[monthId][l2].level2Volume += effectiveVolume;
+                monthlyReferralVolume[monthId][l2].level2Volume += effectivePoints;
             }
             if (l3 != address(0)) {
-                monthlyReferralVolume[monthId][l3].level3Volume += effectiveVolume;
+                monthlyReferralVolume[monthId][l3].level3Volume += effectivePoints;
             }
             emit ReferralChainUpdated(actualTrader, l1, l2, l3);
         }
-        emit TradeRecorded(actualTrader, effectiveVolume);
+        emit TradeRecorded(actualTrader, effectivePoints);
     }
 
     function resetPoint(address trader) external onlyDoppiClaim {
@@ -95,6 +102,8 @@ contract DoppiPoints is Ownable, Pausable {
         if (currentMonthId > ref.claimedMonthId + 1) {               
             ref.totalPointClaimed += readyPoint;
             ref.claimedMonthId = currentMonthId - 1; // Claim up to previous month
+            // Clear used points tracker since we've now claimed and accounted for them
+            pointsUsedForFees[trader] = 0;
         }
         emit PointsReset(trader, readyPoint);
     }
@@ -138,6 +147,23 @@ contract DoppiPoints is Ownable, Pausable {
         doppiCore[_doppiCore] = _status;
     }
 
+    function setCoreRegistrar(address registrar, bool allowed) external onlyOwner {
+        require(registrar != address(0), "Zero address");
+        coreRegistrars[registrar] = allowed;
+        emit CoreRegistrarSet(registrar, allowed);
+    }
+
+    /// @notice Registers a new DoppiCore and links it to its trader factory.
+    /// Callable by owner or a whitelisted registrar (e.g. private bot factory).
+    function registerCore(address _core, address _factory) external onlyOwnerOrRegistrar {
+        require(_core != address(0), "Zero address");
+        require(_factory != address(0), "Zero address");
+        doppiCore[_core] = true;
+        coreToTraderFactory[_core] = IDoppiTraderFactory(_factory);
+        emit CoreTraderFactorySet(_core, _factory);
+        emit CoreRegistered(_core, _factory, msg.sender);
+    }
+
     function setDoppiClaim(address _doppiClaim) external onlyOwner {
         require(_doppiClaim != address(0), "Zero address");
         doppiClaim = _doppiClaim;
@@ -160,6 +186,21 @@ contract DoppiPoints is Ownable, Pausable {
         botVolumeMultiplierNum = numerator;
         botVolumeMultiplierDen = denominator;
         emit BotVolumeMultiplierUpdated(numerator, denominator);
+    }
+
+    function setAuthorizedPointsDeductor(address deductor, bool allowed) external onlyOwner {
+        require(deductor != address(0), "Zero address");
+        authorizedPointsDeductors[deductor] = allowed;
+        emit AuthorizedPointsDeductorSet(deductor, allowed);
+    }
+
+    /// @notice Record points deducted for fees (e.g., by PrivateAutomationHub).
+    /// These points will be subtracted from readyPoint to prevent double-counting.
+    function deductPointsForFee(address trader, uint256 points) external onlyAuthorizedDeductor {
+        require(trader != address(0), "Zero address");
+        require(points > 0, "Points must be > 0");
+        pointsUsedForFees[trader] += points;
+        emit PointsDeductedForFee(trader, points);
     }
 
     function setPause() external onlyOwner {
@@ -191,20 +232,36 @@ contract DoppiPoints is Ownable, Pausable {
                 readyPoint += monthlyVolume[month][trader];
             }
         }
+        
+        // Subtract points used for fees to prevent double-counting
+        uint256 used = pointsUsedForFees[trader];
+        if (readyPoint > used) {
+            readyPoint -= used;
+        } else {
+            readyPoint = 0;
+        }
+        
         totalClaimedPoint = claimed.totalPointClaimed;
     }
 
     function _resolveTrader(address core, address positionOwner) internal view returns (address owner, bool isTraderBot) {
         IDoppiTraderFactory factory = coreToTraderFactory[core];
-        if (
-            address(factory) != address(0) &&
-            factory.isTraderBot(positionOwner)
-        ) {
-            owner = IDoppiTrader(positionOwner).validTrader();
-            isTraderBot = true;
-        } else {
-            owner = positionOwner;
+        if (address(factory) != address(0)) {
+            // Primary path for private bots: the caller core itself is the trader bot.
+            if (factory.isTraderBot(core)) {
+                owner = IDoppiTrader(core).validTrader();
+                return (owner, true);
+            }
+
+            // Fallback path: positionOwner is a bot contract address.
+            if (factory.isTraderBot(positionOwner)) {
+                owner = IDoppiTrader(positionOwner).validTrader();
+                return (owner, true);
+            }
         }
+
+        owner = positionOwner;
+        isTraderBot = false;
     }
     function _ensureMonthId(uint24 monthId) internal {
         if (!monthExists[monthId]) {
@@ -225,6 +282,16 @@ contract DoppiPoints is Ownable, Pausable {
 
     modifier onlyDoppiClaim() {
         require(msg.sender == doppiClaim, "only doppiClaim");
+        _;
+    }
+
+    modifier onlyOwnerOrRegistrar() {
+        require(msg.sender == owner() || coreRegistrars[msg.sender], "only owner or registrar");
+        _;
+    }
+
+    modifier onlyAuthorizedDeductor() {
+        require(authorizedPointsDeductors[msg.sender], "only authorized deductor");
         _;
     }
 }

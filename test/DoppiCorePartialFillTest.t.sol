@@ -9,6 +9,7 @@ import {DoppiLiquidityRouter} from "../src/mainnet/DoppiLiquidityRouter.sol";
 import {BlackScholes} from "../src/mainnet/BlackScholes.sol";
 import {DoppiOffer} from "../src/mainnet/DoppiOffer.sol";
 import {IDoppiOffer} from "../src/Interface/IDoppiOffer.sol";
+import {IDoppiOpportunity} from "../src/Interface/IDoppiOpportunity.sol";
 import {DoppiPoints} from "../src/mainnet/DoppiPoints.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {MockToken} from "../src/test/MockToken.sol";
@@ -77,7 +78,7 @@ contract DoppiCorePartialFillTest is Test {
         swapper.setOracle(MockOracle(oracle));    
         doppiPoints = _deployDoppiPoints();
         doppiLP =
-            new DoppiLiquidity("Dual Asset Liquidity Pool", "DALP", IERC20(usdt), IERC20(btc));
+            new DoppiLiquidity("Dual Asset Liquidity Pool", "DALP", address(IERC20(usdt)), address(IERC20(btc)));
         
         configLP = TestParamLib.get_configLP();
         configLP.chainLinkFeed = address(oracle);
@@ -302,15 +303,22 @@ contract DoppiCorePartialFillTest is Test {
     }
 
     function _displayBound(uint256 lowerBound, uint256 upperBound) internal view {
+        IDoppiOpportunity opportunityStore = doppiCore.doppiOpportunity();
         
         for (uint256 price = upperBound; price >= lowerBound; ) {
             // console.log(price, "price");
             bool isBuy = true;
-            (uint256 amount, uint256 swappedAmount, uint256 outAmount) = doppiCore.opportunityBuy(price);
+            OpportunityOrders memory order = opportunityStore.getBuyOpportunity(price);
+            uint256 amount = order.amount;
+            uint256 swappedAmount = order.swappedAmount;
+            uint256 outAmount = order.outAmount;
             
             if(amount == 0){
                 isBuy = false;
-                (amount, swappedAmount, outAmount) = doppiCore.opportunitySell(price);
+                order = opportunityStore.getSellOpportunity(price);
+                amount = order.amount;
+                swappedAmount = order.swappedAmount;
+                outAmount = order.outAmount;
             }
             console.log(isBuy, price, swappedAmount, outAmount);
             price -= (500 * 1e8); 

@@ -4,28 +4,12 @@ pragma solidity ^0.8.26;
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {Pausable} from "@openzeppelin/contracts/utils/Pausable.sol";
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+import {IDoppiPoints} from "../Interface/IDoppiPoints.sol";
 // import "forge-std/console.sol";
 
 interface IDoppiToken {
     function mint(address to, uint256 amount) external;
     function decimals() external view returns (uint8);
-}
-
-interface IDoppiPoints {
-    function getCurrentMonthId() external view returns (uint256);
-    function getMonthlyVolume(address trader, uint24 monthId) external view returns (uint256);
-    function claimedPoint(address trader) external view returns (uint24 claimedMonthId, uint256 totalPointClaimed);
-    function resetPoint(address user) external;
-    function getAllPointData(
-        address trader
-    )
-        external
-        view
-        returns (
-            uint256 totalClaimedPoint,
-            uint256 readyPoint,
-            uint256 currentMonthPoint
-        );
 }
 
 interface IDoppiReferral {
