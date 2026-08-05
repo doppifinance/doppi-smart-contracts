@@ -12,6 +12,7 @@ interface ISetTraderFactory {
 interface IPrivateBot {
     function validTrader() external view returns (address);
     function setForwarderAddress(address forwarderAddress) external;
+    function setRatioLP(uint32 _ratioLP) external;
 }
 
 interface ISetPrivateAutomationHub {

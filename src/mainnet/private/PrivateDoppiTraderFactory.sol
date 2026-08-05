@@ -47,6 +47,7 @@ contract PrivateDoppiTraderFactory is Ownable, IDoppiTraderFactory {
     address public defaultPrivateTreasury;
     uint24 public defaultPrivateTreasuryFee;
     address public privateAutomationHub;
+    uint32 public defaultRatioLP = 5000; // 50% of capital go to LP
 
     /// @notice Dedicated deployers that hold the heavy deployment bytecode.
     PrivateLiquidityDeployer public immutable liquidityDeployer;
@@ -157,6 +158,8 @@ contract PrivateDoppiTraderFactory is Ownable, IDoppiTraderFactory {
 
         uint32 botId = botRegistry.deployBot(msg.sender, privateBot);
 
+        IPrivateBot(privateBot).setRatioLP(defaultRatioLP);
+
         if (privateAutomationHub != address(0)) {
             ISetPrivateAutomationHub(privateBot).setPrivateAutomationHub(privateAutomationHub);
 
@@ -193,6 +196,10 @@ contract PrivateDoppiTraderFactory is Ownable, IDoppiTraderFactory {
     }
 
     // ─── Admin ────────────────────────────────────────────────────────────────
+
+    function setDefaultRatioLP(uint32 _ratioLP) external onlyOwner {
+        defaultRatioLP = _ratioLP;
+    }
 
     function setImplementations(
         address _traderBotImpl,

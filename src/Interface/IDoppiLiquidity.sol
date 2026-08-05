@@ -23,4 +23,9 @@ interface IDoppiLiquidity {
         uint256 price,
         bool isBuy
     ) external;
+    function getPoolCapacityInfo(bool isBuy) external view returns (
+        uint256 currentDeposits,
+        uint256 maxDepositAmount,
+        uint256 availableCapacity
+    );
 }

@@ -31,6 +31,8 @@ contract DoppiTraderFactory is Ownable, IDoppiTraderFactory {
     address public immutable doppiOffer;
     address public immutable doppiPoints;
     address public privateAutomationHub;
+
+    uint32 public defaultRatioLP = 5000; // 20% of capital go to LP
     
     BotRegistryLib.BotRegistry internal botRegistry;
     
@@ -75,6 +77,7 @@ contract DoppiTraderFactory is Ownable, IDoppiTraderFactory {
         
         uint32 id = botRegistry.deployBot(msg.sender, traderBot);
         
+        DoppiTrader(traderBot).setRatioLP(defaultRatioLP);
         // Register with hub if available
         if (privateAutomationHub != address(0)) {
             DoppiTrader(traderBot).setPrivateAutomationHub(privateAutomationHub);
@@ -103,6 +106,10 @@ contract DoppiTraderFactory is Ownable, IDoppiTraderFactory {
 
     function setPrivateAutomationHub(address _hub) external onlyOwner {
         privateAutomationHub = _hub;
+    }
+
+    function setDefaultRatioLP(uint32 _ratioLP) external onlyOwner {
+        defaultRatioLP = _ratioLP;
     }
 
     function traderBotId(address _addr) external view returns (uint32) {

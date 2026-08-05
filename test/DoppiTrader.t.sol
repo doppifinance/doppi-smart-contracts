@@ -803,6 +803,9 @@ contract DoppiTraderTest is Test {
     }
 
     function test_placeOrders_maxRoundCap_example1() public {
+        
+        _seedPoolCapacity(10000 ether, 1 ether);
+        
         // Balance 1000, minOrderA 50, maxOrderPerRoundA 500.
         // Budget = 500; zone amounts: 25,50,100,125,200.
         // 25 is skipped, other four are placed.
@@ -827,6 +830,8 @@ contract DoppiTraderTest is Test {
     }
 
     function test_placeOrders_maxRoundCap_example2() public {
+        
+        _seedPoolCapacity(10000 ether, 1 ether);
         // Balance 50000, minOrderA 50, maxOrderPerRoundA 5000.
         // Budget = 5000; all zones are >= min and should be placed.
         doppiCore.setMinOrder(50 ether, 0.001 ether);
@@ -850,6 +855,8 @@ contract DoppiTraderTest is Test {
     }
 
     function test_placeOrders_maxRoundCap_example3_useAvailableWhenBalanceBelowCap() public {
+        
+        _seedPoolCapacity(10000 ether, 1 ether);
         // Balance 500, minOrderA 50, maxOrderPerRoundA 5000.
         // Budget uses available balance (500) when below cap.
         doppiCore.setMinOrder(50 ether, 0.001 ether);
@@ -878,6 +885,7 @@ contract DoppiTraderTest is Test {
         // split 5 => budget 200 => 40/zone (invalid)
         // split 4 => budget 250 => 50/zone (valid)
         doppiCore.setMinOrder(50 ether, 0.001 ether);
+        _seedPoolCapacity(0, 1 ether);
 
         vm.startPrank(trader);
         doppiTrader.setMaxOrderPerRound(0, 0);
@@ -904,6 +912,7 @@ contract DoppiTraderTest is Test {
         // split 5 => 40/zone invalid, split 4 => 50 invalid, split 3 => 66 invalid,
         // split 2 => 100 valid.
         doppiCore.setMinOrder(90 ether, 0.001 ether);
+        _seedPoolCapacity(0, 1 ether);
 
         vm.startPrank(trader);
         doppiTrader.setMaxOrderPerRound(0, 0);
@@ -1379,5 +1388,18 @@ contract DoppiTraderTest is Test {
             unchecked { ++i; }
         }
         doppiTrader.setMultipleOrderConfigs(strikeZones, weights);
+    }
+
+    function _seedPoolCapacity(uint256 amountA, uint256 amountB) internal {
+        vm.startPrank(owner);
+        if (amountA > 0) {
+            usdt.approve(address(doppiRouter), amountA);
+            doppiRouter.deposit(address(usdt), amountA);
+        }
+        if (amountB > 0) {
+            btc.approve(address(doppiRouter), amountB);
+            doppiRouter.deposit(address(btc), amountB);
+        }
+        vm.stopPrank();
     }
 }

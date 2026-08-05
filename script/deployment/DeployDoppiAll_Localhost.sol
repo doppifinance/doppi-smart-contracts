@@ -97,7 +97,6 @@ contract DeployDoppiAll is Script {
         DoppiTrader privateTraderImpl = new DoppiTrader();
         DoppiOpportunity privateOpportunityImpl = new DoppiOpportunity(address(0), address(0));
 
-        
         DoppiGridTrader privateGridTraderImpl = new DoppiGridTrader();
         PrivateDoppiGridTraderFactory privateGridFactory = new PrivateDoppiGridTraderFactory(
             IERC20(USDT),
@@ -194,6 +193,11 @@ contract DeployDoppiAll is Script {
 
         doppiLP.setForwarderAddress(forwarder);
 
+        doppiFactory.setDefaultRatioLP(500); // 20% of capital go to LP
+        privateFactory.setDefaultRatioLP(500); // 20% of capital go to LP
+        
+
+
         // // Deploy one initial private bot for the broadcasting EOA
         // uint24[] memory privateWeights = _defaultPrivateWeights();
         // uint32 privateBotId = privateFactory.deployPrivateBot(privateWeights);
@@ -260,7 +264,7 @@ contract DeployDoppiAll is Script {
         _doppiCore.setDoppiTraderFactory(_doppiFactory);
         _doppiCore.setAPRTolerance(1000);
         _doppiCore.setTreasury(treasury, 1500);
-        _doppiCore.setUpkeeps_per_check(50);
+        _doppiCore.setUpkeeps_per_check(25);
         
     }
 

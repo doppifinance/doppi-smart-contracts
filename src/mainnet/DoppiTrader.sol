@@ -271,18 +271,24 @@ contract DoppiTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCompati
         bool hasValidBuyOrder = false;
         bool hasValidSellOrder = false;
         uint256 configLength = orderConfigs.length;
-        
+
         if (buyPosCount == 0 && availableA > 0 && offerBuy.apr > 0) {
-            hasValidBuyOrder = _hasValidOrderConfig(
-                true,
-                _getRoundBudget(true, availableA, doppiCore.minOrderA(), configLength)
-            );
+
+            (, , uint256 availableCapacity) = doppiLP.getPoolCapacityInfo(true);
+            uint256 budgetRound = _getRoundBudget(true, availableA, doppiCore.minOrderA(), configLength);
+            if(budgetRound > availableCapacity) {
+                budgetRound = availableCapacity;
+            }
+            hasValidBuyOrder = _hasValidOrderConfig(true, budgetRound);
         }
         if (sellPosCount == 0 && availableB > 0 && offerSell.apr > 0) {
-            hasValidSellOrder = _hasValidOrderConfig(
-                false,
-                _getRoundBudget(false, availableB, doppiCore.minOrderB(), configLength)
-            );
+            
+            (, , uint256 availableCapacity) = doppiLP.getPoolCapacityInfo(false);
+            uint256 budgetRound = _getRoundBudget(false, availableB, doppiCore.minOrderB(), configLength);
+            if(budgetRound > availableCapacity) {
+                budgetRound = availableCapacity;
+            }
+            hasValidSellOrder = _hasValidOrderConfig(false, budgetRound);
         }
         return (hasValidBuyOrder, hasValidSellOrder);
     }
@@ -343,6 +349,11 @@ contract DoppiTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCompati
         uint256 min = isBuy ? doppiCore.minOrderA() : doppiCore.minOrderB();
         availableAsset = _getRoundBudget(isBuy, availableBalance, min, length);
         if (availableAsset == 0) return (params, 0);
+        
+        (, , uint256 availableCapacity) = doppiLP.getPoolCapacityInfo(isBuy);
+        if(availableAsset > availableCapacity) {
+            availableAsset = availableCapacity;
+        }
         
         uint256 validCount = 0;
 

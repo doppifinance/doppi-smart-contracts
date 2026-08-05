@@ -272,6 +272,10 @@ abstract contract DoppiTraderAdminView is Ownable, Pausable {
         s_forwarderAddress = forwarderAddress;
     }
 
+    function setRatioLP(uint32 _ratioLP) external onlyOwner {
+        ratioLP = _ratioLP;
+    }
+
     function setPrivateAutomationHub(address _privateHub) external onlyOwner {
         privateAutomationHub = IPrivateAutomationHub(_privateHub);
     }

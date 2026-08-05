@@ -12,7 +12,7 @@ import "../../src/mainnet/DoppiOffer.sol";
 contract SettleDoppiCoreOrders is Script {
     
     // Replace with your actual DoppiCore contract address
-    address public constant DOPPI_CORE = 0x9B2380f0fEE51DF2D9d3E1A3FcA1D6b749162A76; 
+    address public constant DOPPI_CORE = 0x5B23B73F7eDe43ee4696d465e20d4e7100711a7E; 
     address public constant DOPPI_CORE_ETH = 0x375ebC1196d84D817A8E3b58d662b3A4A71665b1; 
     address public constant DOPPI_POINTS = 0x4f912dC0a656122bAf396B1a3156f1cBBc3f5256; 
     address public constant DOPPI_TRADER = 0x4F7554796137C8C9B0F76665a2e0dFD4aB1B2231; 

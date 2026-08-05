@@ -50,4 +50,5 @@ interface IPrivateAutomationHub is AutomationCompatibleInterface {
     function defaultTopUp() external view returns (uint256);
     function fundToken() external view returns (IERC20);
     function minCreditThreshold() external view returns (uint256);
+    function getPointValueInUSDT(uint256 numPoints) external view returns (uint256);
 }

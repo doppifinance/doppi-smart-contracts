@@ -47,7 +47,7 @@ contract DeployDoppiAllMainnet is Script {
     address constant PCSWAP_V3Pool = address(0x46Cf1cF8c69595804ba91dFdd8d6b960c9B0a7C4);
     address constant treasury = address(0x7E8c87Feb8D30706ca43A8049ee654875426A721);
     // address constant admin = address(0xaD8234bC07168d9f7E49c3780e4b5fefa6620f8A);
-    address constant forwarder = address(0x70997970C51812dc3A010C7d01b50e0d17dc79C8);
+    address constant forwarder = address(0xFD2D482ABBc3Bc70354311e83B9347e83132E060);
     ConfigParam configLP;
 
     function run() external {
@@ -135,7 +135,7 @@ contract DeployDoppiAllMainnet is Script {
             deployer, // owner (deployer EOA)
             USDT,          // fundToken for billing
             CHAINLINK_BNB_USD, // chainlink feed for native asset pricing
-            60,          // maxOracleDelay (1 sec)
+            1 minutes,          // maxOracleDelay (1 min)
             treasury       // treasury for fee collection
         );
         console.log("PrivateAutomationHub deployed at:", address(privateAutomationHub));
@@ -187,6 +187,11 @@ contract DeployDoppiAllMainnet is Script {
         // oracle = new MockOracle(int256(64300 * 1e8), 8);
 
         doppiLP.setForwarderAddress(forwarder);
+
+        doppiFactory.setDefaultRatioLP(2000); // 20% of capital go to LP
+        privateFactory.setDefaultRatioLP(2000); // 20% of capital go to LP
+        
+
 
         // // Deploy one initial private bot for the broadcasting EOA
         // uint24[] memory privateWeights = _defaultPrivateWeights();
@@ -247,7 +252,7 @@ contract DeployDoppiAllMainnet is Script {
         _doppiCore.setDoppiTraderFactory(_doppiFactory);
         _doppiCore.setAPRTolerance(1000);
         _doppiCore.setTreasury(treasury, 1500);
-        _doppiCore.setUpkeeps_per_check(50);
+        _doppiCore.setUpkeeps_per_check(25);
         
     }
 
@@ -324,7 +329,7 @@ contract DeployDoppiAllMainnet is Script {
         console.log("Deploying DoppiReferral...");
         DoppiReferral doppiReferral = new DoppiReferral(_doppiPoints, 300, 200, 100); // 3.0%, 2.0%, 1.0%
         console.log("DoppiReferral deployed at:", address(doppiReferral));
-        doppiReferral.setMinVolumeForL2L3(10_000 ether, 50_000 ether); // for pre launch only
+        doppiReferral.setMinVolumeForL2L3(50_000 ether, 100_000 ether); // for pre launch only
         DoppiPoints(_doppiPoints).setDoppiReferral(address(doppiReferral));
         return doppiReferral;
     }
