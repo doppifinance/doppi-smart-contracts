@@ -121,6 +121,11 @@ contract MockPrivateAutomationHubForGrid is IPrivateAutomationHub {
     function minCreditThreshold() external view returns (uint256){
         return creditThreshold;
     }
+
+    function getPointValueInUSDT(uint256 numPoints) external view returns (uint256){
+        return numPoints * 1e18;
+    }
+    
 }
 
 contract PrivateDoppiGridTraderTest is Test {

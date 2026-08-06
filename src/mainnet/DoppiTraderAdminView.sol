@@ -394,7 +394,7 @@ abstract contract DoppiTraderAdminView is Ownable, Pausable {
         if (feePool.code.length > 0) {
             (bool ok, ) = feePool.call(abi.encodeWithSelector(FEE_POOL_NOTIFY_SELECTOR, token, fee));
             if (!ok) {
-                revert("FeePool notify failed");
+                // leave as is, no revert
             }
         }
         emit FeePaid(token, fee);

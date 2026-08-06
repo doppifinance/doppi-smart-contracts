@@ -514,6 +514,92 @@ contract PrivateAutomationHubTest is Test {
         assertEq(performData.length, 0);
     }
 
+    function test_checkUpkeep_returnsFalse_whenChainlinkFeedIsZeroAtDeploy() public {
+        vm.startPrank(owner);
+        PrivateAutomationHub hubNoFeed = new PrivateAutomationHub(
+            owner,
+            address(fundToken),
+            address(0),
+            3600,
+            treasury
+        );
+        hubNoFeed.setRegistrar(registrar, true);
+        vm.stopPrank();
+
+        RegisterPrivateBotParams memory p = _params();
+        vm.prank(registrar);
+        hubNoFeed.registerPrivateBotJobs(p);
+
+        botTarget.setCheckResponse(true, abi.encode("bot"));
+        (bool upkeepNeeded, bytes memory performData) = hubNoFeed.checkUpkeep("");
+
+        assertFalse(upkeepNeeded);
+        assertEq(performData.length, 0);
+    }
+
+    function test_checkUpkeep_returnsFalse_whenChainlinkFeedCleared() public {
+        RegisterPrivateBotParams memory p = _params();
+        vm.prank(registrar);
+        hub.registerPrivateBotJobs(p);
+
+        vm.prank(owner);
+        hub.setChainlinkFeed(address(0));
+
+        botTarget.setCheckResponse(true, abi.encode("bot"));
+        (bool upkeepNeeded, bytes memory performData) = hub.checkUpkeep("");
+
+        assertFalse(upkeepNeeded);
+        assertEq(performData.length, 0);
+    }
+
+    function test_checkUpkeep_returnsFalse_whenFundTokenZero() public {
+        RegisterPrivateBotParams memory p = _params();
+        vm.prank(registrar);
+        hub.registerPrivateBotJobs(p);
+
+        vm.prank(owner);
+        hub.setFundToken(address(0));
+
+        botTarget.setCheckResponse(true, abi.encode("bot"));
+        (bool upkeepNeeded, bytes memory performData) = hub.checkUpkeep("");
+
+        assertFalse(upkeepNeeded);
+        assertEq(performData.length, 0);
+    }
+
+    function test_checkUpkeep_returnsFalse_whenTreasuryZero() public {
+        RegisterPrivateBotParams memory p = _params();
+        vm.prank(registrar);
+        hub.registerPrivateBotJobs(p);
+
+        vm.prank(owner);
+        hub.setTreasury(address(0));
+
+        botTarget.setCheckResponse(true, abi.encode("bot"));
+        (bool upkeepNeeded, bytes memory performData) = hub.checkUpkeep("");
+
+        assertFalse(upkeepNeeded);
+        assertEq(performData.length, 0);
+    }
+
+    function test_performUpkeep_skipsExecution_whenFeedClearedAfterCheck() public {
+        RegisterPrivateBotParams memory p = _params();
+        vm.prank(registrar);
+        hub.registerPrivateBotJobs(p);
+
+        botTarget.setCheckResponse(true, abi.encode("bot"));
+        (bool upkeepNeeded, bytes memory performData) = hub.checkUpkeep("");
+        assertTrue(upkeepNeeded);
+
+        vm.prank(owner);
+        hub.setChainlinkFeed(address(0));
+
+        vm.prank(executor);
+        hub.performUpkeep(performData);
+
+        assertEq(botTarget.performCount(), 0);
+    }
+
     function test_checkUpkeep_and_performUpkeep_executesBoundedBatch() public {
         RegisterPrivateBotParams memory p = _params();
         vm.prank(registrar);

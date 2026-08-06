@@ -82,6 +82,8 @@ abstract contract DoppiCoreView {
     function getCurrentDeposits(bool isBuy) public view returns (uint256 currentDeposits) {
 
         uint256 price = doppiLP.getPrice();
+        if(price == 0) return 0;
+        
         uint256 priceDecimal = 10 ** doppiLP.getPriceDecimals();
         if(isBuy) {
             uint256 sellInA = totalSellDeposits * price / priceDecimal;

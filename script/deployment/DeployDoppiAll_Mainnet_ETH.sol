@@ -299,6 +299,7 @@ contract DeployDoppiAllMainnet_ETH is Script {
         impliedVol.setTwapDuration(3600);
         impliedVol.setPancakeV3Pool(PCSWAP_V3Pool);
         impliedVol.setMaxOfferAPR(50000); // 500% max APR
+        impliedVol.setAdmin(forwarder, true);
         return impliedVol;
     }
 

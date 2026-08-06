@@ -51,6 +51,7 @@ contract PrivateAutomationHub is IPrivateAutomationHub, Ownable, ReentrancyGuard
 
     // ── Billing ───────────────────────────────────────────────────────────
     event FundTokenUpdated(address indexed fundToken);
+    event ChainlinkFeedUpdated(address indexed chainlinkFeed, uint256 priceDecimals);
     event DefaultTopUpUpdated(uint256 defaultTopUp);
     event TreasuryUpdated(address indexed treasury);
     event PlatformMarkupUpdated(uint24 markupBps);
@@ -101,8 +102,8 @@ contract PrivateAutomationHub is IPrivateAutomationHub, Ownable, ReentrancyGuard
     // ── Billing config ────────────────────────────────────────────────────
     IERC20                public fundToken;
     address               public treasury;
-    AggregatorV3Interface public immutable chainlinkFeed;
-    uint256               public immutable priceDecimals;
+    AggregatorV3Interface public chainlinkFeed;
+    uint256               public priceDecimals;
     uint32                public maxOracleDelay;
     uint24                public platformMarkupBps;   // e.g. 2000 = 20%
     uint256               public minCreditThreshold;  // in fundToken units
@@ -154,10 +155,7 @@ contract PrivateAutomationHub is IPrivateAutomationHub, Ownable, ReentrancyGuard
         uint32  _maxOracleDelay,
         address _treasury
     ) Ownable(initialOwner) {
-        chainlinkFeed  = AggregatorV3Interface(_chainlinkFeed);
-        priceDecimals  = _chainlinkFeed != address(0)
-            ? 10 ** DALiquidityLib.getPriceDecimals(AggregatorV3Interface(_chainlinkFeed))
-            : 1e8;
+        _setChainlinkFeed(_chainlinkFeed);
         maxOracleDelay = _maxOracleDelay;
         if (_fundToken != address(0)) fundToken = IERC20(_fundToken);
         if (_treasury  != address(0)) treasury  = _treasury;
@@ -208,8 +206,11 @@ contract PrivateAutomationHub is IPrivateAutomationHub, Ownable, ReentrancyGuard
         emit FundTokenUpdated(_fundToken);
     }
 
+    function setChainlinkFeed(address _chainlinkFeed) external onlyOwner {
+        _setChainlinkFeed(_chainlinkFeed);
+    }
+
     function setTreasury(address _treasury) external onlyOwner {
-        if (_treasury == address(0)) revert InvalidAddress();
         treasury = _treasury;
         emit TreasuryUpdated(_treasury);
     }
@@ -460,6 +461,11 @@ contract PrivateAutomationHub is IPrivateAutomationHub, Ownable, ReentrancyGuard
         override
         returns (bool upkeepNeeded, bytes memory performData)
     {
+
+        if (address(chainlinkFeed) == address(0) || address(fundToken) == address(0) || treasury == address(0)) {
+            return (false, bytes(""));
+        }
+        
         uint256 upperBound = nextJobId;
         if (upperBound <= 1) return (false, bytes(""));
         uint256 totalJobs = upperBound - 1;
@@ -554,6 +560,10 @@ contract PrivateAutomationHub is IPrivateAutomationHub, Ownable, ReentrancyGuard
 
     /// @dev Silently skips if billing is not fully configured or oracle is stale / gasprice is 0.
     function _chargeGasFee(address bot, uint256 jobId, uint256 gasUsed) internal {
+
+        if (address(chainlinkFeed) == address(0) || address(fundToken) == address(0) || treasury == address(0)) {
+            return;
+        }
 
         uint256 price = DALiquidityLib.getPrice(chainlinkFeed, maxOracleDelay);
         if (price == 0) return;
@@ -661,6 +671,11 @@ contract PrivateAutomationHub is IPrivateAutomationHub, Ownable, ReentrancyGuard
     }
 
     function _canExecuteWithBilling(address bot) internal view returns (bool) {
+
+        if (address(chainlinkFeed) == address(0) || address(fundToken) == address(0) || treasury == address(0)) {
+            return false;
+        }
+        
         if (DALiquidityLib.getPrice(chainlinkFeed, maxOracleDelay) == 0) return false;
 
         BotBillingState memory billing = botBilling[bot];
@@ -679,6 +694,17 @@ contract PrivateAutomationHub is IPrivateAutomationHub, Ownable, ReentrancyGuard
             _pauseAllJobsForBot(bot);
             emit BotLowCreditPaused(bot, billing.creditBalance);
         }
+    }
+
+    function _setChainlinkFeed(address _chainlinkFeed) internal {
+        if (_chainlinkFeed != address(0) && _chainlinkFeed.code.length == 0) revert InvalidAddress();
+
+        chainlinkFeed  = AggregatorV3Interface(_chainlinkFeed);
+        priceDecimals  = _chainlinkFeed != address(0)
+            ? 10 ** DALiquidityLib.getPriceDecimals(AggregatorV3Interface(_chainlinkFeed))
+            : 1e8;
+
+        emit ChainlinkFeedUpdated(_chainlinkFeed, priceDecimals);
     }
 
     function _pauseAllJobsForBot(address bot) internal {
