@@ -122,8 +122,6 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
         doppiPoints = IDoppiPoints(_doppiPoints);
         doppiOpportunity = IDoppiOpportunity(_doppiOpportunity);
         opportunityBots[_owner] = true;
-        assetA.safeIncreaseAllowance(address(doppiLP), type(uint256).max);
-        assetB.safeIncreaseAllowance(address(doppiLP), type(uint256).max);
 
         supportDays.push(1);
         nextProcessId[1] = 1;
@@ -1183,6 +1181,9 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
         bool isBuy
     ) internal returns (uint256 amountOut) {
 
+        IERC20 assetIn = isBuy ? assetA : assetB;
+        _ensureLPAllowance(assetIn, amountIn);
+
         bytes memory callData = abi.encodeWithSelector(SWAP_SELECTOR, amountIn, price, isBuy);
         (bool success, bytes memory result) = address(doppiLP).call(callData);
         if (!(success && result.length >= 32)) revert SwapFailed();
@@ -1253,6 +1254,9 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
 
     function _doppiSettleCall(uint256 amount, uint256 payout, uint256 price, bool isBuy) internal returns (uint256 out) {
 
+        IERC20 assetIn = isBuy ? assetA : assetB;
+        _ensureLPAllowance(assetIn, amount);
+
         (bool ok, bytes memory ret) = address(doppiLP).call(
             abi.encodeWithSelector(
                 SETTLE_SELECTOR,
@@ -1264,6 +1268,11 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
         );
         if (!(ok && ret.length >= 32)) revert SettleFailed();
         out = abi.decode(ret, (uint256));
+    }
+
+    function _ensureLPAllowance(IERC20 token, uint256 required) internal {
+        if (required == 0) return;
+        token.forceApprove(address(doppiLP), required);
     }
 
     function _doppiInterestGet(

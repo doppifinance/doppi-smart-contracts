@@ -90,9 +90,6 @@ contract DoppiGridTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCom
         doppiPoints = IDoppiPoints(_doppiPoints);
         validTrader = _trader;
         _transferOwnership(msg.sender);
-
-        assetA.safeIncreaseAllowance(_doppiLP, type(uint256).max);
-        assetB.safeIncreaseAllowance(_doppiLP, type(uint256).max);
     
         _initializeOrderConfigs(_weights);
         traderDefaultDay = 1;
@@ -100,7 +97,7 @@ contract DoppiGridTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCom
         maxSwap = 30000 ether;
         unwindGapMultiplier = 1;
         priceDecimals = 10 ** doppiLP.getPriceDecimals();
-        epochDuration = 1 days;
+        epochDuration = 2 days;
         minOrderA = 50 ether;
         minOrderB = 0.0005 ether;
         opportunityBufferCutBps = 2000;
@@ -328,7 +325,6 @@ contract DoppiGridTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCom
 
     function _performOpportunityBuy(uint256 price) internal {
         if (activeBuyOpportunityStrikes.length == 0) return;
-        uint256 gap = _priceGapWithDecimals();
         uint256 buffer = _getBufferAmount(price, true);
         uint256 maxIn = maxSwap;
         uint256 totalIn;
@@ -341,12 +337,12 @@ contract DoppiGridTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCom
                 uint256 remaining = maxIn > totalIn ? maxIn - totalIn : 0;
                 if (remaining == 0) break;
                 uint256 toSwap = amount > remaining ? remaining : amount;
+                _approveLPExact(assetA, toSwap);
                 uint256 amountOut = doppiLP.swap(toSwap, price, true);
                 _recordTradeVolumeInA(toSwap);
                 opportunityBuy[strike] = amount - toSwap;
                 totalIn += toSwap;
 
-                uint8 zone = buyStrikeZone[strike];
                 unWindBuy[strike] += amountOut;
                 unWindBuyCostA[strike] += toSwap;
                 undoStat.undo_assetB += amountOut;
@@ -362,7 +358,6 @@ contract DoppiGridTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCom
 
     function _performOpportunitySell(uint256 price) internal {
         if (activeSellOpportunityStrikes.length == 0) return;
-        uint256 gap = _priceGapWithDecimals();
         uint256 buffer = _getBufferAmount(price, false);
         uint256 maxIn = maxSwap * priceDecimals / price;
         uint256 totalIn;
@@ -376,11 +371,11 @@ contract DoppiGridTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCom
                 uint256 remaining = maxIn > totalIn ? maxIn - totalIn : 0;
                 if (remaining == 0) break;
                 uint256 toSwap = amount > remaining ? remaining : amount;
+                _approveLPExact(assetB, toSwap);
                 uint256 amountOut = doppiLP.swap(toSwap, price, false);
                 _recordTradeVolumeInA((toSwap * price) / priceDecimals);
                 opportunitySell[strike] = amount - toSwap;
                 totalIn += toSwap;
-                uint8 zone = sellStrikeZone[strike];
 
                 unWindSell[strike] += amountOut;
                 unWindSellCostB[strike] += toSwap;
@@ -422,6 +417,7 @@ contract DoppiGridTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCom
         }
 
         if (totalIn == 0) return;
+        _approveLPExact(assetB, totalIn);
         uint256 totalOut = doppiLP.swap(totalIn, price, false);
         _recordTradeVolumeInA((totalIn * price) / priceDecimals);
 
@@ -469,6 +465,7 @@ contract DoppiGridTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCom
         }
 
         if (totalIn == 0) return;
+        _approveLPExact(assetA, totalIn);
         uint256 totalOut = doppiLP.swap(totalIn, price, true);
         _recordTradeVolumeInA(totalIn);
 
@@ -797,5 +794,10 @@ contract DoppiGridTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCom
 
     function _onlyForwarder() internal view {
         if (msg.sender != s_forwarderAddress) revert OnlyForwarder();
+    }
+
+    function _approveLPExact(IERC20 token, uint256 amount) internal {
+        if (amount == 0) return;
+        token.forceApprove(address(doppiLP), amount);
     }
 }

@@ -243,19 +243,24 @@ contract PrivateDoppiGridTraderTest is Test {
         bot.start(100_000 ether, 1 ether);
         vm.stopPrank();
 
-        // Buy: 99,500 / 99,000 / 98,500 / 98,000 / 97,500 with 4,000 USDT each.
-        assertEq(bot.getOpportunityInfo(true, 99_500 * p), 4_000 ether);
-        assertEq(bot.getOpportunityInfo(true, 99_000 * p), 4_000 ether);
-        assertEq(bot.getOpportunityInfo(true, 98_500 * p), 4_000 ether);
-        assertEq(bot.getOpportunityInfo(true, 98_000 * p), 4_000 ether);
-        assertEq(bot.getOpportunityInfo(true, 97_500 * p), 4_000 ether);
+        uint256 expectedBuyOrderAmount = (bot.maxSwap() * 2000) / 10000;
+        uint256 currentPrice = sharedLP.getPrice();
+        uint256 sellBudgetCap = (bot.maxSwap() * p) / currentPrice;
+        uint256 expectedSellOrderAmount = (sellBudgetCap * 2000) / 10000;
 
-        // Sell: 100,000 / 100,500 / 101,000 / 101,500 / 102,000 with 0.04 BTC each.
-        assertEq(bot.getOpportunityInfo(false, 100_000 * p), 0.04 ether);
-        assertEq(bot.getOpportunityInfo(false, 100_500 * p), 0.04 ether);
-        assertEq(bot.getOpportunityInfo(false, 101_000 * p), 0.04 ether);
-        assertEq(bot.getOpportunityInfo(false, 101_500 * p), 0.04 ether);
-        assertEq(bot.getOpportunityInfo(false, 102_000 * p), 0.04 ether);
+        // Buy: 99,500 / 99,000 / 98,500 / 98,000 / 97,500 with equal weighted amounts.
+        assertEq(bot.getOpportunityInfo(true, 99_500 * p), expectedBuyOrderAmount);
+        assertEq(bot.getOpportunityInfo(true, 99_000 * p), expectedBuyOrderAmount);
+        assertEq(bot.getOpportunityInfo(true, 98_500 * p), expectedBuyOrderAmount);
+        assertEq(bot.getOpportunityInfo(true, 98_000 * p), expectedBuyOrderAmount);
+        assertEq(bot.getOpportunityInfo(true, 97_500 * p), expectedBuyOrderAmount);
+
+        // Sell: 100,000 / 100,500 / 101,000 / 101,500 / 102,000 with equal weighted amounts.
+        assertEq(bot.getOpportunityInfo(false, 100_000 * p), expectedSellOrderAmount);
+        assertEq(bot.getOpportunityInfo(false, 100_500 * p), expectedSellOrderAmount);
+        assertEq(bot.getOpportunityInfo(false, 101_000 * p), expectedSellOrderAmount);
+        assertEq(bot.getOpportunityInfo(false, 101_500 * p), expectedSellOrderAmount);
+        assertEq(bot.getOpportunityInfo(false, 102_000 * p), expectedSellOrderAmount);
     }
 
     function test_startWithHubDoesNotTopUpWhenCreditIsActive() public {
@@ -272,9 +277,10 @@ contract PrivateDoppiGridTraderTest is Test {
         bot.start(100_000 ether, 0);
         vm.stopPrank();
 
+        uint256 expectedBuyOrderAmount = (bot.maxSwap() * 2000) / 10000;
         assertEq(mockHub.depositedByBot(address(bot)), 0);
         assertEq(usdt.balanceOf(address(mockHub)), 0);
-        assertEq(bot.getOpportunityInfo(true, 100_000 * p), 4_000 ether);
+        assertEq(bot.getOpportunityInfo(true, 100_000 * p), expectedBuyOrderAmount);
     }
 
     function test_startWithHubTopUpWhenCreditPausedUsesRemainingCapital() public {
@@ -292,7 +298,10 @@ contract PrivateDoppiGridTraderTest is Test {
         bot.start(100_000 ether, 0);
         vm.stopPrank();
 
-        uint256 expectedOrderAmount = (((100_000 ether - defaultTopUp) / 5) * 2000) / 10000;
+        uint256 availableAfterTopUp = 100_000 ether - defaultTopUp;
+        uint256 candidateBudget = availableAfterTopUp / 3;
+        uint256 roundBudget = candidateBudget > bot.maxSwap() ? bot.maxSwap() : candidateBudget;
+        uint256 expectedOrderAmount = (roundBudget * 2000) / 10000;
         assertEq(mockHub.depositedByBot(address(bot)), defaultTopUp);
         assertEq(usdt.balanceOf(address(mockHub)), defaultTopUp);
         assertEq(bot.getOpportunityInfo(true, 100_000 * p), expectedOrderAmount);
@@ -329,7 +338,7 @@ contract PrivateDoppiGridTraderTest is Test {
         vm.stopPrank();
 
         assertEq(mockHub.depositedByBot(address(bot)), 0);
-        assertEq(bot.getOpportunityInfo(true, 100_000 * p), 4_000 ether);
+        assertEq(bot.getOpportunityInfo(true, 100_000 * p), 6_000 ether);
     }
 
     function test_performUpkeepMovesOpportunityToUnwind() public {
@@ -492,7 +501,7 @@ contract PrivateDoppiGridTraderTest is Test {
         DoppiGridTrader bot = DoppiGridTrader(botAddr);
         uint256 p = 1e8;
         uint256 strike = 100_000 * p;
-        uint256 originalCostA = 4_000 ether;
+        uint256 originalCostA = 6_000 ether;
 
         vm.startPrank(trader);
         bot.setForwarderAddress(forwarder);
@@ -552,7 +561,7 @@ contract PrivateDoppiGridTraderTest is Test {
         DoppiGridTrader bot = DoppiGridTrader(botAddr);
         uint256 p = 1e8;
         uint256 strike = 100_500 * p;
-        uint256 originalCostB = 0.04 ether;
+        uint256 originalCostB = 0.06 ether;
 
         vm.startPrank(trader);
         bot.setForwarderAddress(forwarder);
@@ -612,7 +621,7 @@ contract PrivateDoppiGridTraderTest is Test {
         (, uint64 expiryAfter, uint256 anchorAfter) = bot.getEpochInfo();
         assertGt(expiryAfter, expiryBefore);
         assertEq(anchorAfter, 98_000 * p);
-        assertEq(bot.getOpportunityInfo(true, 98_000 * p), 4_000 ether);
+        assertEq(bot.getOpportunityInfo(true, 98_000 * p), 6_000 ether);
     }
 
     function test_deployPrivateBot_registersHubAndSetsForwarder() public {

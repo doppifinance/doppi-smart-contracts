@@ -106,12 +106,15 @@ contract DoppiProtocolScenariosTest is Test {
 
     // SCENARIO 1: Complete Protocol Flow
     function test_Scenario1_CompleteProtocolFlow() public {
+        vm.prank(owner);
+        usdt.mint(liquidityProvider, 200_000 * 10 ** usdt.decimals());
+
         // Phase 1: Liquidity Provision
         vm.startPrank(liquidityProvider);
-        usdt.approve(address(doppiRouter), 5000 * 10 ** usdt.decimals());
+        usdt.approve(address(doppiRouter), 100_000 * 10 ** usdt.decimals());
         btc.approve(address(doppiRouter), 10 * 10 ** btc.decimals());
         
-        uint256 sharesA = doppiRouter.deposit(address(usdt), 5000 * 10 ** usdt.decimals());
+        uint256 sharesA = doppiRouter.deposit(address(usdt), 100_000 * 10 ** usdt.decimals());
         uint256 sharesB = doppiRouter.deposit(address(btc), 10 * 10 ** btc.decimals());
         
         assertTrue(sharesA > 0);
@@ -157,11 +160,14 @@ contract DoppiProtocolScenariosTest is Test {
 
     // SCENARIO 2: Multiple Traders Competition
     function test_Scenario2_MultipleTradersCompetition() public {
+        vm.prank(owner);
+        usdt.mint(liquidityProvider, 500_000 * 10 ** usdt.decimals());
+
         // Setup liquidity
         vm.startPrank(liquidityProvider);
-        usdt.approve(address(doppiRouter), 8000 * 10 ** usdt.decimals());
+        usdt.approve(address(doppiRouter), 400_000 * 10 ** usdt.decimals());
         btc.approve(address(doppiRouter), 15 * 10 ** btc.decimals());
-        doppiRouter.deposit(address(usdt), 8000 * 10 ** usdt.decimals());
+        doppiRouter.deposit(address(usdt), 400_000 * 10 ** usdt.decimals());
         doppiRouter.deposit(address(btc), 15 * 10 ** btc.decimals());
         vm.stopPrank();
 

@@ -147,6 +147,7 @@ contract DeployDoppiAllMainnet is Script {
         privateAutomationHub.setDoppiPointsContract(address(doppiPoints));
         privateAutomationHub.setDoppiPointsExchangeRate(7); // 100000 point ~= 0.7 USDT unit (basis points)
         privateAutomationHub.setMinCreditThreshold(1 ether);
+        privateAutomationHub.setGlobalLimits(1, 64);
 
         // Register both factories + deployer as registrars in the hub.
         privateAutomationHub.setRegistrar(address(doppiFactory), true);

@@ -205,7 +205,7 @@ contract DoppiLiquidity is SoladyERC20, SoladyOwnable, Pausable, IDoppiLiquidity
     }
 
     function getMaxDepositAmount(bool isBuy) public view returns (uint256) {
-        uint256 poolSize = isBuy ? totalAssetsInAssetA() : totalAssetsInAssetB();
+        uint256 poolSize = isBuy ? assetA.balanceOf(address(this)) : assetB.balanceOf(address(this));
         return (poolSize * config.maxDepositPercentage) / BASIS_POINTS;
     }
 

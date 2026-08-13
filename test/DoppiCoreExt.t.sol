@@ -524,17 +524,10 @@ contract DoppiCoreExtTest is Test {
 
         configLP.maxDepositPercentage = 10000;
         doppiLP.setConfig(configLP);
-        // Deposit a buy position
-        
-        // 1st order 50k
+        // With balance-based capacity and interest liabilities accounted in
+        // currentDeposits, the second 50k buy already exceeds cap.
         DualAssetOffer memory buyOffer = _depositUSDT();
-        // 2nd order 50k
-        _depositUSDT();
-        // 3rd order 50k
-        _depositUSDT();
-        // _depositUSDT();
-        
-        // 4th order 50k, should fail
+
         DepositParams memory params = DepositParams({
             amount: 50_000 ether,
             strikeZone: 0,
@@ -545,7 +538,7 @@ contract DoppiCoreExtTest is Test {
         });
         vm.startPrank(user1);
         usdt.approve(address(doppiCore), params.amount);
-        vm.expectRevert("ExceedsPoolCap()");
+        vm.expectRevert(DoppiCore.ExceedsPoolCap.selector);
         doppiCore.deposit_buy(params);
 
         vm.stopPrank();
@@ -556,16 +549,11 @@ contract DoppiCoreExtTest is Test {
 
         configLP.maxDepositPercentage = 10000;
         doppiLP.setConfig(configLP);
-        
-        // 1st order 0.5
+
+        // With balance-based capacity and interest liabilities accounted in
+        // currentDeposits, the second 0.5 sell already exceeds cap.
         DualAssetOffer memory sellOffer = _depositBTC();
-        // 2nd order 0.5
-        _depositBTC();
-        // 3rd order 0.5
-        _depositBTC();
-        // _depositBTC();
-        
-        // 4th order 0.5, should fail
+
         DepositParams memory params = DepositParams({
             amount: 0.5 ether,
             strikeZone: 0,
@@ -575,8 +563,8 @@ contract DoppiCoreExtTest is Test {
             expiry: sellOffer.expiry
         });
         vm.startPrank(user1);
-        usdt.approve(address(doppiCore), params.amount);
-        vm.expectRevert("ExceedsPoolCap()");
+        btc.approve(address(doppiCore), params.amount);
+        vm.expectRevert(DoppiCore.ExceedsPoolCap.selector);
         doppiCore.deposit_sell(params);
 
         vm.stopPrank();

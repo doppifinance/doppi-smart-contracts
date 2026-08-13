@@ -245,7 +245,7 @@ contract DoppiOpportunityTest is Test {
         usdt.approve(address(doppiRouter), depositLPAmount);        
         btc.approve(address(doppiRouter), depositBTCAmount);        
         doppiRouter.deposit(address(usdt), depositLPAmount);
-        // doppiRouter.deposit(address(btc), depositBTCAmount);
+        doppiRouter.deposit(address(btc), depositBTCAmount);
         vm.stopPrank();
 
         DualAssetOffer memory sellOffer = impliedVol.getOffer(false, 1, 1);
@@ -409,7 +409,7 @@ contract DoppiOpportunityTest is Test {
         usdt.approve(address(doppiRouter), depositLPAmount);        
         btc.approve(address(doppiRouter), depositBTCAmount);        
         doppiRouter.deposit(address(usdt), depositLPAmount);
-        // doppiRouter.deposit(address(btc), depositBTCAmount);
+        doppiRouter.deposit(address(btc), depositBTCAmount);
         vm.stopPrank();
 
         uint256 totalDeposit = 500;

@@ -206,6 +206,8 @@ contract DoppiLiquidityGasTest is Test {
         doppiRouter.deposit(address(btc), depositBTCAmount);
         vm.stopPrank();
 
+        _approveCoreToLiquidityForSettleTests();
+
         uint256 totalSwaps = 500;
         uint256 priceChanges = 50; // Change price 50 times during test
         uint256 swapsPerPrice = totalSwaps / priceChanges;
@@ -279,6 +281,8 @@ contract DoppiLiquidityGasTest is Test {
         doppiRouter.deposit(address(usdt), depositLPAmount);
         doppiRouter.deposit(address(btc), depositBTCAmount);
         vm.stopPrank();
+
+        _approveCoreToLiquidityForSettleTests();
 
         uint256 max;
         uint256 min;
@@ -445,6 +449,8 @@ contract DoppiLiquidityGasTest is Test {
         doppiRouter.deposit(address(btc), depositBTCAmount);
         vm.stopPrank();
 
+        _approveCoreToLiquidityForSettleTests();
+
         uint256 totalSwaps = 500;
         uint256 priceChanges = 50; // Change price 50 times during test
         uint256 swapsPerPrice = totalSwaps / priceChanges;
@@ -516,6 +522,8 @@ contract DoppiLiquidityGasTest is Test {
         doppiRouter.deposit(address(usdt), depositLPAmount);
         doppiRouter.deposit(address(btc), depositBTCAmount);
         vm.stopPrank();
+
+        _approveCoreToLiquidityForSettleTests();
 
         uint256 totalSwaps = 500;
         uint256 priceChanges = 50; // Change price 50 times during test
@@ -790,6 +798,13 @@ contract DoppiLiquidityGasTest is Test {
             
             
         }
+    }
+
+    function _approveCoreToLiquidityForSettleTests() internal {
+        vm.startPrank(address(doppiCore));
+        usdt.approve(address(doppiLP), type(uint256).max);
+        btc.approve(address(doppiLP), type(uint256).max);
+        vm.stopPrank();
     }
 
     function _setupIV(DoppiOffer _impliedVol) internal {

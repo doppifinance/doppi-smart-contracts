@@ -143,16 +143,6 @@ contract DoppiLiquidityRouter is Ownable, Pausable, ReentrancyGuard {
         _;
     }
 
-    // internal
-
-    function _isPending() internal view returns (bool) {
-        // If price is unavailable, keep emergency withdraw blocked until owner fixes feed config.
-        if (doppiLP.getPrice() == 0) return true;
-        uint256 totalBuy = _getCurrentDeposits(true);
-        uint256 totalSell = _getCurrentDeposits(false);
-        return totalBuy > 0 || totalSell > 0;
-    }
-
     function _getTotalInterestLiabilities() internal view returns (uint256 liabilityA, uint256 liabilityB) {
         
         require(doppiCore != address(0), "doppiCore not set");

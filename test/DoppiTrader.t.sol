@@ -882,10 +882,9 @@ contract DoppiTraderTest is Test {
     function test_placeOrders_autoRoundBudget_fallbackFrom5To4() public {
         // cap == 0 -> auto mode.
         // available=1000, min=50, equal 5 zones:
-        // split 5 => budget 200 => 40/zone (invalid)
-        // split 4 => budget 250 => 50/zone (valid)
+        // split 3 (new max split cap) => budget 333.333... => 66.666.../zone (valid)
         doppiCore.setMinOrder(50 ether, 0.001 ether);
-        _seedPoolCapacity(0, 1 ether);
+        _seedPoolCapacity(10_000 ether, 1 ether);
 
         vm.startPrank(trader);
         doppiTrader.setMaxOrderPerRound(0, 0);
@@ -897,13 +896,15 @@ contract DoppiTraderTest is Test {
         DualAssetPosition[] memory buyPositions = doppiCore.get_positions_buy(address(doppiTrader));
         assertEq(buyPositions.length, 5);
 
+        uint256 available = 1000 ether;
+        uint256 expectedPerOrder = ((available / 3) * 2000) / 10000;
         uint256 totalPlaced;
         for (uint256 i = 0; i < buyPositions.length; ) {
-            assertEq(buyPositions[i].amount, 50 ether);
+            assertEq(buyPositions[i].amount, expectedPerOrder);
             totalPlaced += buyPositions[i].amount;
             unchecked { ++i; }
         }
-        assertEq(totalPlaced, 250 ether);
+        assertEq(totalPlaced, expectedPerOrder * 5);
     }
 
     function test_placeOrders_autoRoundBudget_fallbackFrom5To2() public {
@@ -912,7 +913,7 @@ contract DoppiTraderTest is Test {
         // split 5 => 40/zone invalid, split 4 => 50 invalid, split 3 => 66 invalid,
         // split 2 => 100 valid.
         doppiCore.setMinOrder(90 ether, 0.001 ether);
-        _seedPoolCapacity(0, 1 ether);
+        _seedPoolCapacity(10_000 ether, 1 ether);
 
         vm.startPrank(trader);
         doppiTrader.setMaxOrderPerRound(0, 0);

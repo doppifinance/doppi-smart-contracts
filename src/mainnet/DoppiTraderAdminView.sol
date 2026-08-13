@@ -669,7 +669,7 @@ abstract contract DoppiTraderAdminView is Ownable, Pausable {
         }
         if (activeWeightSlots == 0) return 0;
 
-        uint256 maxSplit = length < 5 ? length : 5;
+        uint256 maxSplit = length < 3 ? length : 3;
         for (uint256 split = maxSplit; split > 0; ) {
             uint256 candidateBudget = availableBalance / split;
             if (candidateBudget > 0) {
