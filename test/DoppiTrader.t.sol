@@ -1188,18 +1188,8 @@ contract DoppiTraderTest is Test {
         
 
         vm.startPrank(trader);
-        vm.expectRevert("ActiveOrders()");
         doppiTrader.emergencyWithdraw();
-        vm.stopPrank();
-
-        // let admin manually trigger emergency settlement in doppiCore to settle all positions
-        vm.startPrank(doppiCore.owner());
-        doppiCore.emergencySettlement(1);
-        vm.stopPrank();
-
-        vm.startPrank(trader);
-        doppiTrader.emergencyWithdraw();
-        // doppiTrader.emergencyWithdrawLP();
+        doppiTrader.emergencyWithdrawLP();
         vm.stopPrank();
 
         uint256 end_usdtbal = usdt.balanceOf(trader);
@@ -1209,7 +1199,7 @@ contract DoppiTraderTest is Test {
         console.log(start_btcbal, end_btcbal);
         
         // Check BTC balance decreased
-        assertEq(end_usdtbal, 9999999999999999999999999);
+        assertEq(end_usdtbal, 10000000000000000000000000);
         assertEq(end_btcbal, 100000000000000000000);
 
     }

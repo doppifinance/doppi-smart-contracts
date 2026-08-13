@@ -10,7 +10,6 @@ import {IDoppiPoints} from "../../Interface/IDoppiPoints.sol";
 import {AggregatorV3Interface} from "../../Interface/AggregatorV3Interface.sol";
 import {DALiquidityLib} from "../../Library/DALiquidityLib.sol";
 import {
-    RegisterPrivateBotParams,
     PrivateBotJobIds,
     PrivateAutomationModule,
     PrivateJobConfig,
@@ -355,38 +354,6 @@ contract PrivateAutomationHub is IPrivateAutomationHub, Ownable, ReentrancyGuard
     }
 
     // ── Job registration ──────────────────────────────────────────────────
-
-    function registerPrivateBotJobs(RegisterPrivateBotParams calldata params)
-        external
-        onlyRegistrar
-        returns (PrivateBotJobIds memory jobIds)
-    {
-        if (
-            params.trader      == address(0) ||
-            params.bot         == address(0) ||
-            params.core        == address(0) ||
-            params.opportunity == address(0) ||
-            params.liquidity   == address(0)
-        ) revert InvalidAddress();
-
-        jobIds.traderJobId      = _upsertJob(params.bot, PrivateAutomationModule.Trader,      params.bot);
-        jobIds.coreJobId        = _upsertJob(params.bot, PrivateAutomationModule.Core,        params.core);
-        jobIds.opportunityJobId = _upsertJob(params.bot, PrivateAutomationModule.Opportunity, params.opportunity);
-        jobIds.liquidityJobId   = _upsertJob(params.bot, PrivateAutomationModule.Liquidity,   params.liquidity);
-
-        // Record billing trader on first registration only.
-        if (botBilling[params.bot].trader == address(0)) {
-            botBilling[params.bot].trader = params.trader;
-        }
-    }
-
-    function disablePrivateBotJobs(address bot) external onlyRegistrar {
-        if (bot == address(0)) revert InvalidAddress();
-        _disableJob(bot, PrivateAutomationModule.Trader);
-        _disableJob(bot, PrivateAutomationModule.Core);
-        _disableJob(bot, PrivateAutomationModule.Opportunity);
-        _disableJob(bot, PrivateAutomationModule.Liquidity);
-    }
 
     /**
      * @notice Register a shared bot job (trader only, no core/opportunity/liquidity).
@@ -770,15 +737,6 @@ contract PrivateAutomationHub is IPrivateAutomationHub, Ownable, ReentrancyGuard
         if (existing.nextEligibleAt      == 0) existing.nextEligibleAt      = uint64(block.timestamp);
 
         emit JobUpdated(jobId, bot, module, target);
-    }
-
-    function _disableJob(address bot, PrivateAutomationModule module) internal {
-        uint256 jobId = jobIdByBotModule[bot][uint8(module)];
-        if (jobId == 0) return;
-        JobState storage j = jobs[jobId];
-        if (!j.active) return;
-        j.active = false;
-        emit JobDisabled(jobId, bot, module);
     }
 
     function _isDue(JobState storage j) internal view returns (bool) {

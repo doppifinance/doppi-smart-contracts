@@ -19,7 +19,6 @@ import {DoppiGridTrader} from "../src/mainnet/private/DoppiGridTrader.sol";
 import {DoppiOpportunity} from "../src/mainnet/DoppiOpportunity.sol";
 import {IPrivateAutomationHub} from "../src/Interface/IPrivateAutomationHub.sol";
 import {
-    RegisterPrivateBotParams,
     PrivateBotJobIds,
     PrivateAutomationModule,
     PrivateJobConfig,
@@ -57,14 +56,6 @@ contract MockPrivateAutomationHubForGrid is IPrivateAutomationHub {
         creditBalance = _creditBalance;
     }
 
-    function registerPrivateBotJobs(RegisterPrivateBotParams calldata)
-        external
-        pure
-        returns (PrivateBotJobIds memory jobIds)
-    {
-        return jobIds;
-    }
-
     function registerSharedBotJob(address trader, address bot, uint32 botId) external returns (uint256 jobId) {
         if (shouldRevert) revert("mock hub revert");
         sharedRegisterCount += 1;
@@ -73,8 +64,6 @@ contract MockPrivateAutomationHubForGrid is IPrivateAutomationHub {
         lastBotId = botId;
         return sharedRegisterCount;
     }
-
-    function disablePrivateBotJobs(address) external pure {}
 
     function getJobId(address, PrivateAutomationModule) external pure returns (uint256 jobId) {
         return 0;

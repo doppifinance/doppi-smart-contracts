@@ -21,6 +21,7 @@ contract DoppiTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCompati
 
 
     constructor() Ownable(msg.sender) {
+        _disableInitializers();
     }
 
     // Remove the constructor and replace with initialize function
@@ -118,14 +119,10 @@ contract DoppiTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCompati
         _removeMapping();
     }
 
-    function emergencyWithdraw() external nonReentrant {
+    function emergencyWithdrawLP() external nonReentrant {
         _onlyTrader();
         if (!doppiRouter.isEmergency() || !doppiRouter.paused()) revert NotEmergency();
-        // make sure no active orders
-        uint256 buyPosCount = doppiCore.getBuyPositionCount(address(this));
-        uint256 sellPosCount = doppiCore.getSellPositionCount(address(this));
-        if (buyPosCount > 0 || sellPosCount > 0) revert ActiveOrders();
-
+        
         IERC20(address(doppiLP)).safeIncreaseAllowance(address(doppiRouter), IERC20(address(doppiLP)).balanceOf(address(this)));
         doppiRouter.emergencyWithdraw();
 
@@ -139,6 +136,17 @@ contract DoppiTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCompati
         totalUnitsB = 0;
         costBasisB = 0;
         _removeMapping();
+    }
+
+    function emergencyWithdraw() external nonReentrant {
+        _onlyTrader();
+        if (!doppiCore.emergencyMode() || !doppiCore.paused()) revert NotEmergency();
+
+        uint256 buyPosCount = doppiCore.getBuyPositionCount(address(this));
+        uint256 sellPosCount = doppiCore.getSellPositionCount(address(this));
+        if (buyPosCount > 0 || sellPosCount > 0) {
+            doppiCore.emergencyWithdrawCoreOnly(buyPosCount + sellPosCount);
+        }
     }
 
     

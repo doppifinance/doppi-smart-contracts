@@ -20,7 +20,6 @@ import {DoppiOpportunity} from "../../src/mainnet/DoppiOpportunity.sol";
 // import {DoppiUpkeepManager} from "../../src/mainnet/DoppiUpkeepManager.sol";
 import {MockRegistryConsumer} from "../../src/test/MockRegistryConsumerLocalhost.sol";
 import {DoppiReferral} from "../../src/mainnet/DoppiReferral.sol";
-import {PrivateDoppiTraderFactory} from "../../src/mainnet/private/PrivateDoppiTraderFactory.sol";
 import {PrivateDoppiGridTraderFactory} from "../../src/mainnet/private/PrivateDoppiGridTraderFactory.sol";
 import {PrivateDoppiSimpleTraderFactory} from "../../src/mainnet/private/PrivateDoppiSimpleTraderFactory.sol";
 import {PrivateAutomationHub} from "../../src/mainnet/private/PrivateAutomationHub.sol";
@@ -122,19 +121,6 @@ contract DeployDoppiAll is Script {
         doppiLP.setDoppiTraderFactory(address(privateSimpleFactory));
         
 
-        // Deploy private factory
-        PrivateDoppiTraderFactory privateFactory = new PrivateDoppiTraderFactory(
-            IERC20(USDT),
-            IERC20(BTC),
-            address(impliedVol),
-            address(doppiPoints),
-            address(doppiFactory),
-            address(privateTraderImpl),
-            address(privateCoreImpl),
-            address(privateOpportunityImpl)
-        );
-        privateFactory.setLPConfig(configLP);
-
         // Deploy PrivateAutomationHub for private bot job scheduling and billing
         PrivateAutomationHub privateAutomationHub = new PrivateAutomationHub(
             deployer, // owner (deployer EOA)
@@ -151,9 +137,6 @@ contract DeployDoppiAll is Script {
             privateFeeToSharedLPBps
         );
 
-        doppiFeePool.setCoreAuthorizer(address(privateFactory));
-        privateFactory.setDefaultPrivateTreasury(address(doppiFeePool), privateTreasuryFeeBps);
-
         doppiFeePool.setCoreAuthorizer(address(privateGridFactory));
         privateGridFactory.setDefaultPrivateTreasury(address(doppiFeePool), privateTreasuryFeeBps);
 
@@ -162,7 +145,6 @@ contract DeployDoppiAll is Script {
 
         // Wire hub to both shared and private factories for auto job registration.
         doppiFactory.setPrivateAutomationHub(address(privateAutomationHub));
-        privateFactory.setPrivateAutomationHub(address(privateAutomationHub));
         privateGridFactory.setPrivateAutomationHub(address(privateAutomationHub));
         privateSimpleFactory.setPrivateAutomationHub(address(privateAutomationHub));
 
@@ -173,7 +155,6 @@ contract DeployDoppiAll is Script {
 
         // Register both factories + deployer as registrars in the hub.
         privateAutomationHub.setRegistrar(address(doppiFactory), true);
-        privateAutomationHub.setRegistrar(address(privateFactory), true);
         privateAutomationHub.setRegistrar(address(privateGridFactory), true);
         privateAutomationHub.setRegistrar(address(privateSimpleFactory), true);
         privateAutomationHub.setRegistrar(deployer, true);
@@ -184,7 +165,6 @@ contract DeployDoppiAll is Script {
         // Authorize PrivateAutomationHub to deduct points for fees in DoppiPoints
         doppiPoints.setAuthorizedPointsDeductor(address(privateAutomationHub), true);
 
-        doppiPoints.setCoreRegistrar(address(privateFactory), true);
         doppiPoints.setCoreRegistrar(address(privateGridFactory), true);
         doppiPoints.setCoreRegistrar(address(privateSimpleFactory), true);
 
@@ -194,7 +174,6 @@ contract DeployDoppiAll is Script {
         doppiLP.setForwarderAddress(forwarder);
 
         doppiFactory.setDefaultRatioLP(500); // 20% of capital go to LP
-        privateFactory.setDefaultRatioLP(500); // 20% of capital go to LP
         
 
 
@@ -222,7 +201,6 @@ contract DeployDoppiAll is Script {
         console.log("DoppiReferral:", address(doppiReferral));
         console.log("DoppiClaim:", address(doppiClaim));
         console.log("DoppiToken:", address(doppiToken));
-        console.log("PrivateDoppiFactory:", address(privateFactory));
         console.log("PrivateAutomationHub:", address(privateAutomationHub));
         console.log("DoppiFeePool:", address(doppiFeePool));
         console.log("PrivateGridFactory:", address(privateGridFactory));

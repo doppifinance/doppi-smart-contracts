@@ -20,7 +20,6 @@ import {DoppiOpportunity} from "../../src/mainnet/DoppiOpportunity.sol";
 // import {DoppiUpkeepManager} from "../../src/mainnet/DoppiUpkeepManager.sol";
 import {MockRegistryConsumer} from "../../src/test/MockRegistryConsumerLocalhost.sol";
 import {DoppiReferral} from "../../src/mainnet/DoppiReferral.sol";
-import {PrivateDoppiTraderFactory} from "../../src/mainnet/private/PrivateDoppiTraderFactory.sol";
 import {PrivateDoppiGridTraderFactory} from "../../src/mainnet/private/PrivateDoppiGridTraderFactory.sol";
 import {PrivateDoppiSimpleTraderFactory} from "../../src/mainnet/private/PrivateDoppiSimpleTraderFactory.sol";
 import {PrivateAutomationHub} from "../../src/mainnet/private/PrivateAutomationHub.sol";
@@ -100,12 +99,7 @@ contract DeployDoppiAll is Script {
 
         doppiPoints.setCoreTraderFactory(address(doppiCore), address(doppiFactory));
 
-        // // Deploy private factory implementations
-        DoppiCore privateCoreImpl = new DoppiCore(USDT, BTC, doppiLP, impliedVol, address(doppiPoints));
-        DoppiTrader privateTraderImpl = new DoppiTrader();
-        DoppiOpportunity privateOpportunityImpl = new DoppiOpportunity(address(0), address(0));
-
-        
+        // Deploy private trader bot implementations for simple/grid factories.
         DoppiGridTrader privateGridTraderImpl = new DoppiGridTrader();
         PrivateDoppiGridTraderFactory privateGridFactory = new PrivateDoppiGridTraderFactory(
             IERC20(USDT),
@@ -131,20 +125,6 @@ contract DeployDoppiAll is Script {
         doppiLP.setDoppiTraderFactory(address(privateSimpleFactory));
         
 
-        // Deploy private factory
-        PrivateDoppiTraderFactory privateFactory = new PrivateDoppiTraderFactory(
-            IERC20(USDT),
-            IERC20(BTC),
-            address(impliedVol),
-            address(doppiPoints),
-            address(doppiFactory),
-            address(privateTraderImpl),
-            address(privateCoreImpl),
-            address(privateOpportunityImpl)
-        );
-        privateFactory.setLPConfig(configLP);
-
-
         // Deploy PrivateAutomationHub for private bot job scheduling and billing
         PrivateAutomationHub privateAutomationHub = _deployExistingDoppiHub();
         
@@ -155,9 +135,6 @@ contract DeployDoppiAll is Script {
             privateFeeToSharedLPBps
         );
 
-        doppiFeePool.setCoreAuthorizer(address(privateFactory));
-        privateFactory.setDefaultPrivateTreasury(address(doppiFeePool), privateTreasuryFeeBps);
-
         doppiFeePool.setCoreAuthorizer(address(privateGridFactory));
         privateGridFactory.setDefaultPrivateTreasury(address(doppiFeePool), privateTreasuryFeeBps);
 
@@ -166,17 +143,14 @@ contract DeployDoppiAll is Script {
 
         // Wire hub to both shared and private factories for auto job registration.
         doppiFactory.setPrivateAutomationHub(address(privateAutomationHub));
-        privateFactory.setPrivateAutomationHub(address(privateAutomationHub));
         privateGridFactory.setPrivateAutomationHub(address(privateAutomationHub));
         privateSimpleFactory.setPrivateAutomationHub(address(privateAutomationHub));
 
         // Register both factories + deployer as registrars in the hub.
         privateAutomationHub.setRegistrar(address(doppiFactory), true);
-        privateAutomationHub.setRegistrar(address(privateFactory), true);
         privateAutomationHub.setRegistrar(address(privateGridFactory), true);
         privateAutomationHub.setRegistrar(address(privateSimpleFactory), true);
 
-        doppiPoints.setCoreRegistrar(address(privateFactory), true);
         doppiPoints.setCoreRegistrar(address(privateGridFactory), true);
         doppiPoints.setCoreRegistrar(address(privateSimpleFactory), true);
 
@@ -199,14 +173,10 @@ contract DeployDoppiAll is Script {
         console.log("DoppiTraderFactory:", address(doppiFactory));
         console.log("DoppiReferral:", address(doppiReferral));
         console.log("DoppiClaim:", address(doppiClaim));
-        console.log("PrivateDoppiFactory:", address(privateFactory));
         console.log("PrivateAutomationHub:", address(privateAutomationHub));
         console.log("DoppiFeePool:", address(doppiFeePool));
         console.log("PrivateGridFactory:", address(privateGridFactory));
         console.log("PrivateSimpleFactory:", address(privateSimpleFactory));
-        console.log("PrivateCoreImpl:", address(privateCoreImpl));
-        console.log("PrivateTraderImpl:", address(privateTraderImpl));
-        console.log("PrivateOpportunityImpl:", address(privateOpportunityImpl));
         console.log("PrivateGridTraderImpl:", address(privateGridTraderImpl));
         console.log("PrivateSimpleTraderImpl:", address(privateSimpleTraderImpl));
         console.log("MockOracle:", address(oracle));

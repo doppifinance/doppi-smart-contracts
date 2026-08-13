@@ -70,7 +70,9 @@ contract DoppiGridTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCom
     error NoEnoughBalance();
     error RecordTradeFailed();
 
-    constructor() Ownable(msg.sender) {}
+    constructor() Ownable(msg.sender) {
+        _disableInitializers();
+    }
 
     function initialize(
         address _trader,
@@ -295,7 +297,7 @@ contract DoppiGridTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCom
 
     function setEpochDuration(uint32 _epochDuration) external {
         _onlyTrader();
-        require(_epochDuration > 0, "invalid epoch duration");
+        require(_epochDuration > 1 days && _epochDuration < 15 days, "invalid epoch duration");
         epochDuration = _epochDuration;
     }
 

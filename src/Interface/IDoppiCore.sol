@@ -21,4 +21,5 @@ interface IDoppiCore {
     function doppiOffer() external view returns (IDoppiOffer);
     function canAcceptDeposit(bool isBuy, uint256 depositAmount) external view returns (bool);
     function supportDays() external view returns (uint8[] memory); 
+    function emergencyWithdrawCoreOnly(uint256 maxPositions) external returns (uint256 processed, uint256 remaining, uint256 payoutA, uint256 payoutB);
 }

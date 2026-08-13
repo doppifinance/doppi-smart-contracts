@@ -68,7 +68,9 @@ contract DoppiSimpleTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationC
     error NoEnoughBalance();
     error RecordTradeFailed();
 
-    constructor() Ownable(msg.sender) {}
+    constructor() Ownable(msg.sender) {
+        _disableInitializers();
+    }
 
     function initialize(
         address _trader,

@@ -7,11 +7,10 @@ import {IDoppiLiquidity} from "../Interface/IDoppiLiquidity.sol";
 import {IDoppiOpportunity} from "../Interface/IDoppiOpportunity.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {Pausable} from "@openzeppelin/contracts/utils/Pausable.sol";
-import {Initializable} from "@openzeppelin/contracts/proxy/utils/Initializable.sol";
 import {OpportunityOrders, StrikeNode} from "./DoppiCoreTypes.sol";
 // import "forge-std/console.sol";
 
-contract DoppiOpportunity is Ownable, Pausable, AutomationCompatibleInterface, Initializable, IDoppiOpportunity {
+contract DoppiOpportunity is Ownable, Pausable, AutomationCompatibleInterface, IDoppiOpportunity {
     error ZeroForwarder();
     error InvalidForwarder();
     error InvalidBps();
@@ -39,18 +38,8 @@ contract DoppiOpportunity is Ownable, Pausable, AutomationCompatibleInterface, I
     uint256 internal activeSellStrikeCount;
     
     constructor(address _doppiCore, address _doppiLP) Ownable(msg.sender) {
-        _disableInitializers();
         doppiCore = DoppiCore(_doppiCore);
         doppiLP = IDoppiLiquidity(_doppiLP);
-    }
-
-    function initialize(address _doppiCore) external override initializer {
-        if (_doppiCore == address(0)) revert InvalidCore();
-        doppiCore = DoppiCore(_doppiCore);
-        doppiLP = doppiCore.doppiLP();
-        opportunityBufferCutBps = 2000;
-        opportunityMinBufferBps = 100;
-        _transferOwnership(msg.sender);
     }
 
     function setForwarderAddress(address forwarderAddress) external onlyOwner {
@@ -184,15 +173,34 @@ contract DoppiOpportunity is Ownable, Pausable, AutomationCompatibleInterface, I
 
     function subtractOpportunityBuy(uint256 strikePrice, uint256 subtractSwapped, uint256 subtractOut) external override onlyDoppiCore {
         OpportunityOrders storage opp = opportunityBuy[strikePrice];
-        opp.swappedAmount -= subtractSwapped;
-        opp.outAmount -= subtractOut;
+        if (opp.swappedAmount <= subtractSwapped) {
+            opp.swappedAmount = 0;
+        } else {
+            opp.swappedAmount -= subtractSwapped;
+        }
+
+        if (opp.outAmount <= subtractOut) {
+            opp.outAmount = 0;
+        } else {
+            opp.outAmount -= subtractOut;
+        }
+
         _syncStrikeState(strikePrice, true);
     }
 
     function subtractOpportunitySell(uint256 strikePrice, uint256 subtractSwapped, uint256 subtractOut) external override onlyDoppiCore {
         OpportunityOrders storage opp = opportunitySell[strikePrice];
-        opp.swappedAmount -= subtractSwapped;
-        opp.outAmount -= subtractOut;
+        if (opp.swappedAmount <= subtractSwapped) {
+            opp.swappedAmount = 0;
+        } else {
+            opp.swappedAmount -= subtractSwapped;
+        }
+
+        if (opp.outAmount <= subtractOut) {
+            opp.outAmount = 0;
+        } else {
+            opp.outAmount -= subtractOut;
+        }
         _syncStrikeState(strikePrice, false);
     }
 

@@ -14,11 +14,10 @@ import {AggregatorV3Interface} from "../Interface/AggregatorV3Interface.sol";
 import "./DoppiLiquidityTypes.sol";
 import {ERC20 as SoladyERC20} from "solady/tokens/ERC20.sol";
 import {Ownable as SoladyOwnable} from "solady/auth/Ownable.sol";
-import {Initializable as SoladyInitializable} from "solady/utils/Initializable.sol";
 import {SafeTransferLib} from "solady/utils/SafeTransferLib.sol";
 // import "forge-std/console.sol";
 
-contract DoppiLiquidity is SoladyERC20, SoladyOwnable, Pausable, IDoppiLiquidity, AutomationCompatibleInterface, ReentrancyGuard, SoladyInitializable {
+contract DoppiLiquidity is SoladyERC20, SoladyOwnable, Pausable, IDoppiLiquidity, AutomationCompatibleInterface, ReentrancyGuard {
     using SafeTransferLib for address;
     using Math for uint256;
 
@@ -61,6 +60,7 @@ contract DoppiLiquidity is SoladyERC20, SoladyOwnable, Pausable, IDoppiLiquidity
     event EntryPointSet(address indexed entryPoint, bool isValid);
     event EntryPointsLocked();
     event TraderFactoryAllowed(address indexed traderFactory, bool allowed);
+    event EmergencyRedeemed(address indexed owner, address indexed receiver, uint256 shares, uint256 amountA, uint256 amountB);
 
     modifier onlyDoppiCore() {
         require(msg.sender == doppiCore, "only doppicore");
@@ -79,17 +79,6 @@ contract DoppiLiquidity is SoladyERC20, SoladyOwnable, Pausable, IDoppiLiquidity
 
     constructor(string memory _name, string memory _symbol, address _assetA, address _assetB) {
         _initializeLiquidity(_name, _symbol, _assetA, _assetB, msg.sender);
-        _disableInitializers();
-    }
-
-    function initialize(
-        string memory _name,
-        string memory _symbol,
-        address _assetA,
-        address _assetB,
-        address initialOwner
-    ) external initializer {
-        _initializeLiquidity(_name, _symbol, _assetA, _assetB, initialOwner);
     }
 
     function _initializeLiquidity(
@@ -323,6 +312,35 @@ contract DoppiLiquidity is SoladyERC20, SoladyOwnable, Pausable, IDoppiLiquidity
 
     function burnShares(address from, uint256 amount) external onlyEntryPoints {
         _burn(from, amount);
+    }
+
+    function emergencyRedeemShares(
+        address owner,
+        uint256 shares,
+        address receiver
+    ) external nonReentrant returns (uint256 amountA, uint256 amountB) {
+        require(msg.sender == doppiLiquidityRouter, "only router");
+        require(receiver != address(0), "zero receiver");
+        require(shares > 0, "zero shares");
+
+        uint256 totalShares = totalSupply();
+        require(totalShares > 0, "zero supply");
+
+        uint256 balA = assetA.balanceOf(address(this));
+        uint256 balB = assetB.balanceOf(address(this));
+        amountA = (balA * shares) / totalShares;
+        amountB = (balB * shares) / totalShares;
+
+        _burn(owner, shares);
+
+        if (amountA > 0) {
+            assetA.safeTransfer(receiver, amountA);
+        }
+        if (amountB > 0) {
+            assetB.safeTransfer(receiver, amountB);
+        }
+
+        emit EmergencyRedeemed(owner, receiver, shares, amountA, amountB);
     }
 
     function spendAllowance(address owner, address spender, uint256 amount) external onlyEntryPoints {

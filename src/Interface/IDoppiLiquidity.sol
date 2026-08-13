@@ -28,4 +28,9 @@ interface IDoppiLiquidity {
         uint256 maxDepositAmount,
         uint256 availableCapacity
     );
+    function emergencyRedeemShares(
+        address owner,
+        uint256 shares,
+        address receiver
+    ) external returns (uint256 amountA, uint256 amountB);
 }

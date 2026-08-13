@@ -9,17 +9,6 @@ enum PrivateAutomationModule {
     Liquidity
 }
 
-/// @notice Registration payload used by factory -> automation hub.
-struct RegisterPrivateBotParams {
-    address trader;
-    address bot;
-    address core;
-    address opportunity;
-    address liquidity;
-    address router;
-    uint32 botId;
-}
-
 /// @notice Returned job ids for each private module.
 struct PrivateBotJobIds {
     uint256 traderJobId;

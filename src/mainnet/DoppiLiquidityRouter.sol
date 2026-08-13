@@ -39,7 +39,6 @@ contract DoppiLiquidityRouter is Ownable, Pausable, ReentrancyGuard {
     }
 
     function deposit(address _asset, uint256 _amount) external nonReentrant whenNotPaused returns (uint256 shares) {
-        _onlyAllowedUser();
         IERC20(_asset).safeTransferFrom(msg.sender, address(this), _amount);
 
         if (_asset == assetA) {
@@ -55,7 +54,6 @@ contract DoppiLiquidityRouter is Ownable, Pausable, ReentrancyGuard {
     }
 
     function redeem(uint256 _shares) external nonReentrant whenNotPaused returns (uint256 assetsA, uint256 assetsB) {
-        _onlyAllowedUser();
         
         uint256 maxWithdrawable = _getWithdrawableAmount(msg.sender);
         require(_shares <= maxWithdrawable, "exceeds available capacity");
@@ -66,20 +64,11 @@ contract DoppiLiquidityRouter is Ownable, Pausable, ReentrancyGuard {
     /// @notice Emergency withdraw function for users to redeem their shares without restrictions during emergency mode. Only callable when the contract is paused and in emergency mode.
     /// @dev This function allows users to redeem their shares for the underlying assets without any checks on available capacity or liabilities. It must ensure DoppiCore has settled all positions before allowing withdrawals to prevent insolvency. The function should be protected against reentrancy and can only be called when the contract is paused and in emergency mode.
     function emergencyWithdraw() external whenEmergency whenPaused nonReentrant {
-        _onlyAllowedUser();
         uint256 userShares = IERC20(address(doppiLP)).balanceOf(msg.sender);
         require(userShares > 0, "No shares to withdraw");   
-        require(_isPending() == false, "Pending orders exist"); // Ensure no pending orders in DoppiCore   
 
         IERC20(address(doppiLP)).safeTransferFrom(msg.sender, address(this), userShares);
-        (uint256 ratioA, uint256 ratioB) = doppiLP.assetRatio();
-        uint256 totalRatio = ratioA + ratioB;
-        require(totalRatio > 0, "Pool empty or price unavailable");
-        uint256 firstHalf = userShares * ratioA / totalRatio;
-        uint256 secondHalf = userShares - firstHalf;        
-        uint256 assetsA = entryPointA.redeem(firstHalf, msg.sender, address(this));
-        uint256 assetsB = entryPointB.redeem(secondHalf, msg.sender, address(this));
-        doppiLP.cleanUpUnwind(assetsA, assetsB);
+        (uint256 assetsA, uint256 assetsB) = doppiLP.emergencyRedeemShares(address(this), userShares, msg.sender);
 
         emit EmergencyWithdraw(msg.sender, userShares, assetsA, assetsB);
     }
@@ -152,12 +141,6 @@ contract DoppiLiquidityRouter is Ownable, Pausable, ReentrancyGuard {
     modifier whenEmergency() {
         require(emergencyMode, "Not in emergency mode");
         _;
-    }
-
-    function _onlyAllowedUser() internal view {
-        if (privateMode) {
-            require(allowedUsers[msg.sender], "Not allowed user");
-        }
     }
 
     // internal

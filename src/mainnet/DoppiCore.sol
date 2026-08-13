@@ -5,19 +5,19 @@ import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
-import {Initializable} from "@openzeppelin/contracts/proxy/utils/Initializable.sol";
 import {AutomationCompatibleInterface} from "../Interface/AutomationCompatibleInterface.sol";
 import {IDoppiTrader} from "../Interface/IDoppiTrader.sol";
 import {IDoppiPoints} from "../Interface/IDoppiPoints.sol";
 import {IDoppiOffer} from "../Interface/IDoppiOffer.sol";
 import {IDoppiOpportunity} from "../Interface/IDoppiOpportunity.sol";
 import {DoppiOpportunity} from "./DoppiOpportunity.sol";
+import {DALiquidityLib} from "../Library/DALiquidityLib.sol";
 import "./DoppiCoreTypes.sol";
 import "./DoppiCoreAdmin.sol";
 import "./DoppiCoreView.sol";
 // import "forge-std/console.sol";
 
-contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, AutomationCompatibleInterface, Initializable {
+contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, AutomationCompatibleInterface {
     using SafeERC20 for IERC20;
 
     bytes4 constant SWAP_SELECTOR = bytes4(keccak256("swap(uint256,uint256,bool)"));
@@ -60,6 +60,8 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
         uint256 paidInterest,
         bool fullyClaimed
     );
+    event EmergencySnapshotLocked(uint256 priceE8, uint256 assetA, uint256 assetB, uint256 totalBuy, uint256 totalSell, uint256 totalWeightA);
+    event EmergencyCoreWithdraw(address indexed owner, uint256 buyPrincipal, uint256 sellPrincipal, uint256 payoutA, uint256 payoutB, uint256 processed);
     
     error InvalidStrikePriceOrPrice();
     error InvalidAPR();
@@ -83,7 +85,9 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
     error OpportunityMutateFailed();
     error PendingNotFound();
     error NotPendingOwner();
-
+    error NotEmergencyMode();
+    error EmergencySnapshotNotLocked();
+    error InvalidEmergencyConfig();
 
     constructor(address _assetA, address _assetB, IDoppiLiquidity _doppiLP, IDoppiOffer _doppiOffer, address _doppiPoints)
         Ownable(msg.sender)
@@ -100,21 +104,7 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
         );
     }
 
-    /// @notice Initialize for proxy pattern (called via proxy after deployment)
-    function initialize(
-        address _assetA,
-        address _assetB,
-        address _doppiLP,
-        address _doppiOffer,
-        address _doppiPoints,
-        address _owner,
-        address _doppiOpportunity
-    ) external initializer {
-        if (_doppiOpportunity == address(0)) revert NotExist();
-        _initializeDoppiCore(_assetA, _assetB, IDoppiLiquidity(_doppiLP), IDoppiOffer(_doppiOffer), _doppiPoints, _owner, _doppiOpportunity);
-    }
-
-    /// @notice Internal initialization logic shared by constructor and initialize
+    /// @notice Internal initialization logic used by constructor deployment.
     function _initializeDoppiCore(
         address _assetA,
         address _assetB,
@@ -239,6 +229,9 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
         returns (bool upkeepNeeded, bytes memory performData)
     {
         if(paused()) return (false, bytes(""));
+        if(emergencyMode) return (false, bytes(""));
+        uint256 price = doppiLP.getPrice();
+        if(price == 0) return (false, bytes(""));
 
         uint64[] memory supportDaysPositions = new uint64[](supportDays.length);
         uint8[] memory durationDay = new uint8[](supportDays.length);
@@ -321,10 +314,99 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
         );
     }
 
-    function emergencySettlement(uint8 day) external whenPaused nonReentrant onlyOwner {
-        
-        if (!emergencyMode) revert EmergencyModeActive();
-        _emergencySettlement(day);
+    function setEmergencyMode(bool _emergency) public override onlyOwner whenPaused {
+        super.setEmergencyMode(_emergency);
+        if (_emergency) {
+            _lockEmergencySnapshot();
+        } else {
+            delete emergencySnapshot;
+        }
+    }
+
+    function emergencyWithdrawCoreOnly(uint256 maxPositions)
+        external
+        whenPaused
+        nonReentrant
+        returns (uint256 processed, uint256 remaining, uint256 payoutA, uint256 payoutB)
+    {
+        if (!emergencyMode) revert NotEmergencyMode();
+        EmergencySnapshot memory snapshot = emergencySnapshot;
+        if (!snapshot.locked) revert EmergencySnapshotNotLocked();
+        if (maxPositions == 0) revert InvalidAmount();
+
+        uint256 buyPrincipal;
+        uint256 sellPrincipal;
+
+        for (uint8 x = 0; x < supportDays.length && processed < maxPositions; ) {
+            uint8 day = supportDays[x];
+            for (uint64 i = nextProcessId[day]; i < nextPositionId[day] && processed < maxPositions; ) {
+                DualAssetPosition storage buyPos = positions_buy[day][i];
+                if (buyPos.owner == msg.sender && buyPos.amount > 0) {
+                    buyPrincipal += buyPos.amount;
+                    _updateTotalDeposit(buyPos.amount, true);
+                    _removeInterestLiability(buyPos.interest, true);
+                    delete positions_buy[day][i];
+                    unchecked { ++processed; }
+                }
+
+                if (processed >= maxPositions) break;
+
+                DualAssetPosition storage sellPos = positions_sell[day][i];
+                if (sellPos.owner == msg.sender && sellPos.amount > 0) {
+                    sellPrincipal += sellPos.amount;
+                    _updateTotalDeposit(sellPos.amount, false);
+                    _removeInterestLiability(sellPos.interest, false);
+                    delete positions_sell[day][i];
+                    unchecked { ++processed; }
+                }
+
+                unchecked { ++i; }
+            }
+
+            // Keep the day cursor aligned after deletions so upkeep scans do not
+            // get stuck on empty IDs at the head of the queue.
+            uint64 cursor = nextProcessId[day];
+            uint64 tail = nextPositionId[day];
+            while (cursor < tail && !_posExist(day, cursor)) {
+                unchecked { ++cursor; }
+            }
+            nextProcessId[day] = cursor;
+
+            unchecked { ++x; }
+        }
+
+        remaining = _getBuyPositionCount(msg.sender) + _getSellPositionCount(msg.sender);
+        if (buyPrincipal == 0 && sellPrincipal == 0) {
+            return (processed, remaining, 0, 0);
+        }
+
+        // Defensive guard: snapshot lock already prevents zero totalWeightA,
+        // but if storage is ever inconsistent we avoid a panic division by zero.
+        if (snapshot.totalWeightA == 0) {
+            emit EmergencyCoreWithdraw(msg.sender, buyPrincipal, sellPrincipal, 0, 0, processed);
+            return (processed, remaining, 0, 0);
+        }
+
+        uint256 userWeightA = buyPrincipal + (sellPrincipal * uint256(snapshot.priceE8)) / 1e8;
+        uint256 expectedPayoutA = (snapshot.assetA * userWeightA) / snapshot.totalWeightA;
+        uint256 expectedPayoutB = (snapshot.assetB * userWeightA) / snapshot.totalWeightA;
+
+        if (expectedPayoutA > 0) {
+            uint256 availableA = assetA.balanceOf(address(this));
+            uint256 transferA = expectedPayoutA > availableA ? availableA : expectedPayoutA;
+            if (transferA > 0 && _attemptDirectTransfer(assetA, msg.sender, transferA)) {
+                payoutA = transferA;
+            }
+        }
+        if (expectedPayoutB > 0) {
+            uint256 availableB = assetB.balanceOf(address(this));
+            uint256 transferB = expectedPayoutB > availableB ? availableB : expectedPayoutB;
+            if (transferB > 0 && _attemptDirectTransfer(assetB, msg.sender, transferB)) {
+                payoutB = transferB;
+            }
+        }
+
+        emit EmergencyCoreWithdraw(msg.sender, buyPrincipal, sellPrincipal, payoutA, payoutB, processed);
     }
 
     function addSupportDay(uint8 _day) external onlyOwner {
@@ -421,59 +503,33 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
         return deviation <= maxAllowedDeviation;
     }
 
-    function _emergencySettlement(uint8 day) internal {
-
-        uint256 unsettledLen = getPositionLength(day);
-        if(unsettledLen == 0) return;
-        
-        uint64 start = nextProcessId[day];
-        uint64 end = start + (uint64(unsettledLen) < uint64(UPKEEPS_PER_CHECK) ? uint64(unsettledLen) : uint64(UPKEEPS_PER_CHECK));
-
-        uint256 price = _getPriceFromLP();
-        for (uint64 i = start; i < end; ) {
-            bool exist = _posExist(day, i);
-            if(exist) {
-                bool isBuy = positions_buy[day][i].amount > 0;
-                DualAssetPosition memory pos = positions_buy[day][i].amount > 0 ? positions_buy[day][i] : positions_sell[day][i];
-
-                if (pos.amount > 0) {
-                    uint256 amountToReturn = pos.amount;
-                    uint256 interest = pos.interest;
-                    OpportunityOrders memory opp = _getOpportunityOrdersInternal(isBuy, pos.strikePrice);
-                    uint256 tradedPortion = opp.swappedAmount < pos.amount ? opp.swappedAmount : pos.amount;
-                    uint8 tradeState = tradedPortion == 0 ? 0 : (tradedPortion >= pos.amount ? 2 : 1);
-                    uint256 myAmountOut = opp.swappedAmount > 0 ? Math.mulDiv(opp.outAmount, tradedPortion, opp.swappedAmount) : 0;
-                    IERC20 payoutToken = isBuy ? assetA : assetB;
-
-                    // Update total deposits (prevent underflow)
-                    _updateTotalDeposit(amountToReturn, isBuy);
-                    _removeInterestLiability(interest, isBuy);
-                    if (isBuy) {
-                        delete positions_buy[day][i];
-                        _settleNoStrikePlanned(pos, price, isBuy, tradeState, tradedPortion, myAmountOut, payoutToken);
-                    } else {                            
-                        delete positions_sell[day][i];
-                        _settleNoStrikePlanned(pos, price, isBuy, tradeState, tradedPortion, myAmountOut, payoutToken);
-                    }
-
-                    if (!_attemptDirectTransfer(payoutToken, pos.owner, amountToReturn)) {
-                        _storePendingSettlement(
-                            pos.owner,
-                            pos.strikePrice,
-                            price,
-                            payoutToken,
-                            payoutToken,
-                            amountToReturn,
-                            0
-                        );
-                    }
-                    nextProcessId[day] = i + 1;
-                    emit EmergencyWithdraw(isBuy, pos.owner, i, amountToReturn);
-                }
-            }
-            unchecked { ++i; }
+    function _lockEmergencySnapshot() internal {
+        if (emergencySnapshot.locked) return;
+        uint256 priceE8 = doppiLP.getPrice();
+        if (emergencyV3Pool != address(0) && emergencyTwapDuration > 0) {
+            priceE8 = DALiquidityLib.getTWAPPrice(emergencyV3Pool, emergencyTwapDuration);
         }
-        
+        if (priceE8 == 0 || priceE8 > type(uint96).max) revert InvalidEmergencyConfig();
+
+        uint256 snapshotAssetA = assetA.balanceOf(address(this));
+        uint256 snapshotAssetB = assetB.balanceOf(address(this));
+        uint256 snapshotTotalBuy = totalBuyDeposits;
+        uint256 snapshotTotalSell = totalSellDeposits;
+        uint256 snapshotTotalWeightA = snapshotTotalBuy + (snapshotTotalSell * priceE8) / 1e8;
+        if (snapshotTotalWeightA == 0) revert InvalidEmergencyConfig();
+
+        emergencySnapshot = EmergencySnapshot({
+            assetA: snapshotAssetA,
+            assetB: snapshotAssetB,
+            totalBuy: snapshotTotalBuy,
+            totalSell: snapshotTotalSell,
+            totalWeightA: snapshotTotalWeightA,
+            priceE8: uint96(priceE8),
+            blockNumber: uint64(block.number),
+            locked: true
+        });
+
+        emit EmergencySnapshotLocked(priceE8, snapshotAssetA, snapshotAssetB, snapshotTotalBuy, snapshotTotalSell, snapshotTotalWeightA);
     }
 
     function _processNewSettlements(

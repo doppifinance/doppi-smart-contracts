@@ -8,7 +8,6 @@ import "../mainnet/DoppiCoreTypes.sol";
  * Separate from the existing DoppiOpportunity bot contract.
  */
 interface IDoppiOpportunity {
-    function initialize(address _doppiCore) external;
     function getBuyOpportunity(uint256 strikePrice) external view returns (OpportunityOrders memory);
     function getSellOpportunity(uint256 strikePrice) external view returns (OpportunityOrders memory);
     function getOpportunityOrders(bool isBuy, uint256 strikePrice) external view returns (OpportunityOrders memory);
