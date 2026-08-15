@@ -29,6 +29,7 @@ contract DoppiLiquidity is SoladyERC20, SoladyOwnable, Pausable, IDoppiLiquidity
 
     Config public config;
     uint16 public constant BASIS_POINTS = 10000;
+    uint24 public constant MAX_SLIPPAGE_BPS = 3000;
     address public assetA;
     address public assetB;
     address public doppiCore;
@@ -61,6 +62,8 @@ contract DoppiLiquidity is SoladyERC20, SoladyOwnable, Pausable, IDoppiLiquidity
     event EntryPointsLocked();
     event TraderFactoryAllowed(address indexed traderFactory, bool allowed);
     event EmergencyRedeemed(address indexed owner, address indexed receiver, uint256 shares, uint256 amountA, uint256 amountB);
+
+    error SlippageTooHigh();
 
     modifier onlyDoppiCore() {
         require(msg.sender == doppiCore, "only doppicore");
@@ -106,20 +109,21 @@ contract DoppiLiquidity is SoladyERC20, SoladyOwnable, Pausable, IDoppiLiquidity
     function interestGet(
         address _interestToken,
         uint256 interest,
-        uint256 price,
-        bool isBuy
+        uint256 price
     ) external nonReentrant onlyDoppiCore {
 
         uint256 interestbal = _interestToken.balanceOf(address(this));
-        if(interestbal > interest){
-            _interestToken.safeTransfer(msg.sender, interest);
+        if(interestbal >= interest){
+            if (interest > 0) {
+                _interestToken.safeTransfer(msg.sender, interest);
+            }
         }else{
             // swap interest in dex 
             uint256 diff = interest - interestbal;
             address assetIn = _interestToken == address(assetA) ? address(assetB) : address(assetA);
-            uint256 amountInInterest = isBuy
-                ? (diff * config.decimals) / price
-                : (diff * price) / config.decimals;
+            uint256 amountInInterest = _interestToken == address(assetB)
+                ? (diff * price) / config.decimals       // Buy B using A
+                : (diff * config.decimals) / price;      // Buy A using B
 
             _swapExactOutputV3(diff, assetIn, _interestToken, address(this), amountInInterest); 
             uint256 balInt = _interestToken.balanceOf(address(this));
@@ -137,7 +141,14 @@ contract DoppiLiquidity is SoladyERC20, SoladyOwnable, Pausable, IDoppiLiquidity
         if(_payout > balance){
             uint256 diff = _payout - balance;
             uint256 newAmountIn = _isBuy ? (diff * _price) / config.decimals : (diff * config.decimals) / _price;
-            _swapExactOutputV3(diff, assetIn, assetOut, address(this), newAmountIn); 
+            uint256 actualAmountIn = _swapExactOutputV3(diff, assetIn, assetOut, address(this), newAmountIn);
+            if (_amountIn > actualAmountIn) {
+                _updateUnwindTarget(
+                    _amountIn - actualAmountIn,
+                    _price,
+                    _isBuy
+                );
+            }
             assetOut.safeTransfer(msg.sender, _payout);
         } else {
             assetOut.safeTransfer(msg.sender, _payout);
@@ -236,6 +247,7 @@ contract DoppiLiquidity is SoladyERC20, SoladyOwnable, Pausable, IDoppiLiquidity
 
         require(_config.maxDepositPercentage <= 50000, "Max deposit too high"); // Max 5x of LP capacity
         require(_config.liquidityFee <= 5000, "liquidity fee too high"); // Max 0.5%
+        if (_config.slippage > MAX_SLIPPAGE_BPS) revert SlippageTooHigh();
         require(_config.priceDecimals > 0, "Invalid price decimals");
         require(_config.priceGap > 0, "Invalid price gap");
         require(_config.unwindGapMultiplier > 0, "Invalid unwind multiplier");
@@ -404,9 +416,9 @@ contract DoppiLiquidity is SoladyERC20, SoladyOwnable, Pausable, IDoppiLiquidity
             }        
             uint256 out = _swapPancake(totalAmount, totalAmountOut, isNetBuy);
             emit UnwindPerformed(isNetBuy, totalAmount, out);
+            _clearOrders(buyindexes, true, totalBuyAmount);
+            _clearOrders(sellindexes, false, totalSellAmount);
         }
-        _clearOrders(buyindexes, true, totalBuyAmount);
-        _clearOrders(sellindexes, false, totalSellAmount);
     }
 
     function cleanUpUnwind(uint256 toClearAmountBuy, uint256 toClearAmountSell) external onlyLiquidityRouterOrOwner {

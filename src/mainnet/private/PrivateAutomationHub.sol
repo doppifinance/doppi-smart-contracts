@@ -4,10 +4,13 @@ pragma solidity ^0.8.26;
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {IPrivateAutomationHub} from "../../Interface/IPrivateAutomationHub.sol";
 import {IDoppiPoints} from "../../Interface/IDoppiPoints.sol";
 import {AggregatorV3Interface} from "../../Interface/AggregatorV3Interface.sol";
+import {IUniswapV3Pool} from "@uniswap/v3-core/contracts/interfaces/IUniswapV3Pool.sol";
 import {DALiquidityLib} from "../../Library/DALiquidityLib.sol";
 import {
     PrivateBotJobIds,
@@ -32,12 +35,16 @@ contract PrivateAutomationHub is IPrivateAutomationHub, Ownable, ReentrancyGuard
     error MarkupTooHigh();
     error ZeroAmount();
     error InsufficientCredit();
+    error MaxCheckUpkeepCallGasTooHigh();
+    error InvalidAggregateCheckGas();
+
 
     // ── Access ────────────────────────────────────────────────────────────
     event RegistrarUpdated(address indexed account, bool allowed);
     event ExecutorUpdated(address indexed account, bool allowed);
     event GlobalLimitsUpdated(uint16 maxJobsPerUpkeep, uint32 scanLimit);
     event DefaultJobConfigUpdated(uint32 minInterval, uint32 gasLimitHint);
+    event MaxAggregateCheckGasUpdated(uint32 maxGas);
 
     // ── Jobs ──────────────────────────────────────────────────────────────
     event JobRegistered(uint256 indexed jobId, address indexed bot, PrivateAutomationModule module, address target);
@@ -50,6 +57,7 @@ contract PrivateAutomationHub is IPrivateAutomationHub, Ownable, ReentrancyGuard
 
     // ── Billing ───────────────────────────────────────────────────────────
     event FundTokenUpdated(address indexed fundToken);
+    event BillingAssetConfigured(address indexed fundToken, address indexed nativeToFundTokenFeed, uint256 fundTokenDecimals, uint256 minCreditThreshold, uint256 defaultTopUp);
     event ChainlinkFeedUpdated(address indexed chainlinkFeed, uint256 priceDecimals);
     event DefaultTopUpUpdated(uint256 defaultTopUp);
     event TreasuryUpdated(address indexed treasury);
@@ -59,6 +67,8 @@ contract PrivateAutomationHub is IPrivateAutomationHub, Ownable, ReentrancyGuard
     event MaxOracleDelayUpdated(uint32 delay);
     event CreditDeposited(address indexed bot, address indexed depositor, uint256 amount);
     event CreditWithdrawn(address indexed bot, address indexed trader, uint256 amount);
+    event LegacyCreditRolledOver(address indexed bot, address indexed token, uint256 amount);
+    event LegacyCreditWithdrawn(address indexed bot, address indexed token, address indexed trader, uint256 amount);
     event BotLowCreditPaused(address indexed bot, uint256 remainingCredit);
     event BotLowCreditResumed(address indexed bot, uint256 newCredit);
     event JobFeeCharged(uint256 indexed jobId, address indexed bot, uint256 gasUsed, uint256 gasPrice, uint256 rawCostInFundToken, uint256 totalFeeInFundToken);
@@ -97,9 +107,12 @@ contract PrivateAutomationHub is IPrivateAutomationHub, Ownable, ReentrancyGuard
     uint256 public defaultTopUp         = 10 ether;
     uint32 public defaultMinInterval         = 30;
     uint32 public defaultGasLimitHint        = 5_000_000;
+    uint32 public maxCheckUpkeepCallGas        = 1_000_000;
+    uint32 public maxAggregateCheckGas         = 10_000_000;
 
     // ── Billing config ────────────────────────────────────────────────────
     IERC20                public fundToken;
+    uint256               public fundTokenDecimals = 1e18;
     address               public treasury;
     AggregatorV3Interface public chainlinkFeed;
     uint256               public priceDecimals;
@@ -113,13 +126,14 @@ contract PrivateAutomationHub is IPrivateAutomationHub, Ownable, ReentrancyGuard
 
     // ── DoppiPoints Integration ────────────────────────────────────────────
     IDoppiPoints public doppiPoints;
-    uint256 public doppiPointsExchangeRateBps = 10;  // basis points, e.g., 10 = 1 : 0.001 USDT
+    uint256 public doppiPointsExchangeRateBps = 10;  // basis points, e.g., 10 = 1 point : 0.001 fund token
     bool public useDynamicPointPrice;
     address public doppiPointsPriceFeed;
 
     // ── Access ────────────────────────────────────────────────────────────
     mapping(address => bool) public registrars;
     mapping(address => bool) public executors;
+    mapping(address => IERC20) public botCreditToken;
 
     // ── Job storage ───────────────────────────────────────────────────────
     mapping(uint256 => JobState)                  internal jobs;
@@ -127,10 +141,13 @@ contract PrivateAutomationHub is IPrivateAutomationHub, Ownable, ReentrancyGuard
 
     // ── Billing storage ───────────────────────────────────────────────────
     mapping(address => BotBillingState) internal botBilling;
+    mapping(address => mapping(address => uint256)) public legacyCreditBalance;
 
     bytes4 private constant CHECK_UPKEEP_SELECTOR   = bytes4(keccak256("checkUpkeep(bytes)"));
     bytes4 private constant PERFORM_UPKEEP_SELECTOR = bytes4(keccak256("performUpkeep(bytes)"));
     uint24 private constant MAX_MARKUP_BPS           = 5000; // 50% hard cap
+    uint32 private constant CHECK_GAS_RESERVE         = 150_000;
+    uint32 private constant MAX_AGGREGATE_CHECK_GAS   = 25_000_000;
 
     modifier onlyRegistrar() {
         if (!registrars[msg.sender] && msg.sender != owner()) revert NotRegistrar();
@@ -144,7 +161,7 @@ contract PrivateAutomationHub is IPrivateAutomationHub, Ownable, ReentrancyGuard
 
     /// @param initialOwner     Contract owner.
     /// @param _fundToken       ERC-20 used for credit (address(0) disables billing at deploy).
-    /// @param _chainlinkFeed   Chainlink native-asset/USD feed (address(0) disables billing).
+    /// @param _chainlinkFeed   Chainlink native-asset/fund-token feed (address(0) disables billing).
     /// @param _maxOracleDelay  Max acceptable oracle staleness in seconds.
     /// @param _treasury        Fee destination (address(0) disables billing at deploy).
     constructor(
@@ -156,7 +173,7 @@ contract PrivateAutomationHub is IPrivateAutomationHub, Ownable, ReentrancyGuard
     ) Ownable(initialOwner) {
         _setChainlinkFeed(_chainlinkFeed);
         maxOracleDelay = _maxOracleDelay;
-        if (_fundToken != address(0)) fundToken = IERC20(_fundToken);
+        if (_fundToken != address(0)) _setFundToken(_fundToken);
         if (_treasury  != address(0)) treasury  = _treasury;
     }
 
@@ -201,8 +218,31 @@ contract PrivateAutomationHub is IPrivateAutomationHub, Ownable, ReentrancyGuard
     // ── Billing admin ─────────────────────────────────────────────────────
 
     function setFundToken(address _fundToken) external onlyOwner {
-        fundToken = IERC20(_fundToken);
-        emit FundTokenUpdated(_fundToken);
+        if (_fundToken == address(fundToken)) return;
+        _setFundToken(_fundToken);
+    }
+
+    /// @notice Atomically changes the billing token, its native/token feed, and token-denominated limits.
+    function setBillingAssetConfig(
+        address _fundToken,
+        address _nativeToFundTokenFeed,
+        uint256 _minCreditThreshold,
+        uint256 _defaultTopUp
+    ) external onlyOwner {
+        _setFundToken(_fundToken);
+        _setChainlinkFeed(_nativeToFundTokenFeed);
+        minCreditThreshold = _minCreditThreshold;
+        defaultTopUp = _defaultTopUp;
+
+        emit MinCreditThresholdUpdated(_minCreditThreshold);
+        emit DefaultTopUpUpdated(_defaultTopUp);
+        emit BillingAssetConfigured(
+            _fundToken,
+            _nativeToFundTokenFeed,
+            fundTokenDecimals,
+            _minCreditThreshold,
+            _defaultTopUp
+        );
     }
 
     function setChainlinkFeed(address _chainlinkFeed) external onlyOwner {
@@ -218,6 +258,19 @@ contract PrivateAutomationHub is IPrivateAutomationHub, Ownable, ReentrancyGuard
         if (_markupBps > MAX_MARKUP_BPS) revert MarkupTooHigh();
         platformMarkupBps = _markupBps;
         emit PlatformMarkupUpdated(_markupBps);
+    }
+
+    function setMaxCheckUpkeepCallGas(uint32 _maxGas) external onlyOwner {
+        if (_maxGas > 5_000_000) revert MaxCheckUpkeepCallGasTooHigh();
+        maxCheckUpkeepCallGas = _maxGas;
+    }
+
+    function setMaxAggregateCheckGas(uint32 _maxGas) external onlyOwner {
+        if (_maxGas <= CHECK_GAS_RESERVE || _maxGas > MAX_AGGREGATE_CHECK_GAS) {
+            revert InvalidAggregateCheckGas();
+        }
+        maxAggregateCheckGas = _maxGas;
+        emit MaxAggregateCheckGasUpdated(_maxGas);
     }
 
     function setMinCreditThreshold(uint256 _threshold) external onlyOwner {
@@ -256,13 +309,18 @@ contract PrivateAutomationHub is IPrivateAutomationHub, Ownable, ReentrancyGuard
         emit DoppiPointsExchangeRateUpdated(_rateBps);
     }
 
-    /// @notice Set Doppi price feed for dynamic pricing (when Doppi token launches).
-    /// @param _feed Address of Doppi/BNB or Doppi/USD Chainlink feed
-    /// @param _useDynamic If true, use dynamic price from feed; if false, use fixed exchange rate
-    function setDoppiPointsPriceFeed(address _feed, bool _useDynamic) external onlyOwner {
-        doppiPointsPriceFeed = _feed;
+    /// @notice Set Doppi/native V3 pool for dynamic pricing (when Doppi token launches).
+    /// @param _pool Address of a Uniswap/Pancake V3 Doppi/native pool (NOT a Chainlink feed)
+    /// @param _useDynamic If true, use TWAP price from the pool; if false, use fixed exchange rate
+    function setDoppiPointsPriceFeed(address _pool, bool _useDynamic) external onlyOwner {
+        if (_useDynamic) {
+            if (_pool == address(0) || _pool.code.length == 0) revert InvalidAddress();
+            // Reverts if _pool is not a V3 pool exposing this selector, catching Chainlink feed misconfiguration.
+            IUniswapV3Pool(_pool).token0();
+        }
+        doppiPointsPriceFeed = _pool;
         useDynamicPointPrice = _useDynamic;
-        emit DoppiPointsPriceFeedUpdated(_feed, _useDynamic);
+        emit DoppiPointsPriceFeedUpdated(_pool, _useDynamic);
     }
 
     // ── Credit management ─────────────────────────────────────────────────
@@ -272,9 +330,15 @@ contract PrivateAutomationHub is IPrivateAutomationHub, Ownable, ReentrancyGuard
     function deposit(address bot, uint256 amount) external nonReentrant {
         if (bot == address(0)) revert InvalidAddress();
         if (amount == 0) revert ZeroAmount();
-        
-        fundToken.safeTransferFrom(msg.sender, address(this), amount);
+
         BotBillingState storage billing = botBilling[bot];
+        _rolloverLegacyCredit(bot);
+
+        IERC20 token = fundToken;
+        if (address(token) == address(0)) revert InvalidAddress();
+        botCreditToken[bot] = token;
+
+        token.safeTransferFrom(msg.sender, address(this), amount);
         billing.creditBalance += amount;
 
         emit CreditDeposited(bot, msg.sender, amount);
@@ -299,17 +363,44 @@ contract PrivateAutomationHub is IPrivateAutomationHub, Ownable, ReentrancyGuard
         if (amount == 0) revert ZeroAmount();
         BotBillingState storage billing = botBilling[bot];
         if (msg.sender != billing.trader) revert NotBotTrader();
+
+        _rolloverLegacyCredit(bot);
         if (billing.creditBalance < amount) revert InsufficientCredit();
 
         billing.creditBalance -= amount;
-        fundToken.safeTransfer(billing.trader, amount);
+
+        IERC20 token = botCreditToken[bot];
+        token.safeTransfer(billing.trader, amount);
+        if (billing.creditBalance == 0) {
+            delete botCreditToken[bot];
+        }
 
         emit CreditWithdrawn(bot, billing.trader, amount);
     }
 
+    /// @notice Withdraw credit retained in a previous fund-token denomination.
+    function withdrawLegacy(address bot, address token, uint256 amount) external nonReentrant {
+        if (token == address(0)) revert InvalidAddress();
+        if (amount == 0) revert ZeroAmount();
+
+        BotBillingState storage billing = botBilling[bot];
+        if (msg.sender != billing.trader) revert NotBotTrader();
+
+        _rolloverLegacyCredit(bot);
+        uint256 balance = legacyCreditBalance[bot][token];
+        if (balance < amount) revert InsufficientCredit();
+
+        legacyCreditBalance[bot][token] = balance - amount;
+        IERC20(token).safeTransfer(billing.trader, amount);
+
+        emit LegacyCreditWithdrawn(bot, token, billing.trader, amount);
+    }
+
     /// @notice Returns full billing state for a bot.
     function getBotBilling(address bot) external view returns (BotBillingState memory) {
-        return botBilling[bot];
+        BotBillingState memory billing = botBilling[bot];
+        if (address(botCreditToken[bot]) != address(fundToken)) billing.creditBalance = 0;
+        return billing;
     }
 
     /// @notice Enable DoppiPoints payment for a bot. Only the bot's trader may call.
@@ -339,18 +430,10 @@ contract PrivateAutomationHub is IPrivateAutomationHub, Ownable, ReentrancyGuard
         return readyPoints;
     }
 
-    /// @notice Get the fundToken value of DoppiPoints based on current exchange rate.
+    /// @notice Get the active fund-token value of DoppiPoints based on the current exchange rate.
+    /// @dev The legacy function name is retained for integration compatibility.
     function getPointValueInUSDT(uint256 numPoints) external view returns (uint256) {
-        if (useDynamicPointPrice && doppiPointsPriceFeed != address(0)) {
-            // Dynamic pricing: query Doppi price from oracle
-            uint256 doppiPrice = DALiquidityLib.getTWAPPrice(doppiPointsPriceFeed, 3600);
-            if (doppiPrice == 0) return 0;
-            return (numPoints * doppiPrice) / priceDecimals;
-        } else {
-            // Fixed exchange rate in basis points
-            if (doppiPointsExchangeRateBps == 0) return 0;
-            return (numPoints * doppiPointsExchangeRateBps) / 10000;
-        }
+        return _getPointValueInFundToken(numPoints);
     }
 
     // ── Job registration ──────────────────────────────────────────────────
@@ -446,12 +529,43 @@ contract PrivateAutomationHub is IPrivateAutomationHub, Ownable, ReentrancyGuard
         uint256 selected;
         uint256 scanBudget = checkScanLimit;
         if (scanBudget > totalJobs) scanBudget = totalJobs;
+        uint256 scanGasStart = gasleft();
+        bool gasBudgetExhausted;
 
         while (scanned < scanBudget && selected < maxJobs) {
+            uint256 gasSpent = scanGasStart - gasleft();
+            if (gasSpent >= maxAggregateCheckGas) {
+                gasBudgetExhausted = true;
+                break;
+            }
+
+            uint256 remainingGasBudget = maxAggregateCheckGas - gasSpent;
+            if (remainingGasBudget <= CHECK_GAS_RESERVE) {
+                gasBudgetExhausted = true;
+                break;
+            }
+
             if (cursor >= upperBound) cursor = 1;
             JobState storage j = jobs[cursor];
             if (_isDue(j) && _canExecuteWithBilling(j.bot)) {
-                (bool ok, bytes memory out) = j.target.staticcall(
+                gasSpent = scanGasStart - gasleft();
+                if (gasSpent >= maxAggregateCheckGas) {
+                    gasBudgetExhausted = true;
+                    break;
+                }
+                remainingGasBudget = maxAggregateCheckGas - gasSpent;
+                if (remainingGasBudget <= CHECK_GAS_RESERVE) {
+                    gasBudgetExhausted = true;
+                    break;
+                }
+
+                uint256 checkGas = j.gasLimitHint;
+                if (checkGas == 0) checkGas = defaultGasLimitHint;
+                if (checkGas > maxCheckUpkeepCallGas) checkGas = maxCheckUpkeepCallGas;
+                uint256 availableCallGas = remainingGasBudget - CHECK_GAS_RESERVE;
+                if (checkGas > availableCallGas) checkGas = availableCallGas;
+
+                (bool ok, bytes memory out) = j.target.staticcall{gas: checkGas}(
                     abi.encodeWithSelector(CHECK_UPKEEP_SELECTOR, bytes(""))
                 );
                 if (ok && out.length >= 64) {
@@ -466,7 +580,15 @@ contract PrivateAutomationHub is IPrivateAutomationHub, Ownable, ReentrancyGuard
             unchecked { ++cursor; ++scanned; }
         }
 
-        if (selected == 0) return (false, bytes(""));
+        uint256 normalizedNextCursor = _normalizedCursor(cursor, upperBound);
+        bool partialScan = gasBudgetExhausted || scanned < totalJobs;
+        if (selected == 0) {
+            if (!partialScan) return (false, bytes(""));
+            return (
+                true,
+                abi.encode(normalizedNextCursor, new uint256[](0), new bytes[](0))
+            );
+        }
 
         uint256[] memory finalJobIds      = new uint256[](selected);
         bytes[]   memory finalPerformData = new bytes[](selected);
@@ -476,7 +598,7 @@ contract PrivateAutomationHub is IPrivateAutomationHub, Ownable, ReentrancyGuard
             unchecked { ++i; }
         }
         upkeepNeeded = true;
-        performData  = abi.encode(_normalizedCursor(cursor, upperBound), finalJobIds, finalPerformData);
+        performData  = abi.encode(normalizedNextCursor, finalJobIds, finalPerformData);
     }
 
     function performUpkeep(bytes calldata performData) external override onlyExecutor nonReentrant {
@@ -535,13 +657,16 @@ contract PrivateAutomationHub is IPrivateAutomationHub, Ownable, ReentrancyGuard
         uint256 price = DALiquidityLib.getPrice(chainlinkFeed, maxOracleDelay);
         if (price == 0) return;
 
-        // cost (fundToken units) = gasUsed * gasPrice (wei) * nativeAsset/USD / priceDecimals
-        uint256 rawCost  = (gasUsed * tx.gasprice * price) / priceDecimals;
+        // The feed quotes fund tokens per native asset. The first conversion
+        // produces an 18-decimal token amount, then normalizes to token units.
+        uint256 rawCost18 = Math.mulDiv(gasUsed * tx.gasprice, price, priceDecimals);
+        uint256 rawCost = Math.mulDiv(rawCost18, fundTokenDecimals, 1e18);
         uint256 markup   = (rawCost * platformMarkupBps) / 10000;
         uint256 totalFee = rawCost + markup;
         if (totalFee == 0) return;
 
         BotBillingState storage billing = botBilling[bot];
+        _rolloverLegacyCredit(bot);
 
         // Deduct points first (if enabled), then fundToken for remainder
         uint256 fundTokenFee = totalFee;
@@ -562,13 +687,23 @@ contract PrivateAutomationHub is IPrivateAutomationHub, Ownable, ReentrancyGuard
 
         // Deduct remaining fee from fundToken credit
         if (fundTokenFee > 0) {
-            if (billing.creditBalance < fundTokenFee) fundTokenFee = billing.creditBalance;
-            billing.creditBalance -= fundTokenFee;
+            if (billing.creditBalance < fundTokenFee) {
+                fundTokenFee = billing.creditBalance;
+            }
+
+            if (fundTokenFee > 0) {
+                billing.creditBalance -= fundTokenFee;
+
+                IERC20 token = botCreditToken[bot];
+                token.safeTransfer(treasury, fundTokenFee);
+
+                if (billing.creditBalance == 0) {
+                    delete botCreditToken[bot];
+                }
+            }
         }
         
         billing.totalGasFeePaid += totalFee;
-
-        if (fundTokenFee > 0) fundToken.safeTransfer(treasury, fundTokenFee);
 
         emit JobFeeCharged(jobId, bot, gasUsed, tx.gasprice, rawCost, fundTokenFee);
 
@@ -594,18 +729,23 @@ contract PrivateAutomationHub is IPrivateAutomationHub, Ownable, ReentrancyGuard
         (, uint256 readyPoints, ) = doppiPoints.getAllPointData(billing.trader);
         if (readyPoints == 0) return 0;
 
-        // Calculate points needed: feeInFundToken * 10000 / exchangeRate
+        uint256 normalizedFee = Math.mulDiv(feeInFundToken, 1e18, fundTokenDecimals);
+
+        // Calculate points needed from a whole-token BPS exchange rate.
         uint256 pointsNeeded;
         if (useDynamicPointPrice && doppiPointsPriceFeed != address(0)) {
-            uint256 doppiPrice = DALiquidityLib.getTWAPPrice(doppiPointsPriceFeed, 3600);
-            
+            uint256 doppiPrice = _getDoppiTwapPriceSafe();
+
             if (doppiPrice == 0) return 0;
-            // pointsNeeded = feeInFundToken / doppiPrice * priceDecimals
-            pointsNeeded = (feeInFundToken * priceDecimals) / doppiPrice;
+            pointsNeeded = Math.mulDiv(normalizedFee, 1e8, doppiPrice, Math.Rounding.Ceil);
         } else {
-            // Fixed rate: pointsNeeded = (feeInFundToken * 10000) / doppiPointsExchangeRateBps
             if (doppiPointsExchangeRateBps == 0) return 0;
-            pointsNeeded = (feeInFundToken * 10000) / doppiPointsExchangeRateBps;
+            pointsNeeded = Math.mulDiv(
+                normalizedFee,
+                10000,
+                doppiPointsExchangeRateBps,
+                Math.Rounding.Ceil
+            );
         }
 
         pointsDeducted = readyPoints < pointsNeeded ? readyPoints : pointsNeeded;
@@ -618,14 +758,16 @@ contract PrivateAutomationHub is IPrivateAutomationHub, Ownable, ReentrancyGuard
 
     /// @dev Get fundToken value of a specific number of points
     function _getPointValueInFundToken(uint256 numPoints) internal view returns (uint256) {
+        uint256 normalizedValue;
         if (useDynamicPointPrice && doppiPointsPriceFeed != address(0)) {
-            uint256 doppiPrice = DALiquidityLib.getTWAPPrice(doppiPointsPriceFeed, 3600);
+            uint256 doppiPrice = _getDoppiTwapPriceSafe();
             if (doppiPrice == 0) return 0;
-            return (numPoints * doppiPrice) / priceDecimals;
+            normalizedValue = Math.mulDiv(numPoints, doppiPrice, 1e8);
         } else {
             if (doppiPointsExchangeRateBps == 0) return 0;
-            return (numPoints * doppiPointsExchangeRateBps) / 10000;
+            normalizedValue = Math.mulDiv(numPoints, doppiPointsExchangeRateBps, 10000);
         }
+        return Math.mulDiv(normalizedValue, fundTokenDecimals, 1e18);
     }
 
     /// @dev Get total value of a bot's available points in fundToken units
@@ -646,12 +788,29 @@ contract PrivateAutomationHub is IPrivateAutomationHub, Ownable, ReentrancyGuard
         if (DALiquidityLib.getPrice(chainlinkFeed, maxOracleDelay) == 0) return false;
 
         BotBillingState memory billing = botBilling[bot];
-        uint256 combinedValue = billing.creditBalance;
+        uint256 combinedValue = address(botCreditToken[bot]) == address(fundToken)
+            ? billing.creditBalance
+            : 0;
         if (billing.usePoint && address(doppiPoints) != address(0)) {
             combinedValue += _getTotalPointsValueInFundToken(bot);
         }
 
         return combinedValue >= minCreditThreshold;
+    }
+
+    function _rolloverLegacyCredit(address bot) internal {
+        BotBillingState storage billing = botBilling[bot];
+        IERC20 creditToken = botCreditToken[bot];
+        if (address(creditToken) == address(fundToken)) return;
+
+        uint256 amount = billing.creditBalance;
+        if (amount > 0) {
+            if (address(creditToken) == address(0)) revert InvalidAddress();
+            legacyCreditBalance[bot][address(creditToken)] += amount;
+            billing.creditBalance = 0;
+            emit LegacyCreditRolledOver(bot, address(creditToken), amount);
+        }
+        delete botCreditToken[bot];
     }
 
     function _pauseBotForBilling(address bot) internal {
@@ -672,6 +831,31 @@ contract PrivateAutomationHub is IPrivateAutomationHub, Ownable, ReentrancyGuard
             : 1e8;
 
         emit ChainlinkFeedUpdated(_chainlinkFeed, priceDecimals);
+    }
+
+    /// @dev Never reverts; a misbehaving/misconfigured V3 pool must not block checkUpkeep or billing.
+    function _getDoppiTwapPriceSafe() internal view returns (uint256) {
+        try this.getDoppiTwapPrice() returns (uint256 twapPrice) {
+            return twapPrice;
+        } catch {
+            return 0;
+        }
+    }
+
+    /// @dev External wrapper so pool failures can be caught with try/catch.
+    function getDoppiTwapPrice() external view returns (uint256) {
+        return DALiquidityLib.getTWAPPrice(doppiPointsPriceFeed, 3600);
+    }
+
+    function _setFundToken(address _fundToken) internal {
+        if (_fundToken == address(0) || _fundToken.code.length == 0) revert InvalidAddress();
+
+        uint8 decimals = IERC20Metadata(_fundToken).decimals();
+        if (decimals > 77) revert InvalidJob();
+
+        fundToken = IERC20(_fundToken);
+        fundTokenDecimals = 10 ** decimals;
+        emit FundTokenUpdated(_fundToken);
     }
 
     function _pauseAllJobsForBot(address bot) internal {

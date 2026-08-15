@@ -8,6 +8,7 @@ interface IDoppiCore {
     
     function getBuyPositionCount(address _owner) external view returns (uint256);
     function getSellPositionCount(address _owner) external view returns (uint256);
+    function getOwnerPositionPrincipals(address _owner) external view returns (uint256 buyPrincipal, uint256 sellPrincipal);
     function bulkDeposit(bool isBuy, BulkDepositParam[] calldata params, uint256 total) external;
     function get_positions_buy(address _owner) external view returns (DualAssetPosition[] memory);
     function get_positions_sell(address _owner) external view returns (DualAssetPosition[] memory);
@@ -21,5 +22,6 @@ interface IDoppiCore {
     function doppiOffer() external view returns (IDoppiOffer);
     function canAcceptDeposit(bool isBuy, uint256 depositAmount) external view returns (bool);
     function supportDays() external view returns (uint8[] memory); 
-    function emergencyWithdrawCoreOnly(uint256 maxPositions) external returns (uint256 processed, uint256 remaining, uint256 payoutA, uint256 payoutB);
+    function emergencyWithdrawCoreOnly(uint256 maxPositions, address receiver) external returns (uint256 processed, uint256 remaining, uint256 payoutA, uint256 payoutB);
+    function claimPendingSettlement(uint256 pendingId) external;
 }

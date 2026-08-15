@@ -98,18 +98,9 @@ abstract contract DoppiTraderAdminView is Ownable, Pausable {
         totalAssetB += totalLPAssetB;
 
         if(address(doppiCore) != address(0)) {
-            DualAssetPosition[] memory buyPositions = doppiCore.get_positions_buy(address(this));
-            uint256 length = buyPositions.length;
-            for (uint256 i = 0; i < length; ) {
-                totalAssetA += buyPositions[i].amount;
-                unchecked { ++i; }
-            }
-            DualAssetPosition[] memory sellPositions = doppiCore.get_positions_sell(address(this));
-            length = sellPositions.length;
-            for (uint256 i = 0; i < length; ) {
-                totalAssetB += sellPositions[i].amount;
-                unchecked { ++i; }
-            }
+            (uint256 buyPrincipal, uint256 sellPrincipal) = doppiCore.getOwnerPositionPrincipals(address(this));
+            totalAssetA += buyPrincipal;
+            totalAssetB += sellPrincipal;
         }
         
     }
@@ -170,7 +161,7 @@ abstract contract DoppiTraderAdminView is Ownable, Pausable {
         _onlyTrader();
         bool valid;
         uint8[] memory supportDays = doppiCore.supportDays();
-        for (uint8 x = 0; x < supportDays.length; ) {
+        for (uint256 x = 0; x < supportDays.length; ) {
             if (supportDays[x] == _day) { valid = true; break; }
             unchecked { ++x; }
         }
@@ -407,7 +398,7 @@ abstract contract DoppiTraderAdminView is Ownable, Pausable {
         if (activeBuyStrikeCount == 0 && activeSellStrikeCount == 0) return;
 
         uint256 price = doppiLP.getPrice();
-        if (price == 0) revert InvalidPrice();
+        if (price == 0) return;
 
         _payStopBuyProfitFees(price, feeBps);
         _payStopSellProfitFees(price, feeBps);

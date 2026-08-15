@@ -38,6 +38,18 @@ contract MockAutomationTarget {
     }
 }
 
+contract MockGasBurningTarget {
+    function checkUpkeep(bytes calldata) external view returns (bool, bytes memory) {
+        uint256 accumulator;
+        while (gasleft() > 5_000) {
+            unchecked { ++accumulator; }
+        }
+        return (accumulator == type(uint256).max, bytes(""));
+    }
+
+    function performUpkeep(bytes calldata) external {}
+}
+
 contract MockDoppiPoints {
     mapping(address => uint256) public readyPoints;
     mapping(address => uint256) public spentPoints;
@@ -59,6 +71,32 @@ contract MockDoppiPoints {
         uint256 spent = spentPoints[trader];
         readyPointsVal = available > spent ? available - spent : 0;
         return (0, readyPointsVal, 0);
+    }
+}
+
+contract MockToken6Decimals is MockToken {
+    constructor() MockToken("USDC", "USDC") {}
+
+    function decimals() public pure override returns (uint8) {
+        return 6;
+    }
+}
+
+contract MockV3PoolForPoints {
+    address public token0;
+    bool public shouldRevertObserve;
+
+    constructor(address _token0) {
+        token0 = _token0;
+    }
+
+    function setShouldRevertObserve(bool value) external {
+        shouldRevertObserve = value;
+    }
+
+    function observe(uint32[] calldata) external view returns (int56[] memory, uint160[] memory) {
+        if (shouldRevertObserve) revert("pool broken");
+        return (new int56[](2), new uint160[](2));
     }
 }
 
@@ -242,6 +280,71 @@ contract PrivateAutomationHubTest is Test {
         assertEq(botTarget.performCount() + otherTarget.performCount(), 1);
     }
 
+    function test_partialScan_returnsCursorOnlyUpkeep() public {
+        address sharedBot1 = _registerSharedBot();
+        _seedCredit(sharedBot1, 100 ether);
+
+        address sharedBot2 = address(otherTarget);
+        vm.prank(registrar);
+        hub.registerSharedBotJob(trader, sharedBot2, 2);
+        _seedCredit(sharedBot2, 100 ether);
+
+        vm.prank(owner);
+        hub.setGlobalLimits(1, 1);
+
+        (bool needed, bytes memory performData) = hub.checkUpkeep("");
+        assertTrue(needed);
+
+        (uint256 nextCursor, uint256[] memory jobIds, bytes[] memory payloads) =
+            abi.decode(performData, (uint256, uint256[], bytes[]));
+        assertEq(nextCursor, 2);
+        assertEq(jobIds.length, 0);
+        assertEq(payloads.length, 0);
+
+        vm.prank(executor);
+        hub.performUpkeep(performData);
+        assertEq(hub.scanCursor(), 2);
+    }
+
+    function test_aggregateCheckGas_resumesAfterExpensiveFalseJob() public {
+        MockGasBurningTarget expensiveTarget = new MockGasBurningTarget();
+        vm.prank(registrar);
+        hub.registerSharedBotJob(trader, address(expensiveTarget), 1);
+        _seedCredit(address(expensiveTarget), 100 ether);
+
+        address usefulBot = address(botTarget);
+        vm.prank(registrar);
+        hub.registerSharedBotJob(trader, usefulBot, 2);
+        _seedCredit(usefulBot, 100 ether);
+        botTarget.setCheckResponse(true, abi.encode("useful"));
+
+        vm.startPrank(owner);
+        hub.setGlobalLimits(1, 2);
+        hub.setMaxAggregateCheckGas(400_000);
+        vm.stopPrank();
+
+        (bool firstNeeded, bytes memory firstData) = hub.checkUpkeep("");
+        assertTrue(firstNeeded);
+        (, uint256[] memory firstJobIds,) =
+            abi.decode(firstData, (uint256, uint256[], bytes[]));
+        assertEq(firstJobIds.length, 0);
+
+        vm.prank(executor);
+        hub.performUpkeep(firstData);
+        assertEq(hub.scanCursor(), 2);
+
+        (bool secondNeeded, bytes memory secondData) = hub.checkUpkeep("");
+        assertTrue(secondNeeded);
+        (, uint256[] memory secondJobIds,) =
+            abi.decode(secondData, (uint256, uint256[], bytes[]));
+        assertEq(secondJobIds.length, 1);
+        assertEq(secondJobIds[0], 2);
+
+        vm.prank(executor);
+        hub.performUpkeep(secondData);
+        assertEq(botTarget.performCount(), 1);
+    }
+
     function test_billing_deposit_tracks_credit() public {
         address sharedBot = _registerSharedBot();
         _seedCredit(sharedBot, 100 ether);
@@ -269,6 +372,91 @@ contract PrivateAutomationHubTest is Test {
         vm.prank(stranger);
         vm.expectRevert(PrivateAutomationHub.NotBotTrader.selector);
         hub.withdraw(sharedBot, 50 ether);
+    }
+
+    function test_fundTokenMigration_makesOldCreditWithdrawOnly() public {
+        address sharedBot = _registerSharedBot();
+        _seedCredit(sharedBot, 100 ether);
+
+        MockToken newFundToken = new MockToken("NEW", "NEW");
+        vm.prank(owner);
+        hub.setFundToken(address(newFundToken));
+
+        assertEq(hub.getBotBilling(sharedBot).creditBalance, 0);
+
+        newFundToken.mint(trader, 25 ether);
+        vm.startPrank(trader);
+        newFundToken.approve(address(hub), 25 ether);
+        hub.deposit(sharedBot, 25 ether);
+        vm.stopPrank();
+
+        assertEq(hub.getBotBilling(sharedBot).creditBalance, 25 ether);
+        assertEq(hub.legacyCreditBalance(sharedBot, address(fundToken)), 100 ether);
+        assertEq(address(hub.botCreditToken(sharedBot)), address(newFundToken));
+
+        vm.prank(trader);
+        hub.withdrawLegacy(sharedBot, address(fundToken), 40 ether);
+
+        assertEq(fundToken.balanceOf(trader), 40 ether);
+        assertEq(hub.legacyCreditBalance(sharedBot, address(fundToken)), 60 ether);
+        assertEq(hub.getBotBilling(sharedBot).creditBalance, 25 ether);
+    }
+
+    function test_fundTokenMigration_legacyCreditCannotSatisfyBilling() public {
+        address sharedBot = _registerSharedBot();
+        _seedCredit(sharedBot, 100 ether);
+
+        vm.prank(owner);
+        hub.setMinCreditThreshold(1 ether);
+
+        MockToken newFundToken = new MockToken("NEW", "NEW");
+        vm.prank(owner);
+        hub.setFundToken(address(newFundToken));
+
+        botTarget.setCheckResponse(true, abi.encode("bot"));
+        (bool needed,) = hub.checkUpkeep("");
+        assertFalse(needed);
+    }
+
+    function test_billingAssetConfig_normalizesSixDecimalToken() public {
+        address sharedBot = _registerSharedBot();
+        MockToken6Decimals newFundToken = new MockToken6Decimals();
+        MockOracle nativeToTokenFeed = new MockOracle(int256(600 * 1e8), 8);
+
+        vm.startPrank(owner);
+        hub.setBillingAssetConfig(
+            address(newFundToken),
+            address(nativeToTokenFeed),
+            1e6,
+            10e6
+        );
+        hub.setDoppiPointsContract(address(mockDoppiPoints));
+        hub.setDoppiPointsExchangeRate(10000);
+        vm.stopPrank();
+
+        assertEq(hub.fundTokenDecimals(), 1e6);
+        assertEq(hub.getPointValueInUSDT(1 ether), 1e6);
+
+        newFundToken.mint(trader, 100e6);
+        vm.startPrank(trader);
+        newFundToken.approve(address(hub), 100e6);
+        hub.deposit(sharedBot, 100e6);
+        vm.stopPrank();
+
+        botTarget.setCheckResponse(true, abi.encode("bot"));
+        (bool needed, bytes memory performData) = hub.checkUpkeep("");
+        assertTrue(needed);
+
+        vm.txGasPrice(TEST_GAS_PRICE);
+        vm.prank(executor);
+        hub.performUpkeep(performData);
+
+        assertGt(newFundToken.balanceOf(treasury), 0);
+        assertLt(newFundToken.balanceOf(treasury), 100e6);
+        assertEq(
+            hub.getBotBilling(sharedBot).creditBalance,
+            100e6 - newFundToken.balanceOf(treasury)
+        );
     }
 
     function test_billing_fee_charged_to_treasury_on_execution() public {
@@ -485,6 +673,50 @@ contract PrivateAutomationHubTest is Test {
         // Without doppiPoints contract set, should return 0
         uint256 value = hub.getPointValueInUSDT(100);
         assertEq(value, 0);
+    }
+
+    function test_setDoppiPointsPriceFeed_rejectsNonV3Pool() public {
+        // A Chainlink-style feed (no token0()) must be rejected when enabling dynamic pricing.
+        vm.prank(owner);
+        vm.expectRevert();
+        hub.setDoppiPointsPriceFeed(address(bnbOracle), true);
+    }
+
+    function test_setDoppiPointsPriceFeed_acceptsValidV3Pool() public {
+        MockV3PoolForPoints pool = new MockV3PoolForPoints(address(fundToken));
+
+        vm.prank(owner);
+        hub.setDoppiPointsPriceFeed(address(pool), true);
+
+        assertEq(hub.doppiPointsPriceFeed(), address(pool));
+        assertTrue(hub.useDynamicPointPrice());
+    }
+
+    function test_dynamicPointsPricing_poolFailureDoesNotRevertBilling() public {
+        MockV3PoolForPoints pool = new MockV3PoolForPoints(address(fundToken));
+        pool.setShouldRevertObserve(true);
+
+        vm.startPrank(owner);
+        hub.setDoppiPointsContract(address(mockDoppiPoints));
+        hub.setDoppiPointsPriceFeed(address(pool), true);
+        vm.stopPrank();
+
+        address sharedBot = _registerSharedBot();
+        vm.prank(trader);
+        hub.enablePointsPayment(sharedBot);
+        _seedCredit(sharedBot, 1000 ether);
+
+        botTarget.setCheckResponse(true, abi.encode("bot"));
+        (bool needed, bytes memory pd) = hub.checkUpkeep("");
+        assertTrue(needed);
+
+        vm.txGasPrice(TEST_GAS_PRICE);
+        vm.prank(executor);
+        hub.performUpkeep(pd);
+
+        // Broken pool falls back to zero points value; fee is still collected in fundToken.
+        assertGt(fundToken.balanceOf(treasury), 0);
+        assertEq(mockDoppiPoints.spentPoints(trader), 0);
     }
 
     function test_getPointValueInUSDT_fixedRate() public {

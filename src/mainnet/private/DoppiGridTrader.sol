@@ -575,9 +575,16 @@ contract DoppiGridTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCom
         uint256 gap = _priceGapWithDecimals();
         uint256 anchor = _roundPrice(price, gap);
 
-        for (uint8 z = 0; z < maxOrder; ) {
-            epochOriginalBuyByZone[z] = 0;
-            epochOriginalSellByZone[z] = 0;
+        uint256 maxOrderLocal = maxOrder;
+        uint256 maxSupportedZones = uint256(type(uint8).max) + 1;
+        if (maxOrderLocal > maxSupportedZones) {
+            maxOrderLocal = maxSupportedZones;
+        }
+
+        for (uint256 z = 0; z < maxOrderLocal; ) {
+            uint8 zone = uint8(z);
+            epochOriginalBuyByZone[zone] = 0;
+            epochOriginalSellByZone[zone] = 0;
             unchecked {
                 ++z;
             }
@@ -783,9 +790,16 @@ contract DoppiGridTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCom
         activeBuyStrikeCount = 0;
         activeSellStrikeCount = 0;
 
-        for (uint8 z = 0; z < maxOrder; ) {
-            epochOriginalBuyByZone[z] = 0;
-            epochOriginalSellByZone[z] = 0;
+        uint256 maxOrderLocal = maxOrder;
+        uint256 maxSupportedZones = uint256(type(uint8).max) + 1;
+        if (maxOrderLocal > maxSupportedZones) {
+            maxOrderLocal = maxSupportedZones;
+        }
+
+        for (uint256 z = 0; z < maxOrderLocal; ) {
+            uint8 zone = uint8(z);
+            epochOriginalBuyByZone[zone] = 0;
+            epochOriginalSellByZone[zone] = 0;
             unchecked {
                 ++z;
             }

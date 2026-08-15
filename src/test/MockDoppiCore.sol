@@ -10,4 +10,9 @@ contract MockDoppiCore {
     function getInterestLiabilities() external view returns (uint256, uint256) {
         return (0, 0);
     }
+
+    function getCurrentDeposits(bool isBuy) public view returns (uint256 currentDeposits)
+    {
+        return 0;
+    }
 }

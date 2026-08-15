@@ -8,6 +8,8 @@ import "./DoppiTraderAdminView.sol";
 
 contract DoppiTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCompatibleInterface, Initializable {
     using SafeERC20 for IERC20;
+
+    uint256 private constant EMERGENCY_SCAN_LIMIT = 100;
     
     event BulkDeposited(address indexed trader, uint256 totalAmount, bool isBuy);
     event UnwindPerformed(address indexed trader, bool isBuy, uint256 amountIn, uint256 amountOut);
@@ -134,15 +136,13 @@ contract DoppiTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCompati
         _onlyTrader();
         if (!doppiCore.emergencyMode() || !doppiCore.paused()) revert NotEmergency();
 
-        uint256 buyPosCount = doppiCore.getBuyPositionCount(address(this));
-        uint256 sellPosCount = doppiCore.getSellPositionCount(address(this));
-        if (buyPosCount > 0 || sellPosCount > 0) {
-            doppiCore.emergencyWithdrawCoreOnly(buyPosCount + sellPosCount);
+        if (
+            doppiCore.getBuyPositionCount(address(this)) > 0 ||
+            doppiCore.getSellPositionCount(address(this)) > 0
+        ) {
+            doppiCore.emergencyWithdrawCoreOnly(EMERGENCY_SCAN_LIMIT, address(this));
         }
     }
-
-    
-    
 
     function createUnwindPosition(uint256 _payout, uint256 _strikePrice, bool _isBuyUndo) external nonReentrant {
         
@@ -177,7 +177,7 @@ contract DoppiTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCompati
         (targetPricesSell, totalSellAmountInA) =_checkUndoTrade(false, price);
         
         if (totalBuyAmountInB > 0 || totalSellAmountInA > 0) {
-            (bool isNetBuy, uint256 netAmount) = _netoutBuySell(totalSellAmountInA, totalBuyAmountInB, price);
+            (, uint256 netAmount) = _netoutBuySell(totalSellAmountInA, totalBuyAmountInB, price);
             if(netAmount > 0){
                 return (true, abi.encode(true, false, false));
             }
@@ -521,7 +521,7 @@ contract DoppiTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCompati
         if (msg.sender != s_forwarderAddress) revert OnlyForwarder();
     }
 
-    function _getFeePool() internal view override returns (address) {
+    function _getFeePool() internal pure override returns (address) {
         return address(0);
     }
 }

@@ -23,6 +23,7 @@ contract DoppiUpkeepManager is Ownable {
     error FactoryAlreadyApproved();
     error FactoryNotApproved();
     error OnlyTraderBot();
+    error DeprecatedFeature();
     
     // Chainlink Registrar and LINK token interfaces
     IAutomationRegistrar public registrar;
@@ -309,27 +310,10 @@ contract DoppiUpkeepManager is Ownable {
     //     require(linkToken.transfer(msg.sender, _amount), "LINK transfer failed");
     // }
 
-    function insertNewBot(address trader, address bot) external {
-
-        if (!_isTraderBot(msg.sender)) revert OnlyTraderBot();
-        require(DEFAULT_AMOUNT > 0, "cannot register upkeep");
-
-        DoppiUpkeepInfo storage info = doppiUpkeeps[bot];
-        
-        if(info.targetContract == address(0) && !info.isRegistered){
-            traderToBot[trader].push(bot);
-            uint256 upKeepId = _setupAutomation(bot, trader);
-            info.targetContract = bot;
-            info.trader = trader;
-            info.upkeepId = upKeepId;
-            info.isRegistered = true;
-        }else{
-            if(!info.isRegistered && info.targetContract == bot){
-                uint256 upKeepId = _setupAutomation(bot, trader);
-                info.upkeepId = upKeepId;
-                info.isRegistered = true;
-            }
-        }
+    function insertNewBot(address trader, address bot) external pure {
+        trader;
+        bot;
+        revert DeprecatedFeature();
     }
 
     function shouldTopUpkeep(uint256 upkeepId) external view returns (TopUpInfo memory topUpInfo, bool needTopUp) {
@@ -366,22 +350,9 @@ contract DoppiUpkeepManager is Ownable {
         }
     }
     
-    function performTopUpkeep(uint256 upkeepId) external validUpkeepId(upkeepId) {
-        
-        if (!_isTraderBot(msg.sender)) revert OnlyTraderBot();
-        (TopUpInfo memory topUpInfo, bool needTopUp) = _getTopUpInfo(upkeepId); 
-        
-        require(needTopUp == true, "no need to top up"); 
-        uint256 bal = fundToken.balanceOf(address(this));
-        require(bal >= topUpInfo.totalInfundToken, "balance not enough");
-
-        uint256 linkOut = _swapToLinkERC677(topUpInfo.topUpAmountInfundToken);
-        _fundUpkeep(upkeepId, uint96(linkOut));
-        fundToken.safeTransfer(treasury, topUpInfo.feeInfundToken);
-        DoppiUpkeepPayment storage p = doppiUpkeepPayment[upkeepId];
-        p.lastPaidAmount = topUpInfo.amountSpent;
-        p.lastBlockCharged = block.number;
-        emit TopUpPerformed(upkeepId, msg.sender, topUpInfo.topUpAmountInfundToken, linkOut, topUpInfo.fee);
+    function performTopUpkeep(uint256 upkeepId) external pure {
+        upkeepId;
+        revert DeprecatedFeature();
     }
 
     function _setupAutomation(address _traderbot, address trader) internal returns (uint256 upKeepId) {

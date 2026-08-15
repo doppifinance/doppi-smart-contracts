@@ -47,11 +47,9 @@ contract PrivateGridTraderScenarioTest is Test {
     IERC20 btc;
     IERC20 link;
     MockOracle oracle;
-    // MockDoppiUpKeepManager mockDoppiUpKeepManager;
     DoppiOpportunity doppiOpportunity;
     // Swapper public swapper;
     DoppiPoints doppiPoints;
-    // DoppiUpkeepManager doppiUpkeepManager;
     DoppiReferral doppiReferral;
     DOPPI doppiToken;
     DoppiClaim doppiClaim;

@@ -7,6 +7,12 @@ import "./DoppiCoreTypes.sol";
 
 abstract contract DoppiCoreView {
     error OpportunityViewFailed();
+
+    struct EmergencyCursor {
+        uint256 epoch;
+        uint256 dayIndex;
+        uint64 positionId;
+    }
     
     uint256 public totalBuyDeposits;
     uint256 public totalSellDeposits;
@@ -20,6 +26,12 @@ abstract contract DoppiCoreView {
     
     mapping(uint32 => mapping(uint64 => DualAssetPosition)) public positions_buy;
     mapping(uint32 => mapping(uint64 => DualAssetPosition)) public positions_sell;
+    mapping(address => uint256) internal activeBuyCount;
+    mapping(address => uint256) internal activeSellCount;
+    mapping(address => uint256) internal activeBuyPrincipal;
+    mapping(address => uint256) internal activeSellPrincipal;
+    uint256 internal emergencyEpoch;
+    mapping(address => EmergencyCursor) internal emergencyCursors;
     uint256 internal nextPendingSettlementId = 1;
     mapping(uint256 => PendingSettlement) internal pendingSettlements;
     mapping(address => uint256[]) internal pendingSettlementIdsByOwner;
@@ -35,7 +47,7 @@ abstract contract DoppiCoreView {
         
         // Second pass: Fill the final array
         uint256 resultIndex = 0;
-        for (uint8 x = 0; x < supportDays.length; ) {
+        for (uint256 x = 0; x < supportDays.length; ) {
             uint8 day = supportDays[x];            
             for (uint64 i = nextProcessId[day]; i < nextPositionId[day]; ) {
                 if (positions_buy[day][i].owner == _owner) {
@@ -56,7 +68,7 @@ abstract contract DoppiCoreView {
         DualAssetPosition[] memory result = new DualAssetPosition[](totalCount);
         
         uint256 resultIndex = 0;
-        for (uint8 x = 0; x < supportDays.length; ) {
+        for (uint256 x = 0; x < supportDays.length; ) {
             uint8 day = supportDays[x];
             for (uint64 i = nextProcessId[day]; i < nextPositionId[day]; ) {
                 if (positions_sell[day][i].owner == _owner) {
@@ -72,11 +84,15 @@ abstract contract DoppiCoreView {
     }
 
     function getBuyPositionCount(address _owner) external view returns (uint256 count) {
-        count = _getBuyPositionCount(_owner);
+        count = activeBuyCount[_owner];
     }
 
     function getSellPositionCount(address _owner) external view returns (uint256 count) {
-        count = _getSellPositionCount(_owner);
+        count = activeSellCount[_owner];
+    }
+
+    function getOwnerPositionPrincipals(address _owner) external view returns (uint256 buyPrincipal, uint256 sellPrincipal) {
+        return (activeBuyPrincipal[_owner], activeSellPrincipal[_owner]);
     }
 
     function getCurrentDeposits(bool isBuy) public view returns (uint256 currentDeposits) {
@@ -123,30 +139,30 @@ abstract contract DoppiCoreView {
     }
 
     function _getBuyPositionCount(address _owner) internal view returns (uint256 count) {
-
-        for (uint8 x = 0; x < supportDays.length; ) {
-            uint8 day = supportDays[x];
-            for (uint64 i = nextProcessId[day]; i < nextPositionId[day]; ) {
-                if (positions_buy[day][i].owner == _owner) {
-                    count++;
-                }
-                unchecked { ++i; }
-            }
-            unchecked { ++x; }
-        }
+        return activeBuyCount[_owner];
     }
 
     function _getSellPositionCount(address _owner) internal view returns (uint256 count) {
+        return activeSellCount[_owner];
+    }
 
-        for (uint8 x = 0; x < supportDays.length; ) {
-            uint8 day = supportDays[x];
-            for (uint64 i = nextProcessId[day]; i < nextPositionId[day]; ) {
-                if (positions_sell[day][i].owner == _owner) {
-                    count++;
-                }
-                unchecked { ++i; }
-            }
-            unchecked { ++x; }
+    function _addOwnerPosition(address owner, uint256 amount, bool isBuy) internal {
+        if (isBuy) {
+            activeBuyCount[owner] += 1;
+            activeBuyPrincipal[owner] += amount;
+        } else {
+            activeSellCount[owner] += 1;
+            activeSellPrincipal[owner] += amount;
+        }
+    }
+
+    function _removeOwnerPosition(address owner, uint256 amount, bool isBuy) internal {
+        if (isBuy) {
+            activeBuyCount[owner] -= 1;
+            activeBuyPrincipal[owner] -= amount;
+        } else {
+            activeSellCount[owner] -= 1;
+            activeSellPrincipal[owner] -= amount;
         }
     }
 }

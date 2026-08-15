@@ -21,14 +21,12 @@ contract DoppiLiquidityRouter is Ownable, Pausable, ReentrancyGuard {
     address public immutable assetA;
     address public immutable assetB;
     bool public emergencyMode;
-    bool public privateMode;
-    mapping(address => bool) public allowedUsers;
+
+    error CoreLiabilitiesOutstanding();
     
     event Deposited(address indexed user, uint256 amount, address asset, uint256 shares);
     event Redeemed(address indexed user, uint256 shares, uint256 assetsA, uint256 assetsB);
     event EmergencyWithdraw(address indexed user, uint256 shares, uint256 assetsA, uint256 assetsB);
-    event PrivateModeUpdated(bool enabled);
-    event AllowedUserUpdated(address indexed user, bool allowed);
     
     constructor(IERC20 _assetA, IERC20 _assetB, IDoppiLiquidity _doppiLP) Ownable(msg.sender) {
         doppiLP = _doppiLP;
@@ -64,6 +62,11 @@ contract DoppiLiquidityRouter is Ownable, Pausable, ReentrancyGuard {
     /// @notice Emergency withdraw function for users to redeem their shares without restrictions during emergency mode. Only callable when the contract is paused and in emergency mode.
     /// @dev This function allows users to redeem their shares for the underlying assets without any checks on available capacity or liabilities. It must ensure DoppiCore has settled all positions before allowing withdrawals to prevent insolvency. The function should be protected against reentrancy and can only be called when the contract is paused and in emergency mode.
     function emergencyWithdraw() external whenEmergency whenPaused nonReentrant {
+        
+        if (_getCurrentDeposits(true) != 0 || _getCurrentDeposits(false) != 0) {
+            revert CoreLiabilitiesOutstanding();
+        }
+        
         uint256 userShares = IERC20(address(doppiLP)).balanceOf(msg.sender);
         require(userShares > 0, "No shares to withdraw");   
 
@@ -83,17 +86,6 @@ contract DoppiLiquidityRouter is Ownable, Pausable, ReentrancyGuard {
 
     function setEmergencyMode(bool _emergency) external whenPaused onlyOwner {
         emergencyMode = _emergency;
-    }
-
-    function setPrivateMode(bool _privateMode) external onlyOwner {
-        privateMode = _privateMode;
-        emit PrivateModeUpdated(_privateMode);
-    }
-
-    function setAllowedUser(address user, bool allowed) external onlyOwner {
-        require(user != address(0), "zero user");
-        allowedUsers[user] = allowed;
-        emit AllowedUserUpdated(user, allowed);
     }
 
     function setPause() external onlyOwner {

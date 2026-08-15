@@ -17,7 +17,6 @@ import {DoppiPoints} from "../../src/mainnet/DoppiPoints.sol";
 import {DoppiClaim} from "../../src/mainnet/DoppiClaim.sol";
 import {DOPPI} from "../../src/test/Doppi.sol";
 import {DoppiOpportunity} from "../../src/mainnet/DoppiOpportunity.sol";
-// import {DoppiUpkeepManager} from "../../src/mainnet/DoppiUpkeepManager.sol";
 import {MockRegistryConsumer} from "../../src/test/MockRegistryConsumerLocalhost.sol";
 import {DoppiReferral} from "../../src/mainnet/DoppiReferral.sol";
 import {PrivateDoppiGridTraderFactory} from "../../src/mainnet/private/PrivateDoppiGridTraderFactory.sol";
@@ -174,7 +173,7 @@ contract DeployDoppiAll is Script {
 
         doppiLP.setForwarderAddress(forwarder);
 
-        doppiFactory.setDefaultRatioLP(2500); // 20% of capital go to LP
+        doppiFactory.setDefaultRatioLP(5000); // 50% of capital go to LP
         
 
 

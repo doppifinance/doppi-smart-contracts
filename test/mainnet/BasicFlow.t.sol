@@ -14,7 +14,6 @@ import {DoppiPoints} from "../../src/mainnet/DoppiPoints.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {MockToken} from "../../src/test/MockToken.sol";
 import {MockOracle} from "../../src/test/MockOracle.sol";
-import {MockDoppiUpKeepManager} from "../../src/test/MockDoppiUpkeepManager.sol";
 import {DoppiOpportunity} from "../../src/mainnet/DoppiOpportunity.sol";
 import {Swapper} from "../../src/test/Swapper.sol";
 import "../../src/mainnet/DoppiCoreTypes.sol";
@@ -35,7 +34,6 @@ contract BasicFlowTest is Test {
     IERC20 usdt;
     IERC20 btc;
     MockOracle oracle;
-    MockDoppiUpKeepManager mockDoppiUpKeepManager;
     DoppiOpportunity doppiOpportunity;
     Swapper public swapper;
     DoppiPoints doppiPoints;
@@ -69,8 +67,7 @@ contract BasicFlowTest is Test {
         // Start prank as owner
         vm.startPrank(owner);
         oracle = new MockOracle(int256(100_000 * 1e8), 8);
-        mockDoppiUpKeepManager = new MockDoppiUpKeepManager(forwarder);
-
+        
         usdt = IERC20(USDT);
         btc = IERC20(BTCB);
         doppiPoints = new DoppiPoints();
@@ -95,7 +92,6 @@ contract BasicFlowTest is Test {
         doppiLP.setEntryPoint(address(doppiRouter.entryPointB()), true);
         doppiLP.setDoppiTraderFactory(address(doppiFactory));
         doppiCore.setDoppiTraderFactory(doppiFactory);
-        doppiFactory.setDoppiUpKeepManager(address(mockDoppiUpKeepManager));
         
         vm.stopPrank();
     }

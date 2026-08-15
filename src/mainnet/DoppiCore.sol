@@ -23,7 +23,7 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
     bytes4 constant SWAP_SELECTOR = bytes4(keccak256("swap(uint256,uint256,bool)"));
     bytes4 constant PRICE_SELECTOR = bytes4(keccak256("getPrice()"));
     bytes4 constant SETTLE_SELECTOR = bytes4(keccak256("settle(uint256,uint256,uint256,bool)"));
-    bytes4 constant INTEREST_SELECTOR = bytes4(keccak256("interestGet(address,uint256,uint256,bool)"));
+    bytes4 constant INTEREST_SELECTOR = bytes4(keccak256("interestGet(address,uint256,uint256)"));
     bytes4 constant RECORD_SELECTOR = bytes4(keccak256("recordTrade(address,uint256)"));
     bytes4 constant OPP_SET_BUY_SELECTOR = bytes4(keccak256("setOpportunityBuy(uint256,uint256,uint256,uint256)"));
     bytes4 constant OPP_SET_SELL_SELECTOR = bytes4(keccak256("setOpportunitySell(uint256,uint256,uint256,uint256)"));
@@ -281,20 +281,32 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
     function claimPendingSettlement(uint256 pendingId) external nonReentrant {
         PendingSettlement storage pending = pendingSettlements[pendingId];
         if (pending.owner == address(0)) revert PendingNotFound();
-        if (pending.owner != msg.sender) revert NotPendingOwner();
+
+        address receiver = pending.owner;
+        if (
+            address(doppiTraderFactory) != address(0) &&
+            doppiTraderFactory.isTraderBot(pending.owner)
+        ) {
+            address resolvedTrader = IDoppiTrader(pending.owner).validTrader();
+            if (resolvedTrader != address(0)) {
+                receiver = resolvedTrader;
+            }
+        }
+
+        if (msg.sender != pending.owner && msg.sender != receiver) revert NotPendingOwner();
         if (pending.claimed) return;
 
         uint256 paidPayout;
         uint256 paidInterest;
 
         uint256 payoutToClaim = pending.pendingPayout;
-        if (payoutToClaim > 0 && _attemptDirectTransfer(IERC20(pending.payoutToken), pending.owner, payoutToClaim)) {
+        if (payoutToClaim > 0 && _attemptDirectTransfer(IERC20(pending.payoutToken), receiver, payoutToClaim)) {
             pending.pendingPayout = 0;
             paidPayout = payoutToClaim;
         }
 
         uint256 interestToClaim = pending.pendingInterest;
-        if (interestToClaim > 0 && _attemptTransferWithFee(IERC20(pending.interestToken), pending.owner, interestToClaim)) {
+        if (interestToClaim > 0 && _attemptTransferWithFee(IERC20(pending.interestToken), receiver, interestToClaim)) {
             pending.pendingInterest = 0;
             paidInterest = interestToClaim;
         }
@@ -305,7 +317,7 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
 
         emit PendingSettlementClaimed(
             pendingId,
-            pending.owner,
+            receiver,
             paidPayout,
             paidInterest,
             pending.claimed
@@ -315,13 +327,14 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
     function setEmergencyMode(bool _emergency) public override onlyOwner whenPaused {
         super.setEmergencyMode(_emergency);
         if (_emergency) {
+            unchecked { ++emergencyEpoch; }
             _lockEmergencySnapshot();
         } else {
             delete emergencySnapshot;
         }
     }
 
-    function emergencyWithdrawCoreOnly(uint256 maxPositions)
+    function emergencyWithdrawCoreOnly(uint256 maxPositions, address receiver)
         external
         whenPaused
         nonReentrant
@@ -334,43 +347,52 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
 
         uint256 buyPrincipal;
         uint256 sellPrincipal;
+        uint256 inspected;
+        EmergencyCursor storage cursor = emergencyCursors[msg.sender];
+        if (cursor.epoch != emergencyEpoch) {
+            cursor.epoch = emergencyEpoch;
+            cursor.dayIndex = 0;
+            cursor.positionId = 0;
+        }
 
-        for (uint8 x = 0; x < supportDays.length && processed < maxPositions; ) {
-            uint8 day = supportDays[x];
-            for (uint64 i = nextProcessId[day]; i < nextPositionId[day] && processed < maxPositions; ) {
-                DualAssetPosition storage buyPos = positions_buy[day][i];
-                if (buyPos.owner == msg.sender && buyPos.amount > 0) {
-                    buyPrincipal += buyPos.amount;
-                    _updateTotalDeposit(buyPos.amount, true);
-                    _removeInterestLiability(buyPos.interest, true);
-                    delete positions_buy[day][i];
-                    unchecked { ++processed; }
-                }
-
-                if (processed >= maxPositions) break;
-
-                DualAssetPosition storage sellPos = positions_sell[day][i];
-                if (sellPos.owner == msg.sender && sellPos.amount > 0) {
-                    sellPrincipal += sellPos.amount;
-                    _updateTotalDeposit(sellPos.amount, false);
-                    _removeInterestLiability(sellPos.interest, false);
-                    delete positions_sell[day][i];
-                    unchecked { ++processed; }
-                }
-
-                unchecked { ++i; }
-            }
-
-            // Keep the day cursor aligned after deletions so upkeep scans do not
-            // get stuck on empty IDs at the head of the queue.
-            uint64 cursor = nextProcessId[day];
+        while (cursor.dayIndex < supportDays.length && inspected < maxPositions) {
+            uint8 day = supportDays[cursor.dayIndex];
+            uint64 head = nextProcessId[day];
             uint64 tail = nextPositionId[day];
-            while (cursor < tail && !_posExist(day, cursor)) {
-                unchecked { ++cursor; }
-            }
-            nextProcessId[day] = cursor;
+            if (cursor.positionId < head) cursor.positionId = head;
 
-            unchecked { ++x; }
+            if (cursor.positionId >= tail) {
+                unchecked { ++cursor.dayIndex; }
+                cursor.positionId = 0;
+                continue;
+            }
+
+            uint64 positionId = cursor.positionId;
+            unchecked {
+                cursor.positionId = positionId + 1;
+                ++inspected;
+            }
+
+            DualAssetPosition storage buyPos = positions_buy[day][positionId];
+            if (buyPos.owner == msg.sender && buyPos.amount > 0) {
+                buyPrincipal += buyPos.amount;
+                _removeOwnerPosition(buyPos.owner, buyPos.amount, true);
+                _updateTotalDeposit(buyPos.amount, true);
+                _removeInterestLiability(buyPos.interest, true);
+                delete positions_buy[day][positionId];
+                unchecked { ++processed; }
+                continue;
+            }
+
+            DualAssetPosition storage sellPos = positions_sell[day][positionId];
+            if (sellPos.owner == msg.sender && sellPos.amount > 0) {
+                sellPrincipal += sellPos.amount;
+                _removeOwnerPosition(sellPos.owner, sellPos.amount, false);
+                _updateTotalDeposit(sellPos.amount, false);
+                _removeInterestLiability(sellPos.interest, false);
+                delete positions_sell[day][positionId];
+                unchecked { ++processed; }
+            }
         }
 
         remaining = _getBuyPositionCount(msg.sender) + _getSellPositionCount(msg.sender);
@@ -390,21 +412,15 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
         uint256 expectedPayoutB = (snapshot.assetB * userWeightA) / snapshot.totalWeightA;
 
         if (expectedPayoutA > 0) {
-            uint256 availableA = assetA.balanceOf(address(this));
-            uint256 transferA = expectedPayoutA > availableA ? availableA : expectedPayoutA;
-            if (transferA > 0 && _attemptDirectTransfer(assetA, msg.sender, transferA)) {
-                payoutA = transferA;
-            }
+            assetA.safeTransfer(receiver, expectedPayoutA);
+            payoutA = expectedPayoutA;
         }
         if (expectedPayoutB > 0) {
-            uint256 availableB = assetB.balanceOf(address(this));
-            uint256 transferB = expectedPayoutB > availableB ? availableB : expectedPayoutB;
-            if (transferB > 0 && _attemptDirectTransfer(assetB, msg.sender, transferB)) {
-                payoutB = transferB;
-            }
+            assetB.safeTransfer(receiver, expectedPayoutB);
+            payoutB = expectedPayoutB;
         }
 
-        emit EmergencyCoreWithdraw(msg.sender, buyPrincipal, sellPrincipal, payoutA, payoutB, processed);
+        emit EmergencyCoreWithdraw(receiver, buyPrincipal, sellPrincipal, payoutA, payoutB, processed);
     }
 
     function addSupportDay(uint8 _day) external onlyOwner {
@@ -440,8 +456,13 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
         
         uint64 start = nextProcessId[day];
         uint64 end = start + uint64(UPKEEPS_PER_CHECK);
+        uint64 tail = nextPositionId[day];
 
-        for (uint64 posId = start; posId < end; ) {
+        // Scan only inside the currently assigned ID range.
+        // This preserves normal behavior while allowing skips over deleted holes.
+        if (start >= tail) return 0;
+
+        for (uint64 posId = start; posId < end && posId < tail; ) {
             bool exist = _posExist(day, posId);
             if (exist) {
                 bool isBuy = positions_buy[day][posId].amount > 0;
@@ -453,7 +474,8 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
                     break;
                 }
             }else{
-                break; 
+                // Deleted positions are safe to process as empty queue slots.
+                endPositionId = posId;
             }
             unchecked { ++posId; }
         }
@@ -538,7 +560,7 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
         uint256 price = _getPriceFromLP();
         uint256 length = durationDay.length;
 
-        for (uint8 i = 0; i < length; ) {
+        for (uint256 i = 0; i < length; ) {
             uint8 day = durationDay[i];
             uint64 start = nextProcessId[day];
             uint64 endPositionId = supportDaysPositions[i];
@@ -572,6 +594,7 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
             interest,
             payout
         );
+        _addOwnerPosition(sender, amount, true);
         _addOpportunityAmount(_buyOffer.strikePrice, amount, true);
         _updateInterestLiability(interest, true);
         
@@ -606,6 +629,7 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
             interest,
             payout
         );
+        _addOwnerPosition(sender, amount, false);
         _addOpportunityAmount(_sellOffer.strikePrice, amount, false);
         _updateInterestLiability(interest, false);
         emit Deposited(sender, positionId, address(assetB), amount, interest, _sellOffer.strikePrice, _sellOffer.apr, numDays);
@@ -762,10 +786,10 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
             _doppiSettleCall(totalB, amountOutB, price, false);
         }
         if (totalInterestA > 0) {
-            _doppiInterestGet(assetA, totalInterestA, price, true);
+            _doppiInterestGet(assetA, totalInterestA, price);
         }
         if (totalInterestB > 0) {
-            _doppiInterestGet(assetB, totalInterestB, price, false);
+            _doppiInterestGet(assetB, totalInterestB, price);
         }
 
         for (uint256 i = 0; i < planCount; ) {
@@ -798,6 +822,7 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
 
         if (p.expiryTimestamp > block.timestamp) revert NotExpired();
 
+        _removeOwnerPosition(p.owner, p.amount, isBuy);
         _removeInterestLiability(p.interest, isBuy);
         _updateTotalDeposit(p.amount, isBuy);
 
@@ -888,7 +913,7 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
             uint256 totalProceeds = myAmountOut + payoutFromSettle;
             uint256 notenough = payout > totalProceeds ? payout - totalProceeds : 0;
             if (notenough > 0) {
-                _doppiInterestGet(payoutToken, notenough, price, isBuy);
+                _doppiInterestGet(payoutToken, notenough, price);
             } else {
                 uint256 settleprofit = totalProceeds - payout;
                 if (settleprofit > 0) {
@@ -920,7 +945,7 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
             uint256 bal = payoutToken.balanceOf(address(this));
             uint256 notenough = bal > p.amount ? 0 : p.amount - bal;
             if(notenough > 0) {
-                _doppiInterestGet(payoutToken, notenough, price, isBuy);
+                _doppiInterestGet(payoutToken, notenough, price);
             }
         } else {
             // Scenario 4 (fully traded) or partial:
@@ -936,7 +961,7 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
                 _safeTransferWithFee(payoutToken, address(doppiLP), profitLoss);
             } else {
                 uint256 notenough = tradedPortion - amountInOrig;
-                _doppiInterestGet(payoutToken, notenough, price, isBuy);
+                _doppiInterestGet(payoutToken, notenough, price);
             }
             _subtractOpportunityTrade(p.strikePrice, tradedPortion, myAmountOut, isBuy);
         }
@@ -1278,12 +1303,11 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
     function _doppiInterestGet(
             IERC20 interestToken,
             uint256 interest,
-            uint256 price,
-            bool isBuy
+            uint256 price
         ) internal {
 
         (bool ok, ) = address(doppiLP).call(
-            abi.encodeWithSelector(INTEREST_SELECTOR, address(interestToken), interest, price, isBuy)
+            abi.encodeWithSelector(INTEREST_SELECTOR, address(interestToken), interest, price)
         );
         if (!ok) revert InterestGetFailed();
     }

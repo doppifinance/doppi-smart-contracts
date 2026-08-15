@@ -499,7 +499,7 @@ contract DoppiCoreExtTest is Test {
         uint256 start_btcbal = btc.balanceOf(user1);
 
         vm.startPrank(user1);
-        doppiCore.emergencyWithdrawCoreOnly(type(uint256).max);
+        doppiCore.emergencyWithdrawCoreOnly(type(uint256).max, user1);
         vm.stopPrank();
 
         uint256 pos1day = doppiCore.getPositionLength(1);
@@ -518,6 +518,40 @@ contract DoppiCoreExtTest is Test {
         assertEq(end_usdtbal, start_usdtbal + 50_000 ether);
         assertEq(end_btcbal, start_btcbal + 0.5 ether);
         
+    }
+
+    function test_emergencyWithdraw_resumesAfterUnrelatedPosition() public {
+        DualAssetOffer memory sellOffer = impliedVol.getOffer(false, 1, 0);
+        DepositParams memory sellParams = DepositParams({
+            amount: 0.5 ether,
+            strikeZone: 0,
+            strikePrice: sellOffer.strikePrice,
+            numDays: 1,
+            apr: sellOffer.apr,
+            expiry: sellOffer.expiry
+        });
+
+        vm.startPrank(user2);
+        btc.approve(address(doppiCore), sellParams.amount);
+        doppiCore.deposit_sell(sellParams);
+        vm.stopPrank();
+
+        _depositUSDT();
+
+        doppiCore.setPause();
+        doppiCore.setEmergencyMode(true);
+
+        vm.prank(user1);
+        (uint256 firstProcessed, uint256 firstRemaining,,) = doppiCore.emergencyWithdrawCoreOnly(1, user1);
+        assertEq(firstProcessed, 0);
+        assertEq(firstRemaining, 1);
+
+        vm.prank(user1);
+        (uint256 secondProcessed, uint256 secondRemaining,,) = doppiCore.emergencyWithdrawCoreOnly(1, user1);
+        assertEq(secondProcessed, 1);
+        assertEq(secondRemaining, 0);
+        assertEq(doppiCore.getBuyPositionCount(user1), 0);
+        assertEq(doppiCore.getSellPositionCount(user2), 1);
     }
 
     function test_maxDepositBuy() public {

@@ -17,7 +17,6 @@ import {DoppiPoints} from "../../src/mainnet/DoppiPoints.sol";
 import {DoppiClaim} from "../../src/mainnet/DoppiClaim.sol";
 import {DOPPI} from "../../src/test/Doppi.sol";
 import {DoppiOpportunity} from "../../src/mainnet/DoppiOpportunity.sol";
-import {DoppiUpkeepManager} from "../../src/mainnet/DoppiUpkeepManager.sol";
 import {MockRegistryConsumer} from "../../src/test/MockRegistryConsumer.sol";
 import {DoppiReferral} from "../../src/mainnet/DoppiReferral.sol";
 import "../../src/mainnet/DoppiCoreTypes.sol";
@@ -38,11 +37,9 @@ contract DoppiLiquidityGasTest is Test {
     IERC20 btc;
     IERC20 link;
     MockOracle oracle;
-    // MockDoppiUpKeepManager mockDoppiUpKeepManager;
     DoppiOpportunity doppiOpportunity;
     // Swapper public swapper;
     DoppiPoints doppiPoints;
-    DoppiUpkeepManager doppiUpkeepManager;
     DoppiReferral doppiReferral;
     DOPPI doppiToken;
     DoppiClaim doppiClaim;
@@ -101,7 +98,6 @@ contract DoppiLiquidityGasTest is Test {
         doppiRouter.setDoppiCore(address(doppiCore));
         doppiLP.setDoppiLiquidityRouter(address(doppiRouter));
         doppiFactory = new DoppiTraderFactory(IERC20(USDT), IERC20(BTC), address(doppiCore), address(doppiLP), address(doppiRouter), address(impliedVol), address(doppiPoints));
-        doppiUpkeepManager = _deployDoppiUpkeepManager(address(doppiFactory));
         
         doppiToken = new DOPPI("Doppi Token", "DOPPI");
         doppiClaim = _deployDoppiClaim(doppiPoints, doppiReferral, doppiToken);
@@ -744,31 +740,6 @@ contract DoppiLiquidityGasTest is Test {
         DoppiPoints _doppiPoints = new DoppiPoints();
         return _doppiPoints;
     }
-
-    function _deployDoppiUpkeepManager(address _doppiFactory) internal returns (DoppiUpkeepManager) {
-
-        IAutomationRegistrar registrar = IAutomationRegistrar(CHAINLINK_Registrar);
-        // IAutomationRegistryConsumer registryConsumer = IAutomationRegistryConsumer(CHAINLINK_RegistryConsumer);
-        MockRegistryConsumer mockRegistryConsumer = new MockRegistryConsumer();
-        mockRegistryConsumerAddr = address(mockRegistryConsumer);
-        DoppiUpkeepManager _doppiUpkeepManager = new DoppiUpkeepManager(
-            address(mockRegistryConsumer), 
-            address(registrar), 
-            CHAINLINK_LINK_USD, 
-            address(PCSWAP_V3_ROUTER),
-            LINK_PEGGED_SWAP,
-            USDT, 
-            LINK, // erc677 link
-            BNBLINK, //bnb link
-            _doppiFactory,
-            treasury
-        );        
-        // console.log("mockRegistryConsumer deployed at:", address(mockRegistryConsumer));
-        _doppiUpkeepManager.setMaxDelay(10 days);
-        doppiFactory.setDoppiUpKeepManager(address(_doppiUpkeepManager));
-
-        return _doppiUpkeepManager;
-    }  
 
     function _doppiLPCheckUpkeep_performUpkeep() internal {
         
