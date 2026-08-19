@@ -120,6 +120,20 @@ contract PrivateAutomationHubTest is Test {
 
     uint256 internal constant TEST_GAS_PRICE = 3e9;
 
+    bytes32 private constant FEE_CHARGED_SIG =
+        keccak256("JobFeeCharged(uint256,address,uint256,uint256,uint256,uint256)");
+    bytes32 private constant POINTS_USED_SIG =
+        keccak256("PointsUsedForFee(uint256,address,uint256,uint256)");
+
+    struct ExecLog {
+        uint256 gasUsed;
+        uint256 gasPrice;
+        uint256 rawCost;
+        uint256 fundTokenFee;
+        uint256 pointsDeducted;
+        uint256 pointsValue;
+    }
+
     function setUp() public {
         vm.warp(1735689600);
 
@@ -379,8 +393,10 @@ contract PrivateAutomationHubTest is Test {
         _seedCredit(sharedBot, 100 ether);
 
         MockToken newFundToken = new MockToken("NEW", "NEW");
+        uint256 threshold = hub.minCreditThreshold();
+        uint256 topUp = hub.defaultTopUp();
         vm.prank(owner);
-        hub.setFundToken(address(newFundToken));
+        hub.setBillingAssetConfig(address(newFundToken), address(bnbOracle), threshold, topUp);
 
         assertEq(hub.getBotBilling(sharedBot).creditBalance, 0);
 
@@ -410,8 +426,9 @@ contract PrivateAutomationHubTest is Test {
         hub.setMinCreditThreshold(1 ether);
 
         MockToken newFundToken = new MockToken("NEW", "NEW");
+        uint256 topUp = hub.defaultTopUp();
         vm.prank(owner);
-        hub.setFundToken(address(newFundToken));
+        hub.setBillingAssetConfig(address(newFundToken), address(bnbOracle), 1 ether, topUp);
 
         botTarget.setCheckResponse(true, abi.encode("bot"));
         (bool needed,) = hub.checkUpkeep("");
@@ -853,6 +870,144 @@ contract PrivateAutomationHubTest is Test {
 
         assertFalse(upkeepNeeded);
         assertEq(performData.length, 0);
+    }
+
+    function test_billingLifecycle_usdtToDoppiMigration_withAndWithoutPoints() public {
+        // Defaults are relied on: platformMarkupBps = 0 and minCreditThreshold = 0.
+        address bot = _registerSharedBot();
+        _seedCredit(bot, 1000 ether);
+
+        // (1-3) USDT fund token, BNB/USDT = 600, points off.
+        ExecLog memory usdtRun = _executeAndCapture();
+        uint256 usdtGasCostWei = usdtRun.gasUsed * usdtRun.gasPrice;
+
+        assertEq(usdtRun.gasPrice, TEST_GAS_PRICE);
+        assertEq(usdtRun.rawCost, (usdtGasCostWei * 600e8) / 1e8);
+        assertEq(usdtRun.fundTokenFee, usdtRun.rawCost);
+        assertEq(usdtRun.pointsDeducted, 0);
+        assertEq(fundToken.balanceOf(treasury), usdtRun.rawCost);
+        assertEq(hub.getBotBilling(bot).creditBalance, 1000 ether - usdtRun.rawCost);
+        assertEq(hub.getBotBilling(bot).totalGasFeePaid, usdtRun.rawCost);
+
+        uint256 treasuryUsdt = fundToken.balanceOf(treasury);
+        uint256 usdtCredit = hub.getBotBilling(bot).creditBalance;
+
+        // (4-5) Points enabled at 10 bps; points fully absorb the fee.
+        vm.startPrank(owner);
+        hub.setDoppiPointsContract(address(mockDoppiPoints));
+        hub.setDoppiPointsExchangeRate(10);
+        vm.stopPrank();
+
+        _setAvailablePoints(1000 ether);
+        vm.prank(trader);
+        hub.enablePointsPayment(bot);
+
+        ExecLog memory pointsRun = _executeAndCapture();
+
+        assertEq(pointsRun.rawCost, (pointsRun.gasUsed * pointsRun.gasPrice * 600e8) / 1e8);
+        assertEq(pointsRun.pointsDeducted, pointsRun.rawCost * 1000);
+        assertEq(pointsRun.pointsValue, pointsRun.rawCost);
+        assertEq(pointsRun.fundTokenFee, 0);
+        assertEq(mockDoppiPoints.spentPoints(trader), pointsRun.pointsDeducted);
+        assertEq(fundToken.balanceOf(treasury), treasuryUsdt);
+        assertEq(hub.getBotBilling(bot).creditBalance, usdtCredit);
+
+        // (6) Migrate fund token to DOPPI with a BNB/DOPPI feed at 60000.
+        uint256 usdtCreditBeforeMigration = hub.getBotBilling(bot).creditBalance;
+        MockToken doppi = new MockToken("DOPPI", "DOPPI");
+        MockOracle bnbDoppiOracle = new MockOracle(int256(60000 * 1e8), 8);
+        uint256 topUp = hub.defaultTopUp();
+
+        vm.prank(owner);
+        hub.setBillingAssetConfig(address(doppi), address(bnbDoppiOracle), 0, topUp);
+
+        assertEq(address(hub.fundToken()), address(doppi));
+        assertEq(hub.fundTokenDecimals(), 1e18);
+
+        // (7-9) Points off, fund in DOPPI, execute and settle in DOPPI.
+        vm.prank(trader);
+        hub.disablePointsPayment(bot);
+
+        doppi.mint(trader, 1000 ether);
+        vm.startPrank(trader);
+        doppi.approve(address(hub), 1000 ether);
+        hub.deposit(bot, 1000 ether);
+        vm.stopPrank();
+
+        assertEq(hub.legacyCreditBalance(bot, address(fundToken)), usdtCreditBeforeMigration);
+        assertEq(address(hub.botCreditToken(bot)), address(doppi));
+        assertEq(hub.getBotBilling(bot).creditBalance, 1000 ether);
+
+        uint256 spentBeforeDoppiRun = mockDoppiPoints.spentPoints(trader);
+        ExecLog memory doppiRun = _executeAndCapture();
+        uint256 doppiGasCostWei = doppiRun.gasUsed * doppiRun.gasPrice;
+
+        assertEq(doppiRun.rawCost, (doppiGasCostWei * 60000e8) / 1e8);
+        assertEq(doppiRun.fundTokenFee, doppiRun.rawCost);
+        assertEq(doppiRun.pointsDeducted, 0);
+        assertEq(mockDoppiPoints.spentPoints(trader), spentBeforeDoppiRun);
+        assertEq(doppi.balanceOf(treasury), doppiRun.rawCost);
+        assertEq(hub.getBotBilling(bot).creditBalance, 1000 ether - doppiRun.rawCost);
+        assertEq(fundToken.balanceOf(treasury), treasuryUsdt);
+
+        // Cost per unit of gas must scale with the feed ratio (60000 / 600 = 100x).
+        assertEq(doppiRun.rawCost * usdtGasCostWei, usdtRun.rawCost * 100 * doppiGasCostWei);
+
+        // (10-11) Points re-enabled but under-funded: fee splits across points and DOPPI credit.
+        uint256 partialPoints = (doppiRun.rawCost * 1000) / 2;
+        uint256 expectedPointsValue = (partialPoints * 10) / 10000;
+        _setAvailablePoints(partialPoints);
+        vm.prank(trader);
+        hub.enablePointsPayment(bot);
+
+        uint256 creditBeforeMixed = hub.getBotBilling(bot).creditBalance;
+        uint256 treasuryDoppiBefore = doppi.balanceOf(treasury);
+        uint256 spentBeforeMixed = mockDoppiPoints.spentPoints(trader);
+
+        ExecLog memory mixedRun = _executeAndCapture();
+
+        assertEq(mixedRun.rawCost, (mixedRun.gasUsed * mixedRun.gasPrice * 60000e8) / 1e8);
+        assertEq(mixedRun.pointsDeducted, partialPoints);
+        assertEq(mixedRun.pointsValue, expectedPointsValue);
+        assertLt(mixedRun.pointsValue, mixedRun.rawCost);
+        assertEq(mixedRun.fundTokenFee, mixedRun.rawCost - mixedRun.pointsValue);
+        assertGt(mixedRun.fundTokenFee, 0);
+        assertEq(mockDoppiPoints.spentPoints(trader), spentBeforeMixed + partialPoints);
+        assertEq(doppi.balanceOf(treasury), treasuryDoppiBefore + mixedRun.fundTokenFee);
+        assertEq(hub.getBotBilling(bot).creditBalance, creditBeforeMixed - mixedRun.fundTokenFee);
+        assertEq(hub.legacyCreditBalance(bot, address(fundToken)), usdtCreditBeforeMigration);
+    }
+
+    function _setAvailablePoints(uint256 target) internal {
+        mockDoppiPoints.setReadyPoints(trader, target + mockDoppiPoints.spentPoints(trader));
+    }
+
+    /// @dev gasUsed is measured at runtime, so expected fees are recomputed from the emitted event.
+    function _executeAndCapture() internal returns (ExecLog memory out) {
+        botTarget.setCheckResponse(true, abi.encode("bot"));
+        vm.warp(block.timestamp + 31);
+
+        (bool needed, bytes memory pd) = hub.checkUpkeep("");
+        require(needed, "upkeep not needed");
+
+        vm.txGasPrice(TEST_GAS_PRICE);
+        vm.recordLogs();
+        vm.prank(executor);
+        hub.performUpkeep(pd);
+
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+        bool feeFound;
+        for (uint256 i = 0; i < logs.length; ++i) {
+            if (logs[i].topics.length == 0) continue;
+            if (logs[i].topics[0] == FEE_CHARGED_SIG) {
+                (out.gasUsed, out.gasPrice, out.rawCost, out.fundTokenFee) =
+                    abi.decode(logs[i].data, (uint256, uint256, uint256, uint256));
+                feeFound = true;
+            } else if (logs[i].topics[0] == POINTS_USED_SIG) {
+                (out.pointsDeducted, out.pointsValue) = abi.decode(logs[i].data, (uint256, uint256));
+            }
+        }
+        require(feeFound, "JobFeeCharged not emitted");
     }
 
     function _registerSharedBot() internal returns (address sharedBot) {

@@ -3,6 +3,7 @@ pragma solidity ^0.8.26;
 
 import "./DoppiCore.sol";
 import "../Interface/AutomationCompatibleInterface.sol";
+import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import {IDoppiLiquidity} from "../Interface/IDoppiLiquidity.sol";
 import {IDoppiOpportunity} from "../Interface/IDoppiOpportunity.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
@@ -10,7 +11,7 @@ import {Pausable} from "@openzeppelin/contracts/utils/Pausable.sol";
 import {OpportunityOrders, StrikeNode} from "./DoppiCoreTypes.sol";
 // import "forge-std/console.sol";
 
-contract DoppiOpportunity is Ownable, Pausable, AutomationCompatibleInterface, IDoppiOpportunity {
+contract DoppiOpportunity is Ownable, Pausable, AutomationCompatibleInterface, IDoppiOpportunity, ReentrancyGuard {
     error ZeroForwarder();
     error InvalidForwarder();
     error InvalidBps();
@@ -36,6 +37,11 @@ contract DoppiOpportunity is Ownable, Pausable, AutomationCompatibleInterface, I
     uint256 internal sellTail;
     uint256 internal activeBuyStrikeCount;
     uint256 internal activeSellStrikeCount;
+    uint256 public buyOppScanCursor;
+    uint256 public buyUnwindScanCursor;
+    uint256 public sellOppScanCursor;
+    uint256 public sellUnwindScanCursor;
+    uint256 public maxCheckSteps = type(uint256).max;
     
     constructor(address _doppiCore, address _doppiLP) Ownable(msg.sender) {
         doppiCore = DoppiCore(_doppiCore);
@@ -54,43 +60,78 @@ contract DoppiOpportunity is Ownable, Pausable, AutomationCompatibleInterface, I
         uint256 price = doppiLP.getPrice();
         if(price == 0) return (false, bytes(""));
 
-        (uint256[] memory targetPrices, uint256[] memory targetPricesUnwind, ,) = _checkOpportunity(price, true);
-        (uint256[] memory targetPricesSell, uint256[] memory targetPricesSellUnwind, ,) = _checkOpportunity(price, false);
+        (
+            uint256[] memory targetPrices,
+            uint256[] memory targetPricesUnwind,
+            ,
+            ,
+            ,
+            ,
+            bool buyHasMore
+        ) = _checkOpportunity(price, true, buyOppScanCursor, buyUnwindScanCursor);
 
-        upkeepNeeded = (targetPrices.length > 0 || targetPricesUnwind.length > 0 || targetPricesSell.length > 0 || targetPricesSellUnwind.length > 0);
+        (
+            uint256[] memory targetPricesSell,
+            uint256[] memory targetPricesSellUnwind,
+            ,
+            ,
+            ,
+            ,
+            bool sellHasMore
+        ) = _checkOpportunity(price, false, sellOppScanCursor, sellUnwindScanCursor);
+
+        upkeepNeeded = (
+            targetPrices.length > 0 ||
+            targetPricesUnwind.length > 0 ||
+            targetPricesSell.length > 0 ||
+            targetPricesSellUnwind.length > 0 ||
+            buyHasMore ||
+            sellHasMore
+        );
         
-        if (upkeepNeeded) {
-            return (true, bytes(""));
-        } 
         return (upkeepNeeded, bytes(""));
     }
 
-    function performUpkeep(bytes calldata) external override onlyForwarder {
+    function performUpkeep(bytes calldata) external override onlyForwarder nonReentrant {
         
         if(paused()) return;
         uint256 price = doppiLP.getPrice();
         if(price == 0) return;
-        
-        (   
-            uint256[] memory targetPrices, 
-            uint256[] memory targetPricesUnwind, 
-            uint256 totalAmountBuy,
-            uint256 totalAmountBuyUnwind
-        ) = _checkOpportunity(price, true);
-        
-        (   
-            uint256[] memory targetPricesSell, 
-            uint256[] memory targetPricesSellUnwind, 
-            uint256 totalAmountSell,
-            uint256 totalAmountSellUnwind
-        ) = _checkOpportunity(price, false);
 
-        if(targetPrices.length > 0 || targetPricesUnwind.length > 0){
+        (
+            uint256[] memory targetPrices,
+            uint256[] memory targetPricesUnwind,
+            uint256 totalAmountBuy,
+            uint256 totalAmountBuyUnwind,
+            uint256 nextBuyOppCursor,
+            uint256 nextBuyUnwindCursor,
+        ) = _checkOpportunity(price, true, buyOppScanCursor, buyUnwindScanCursor);
+
+
+        buyOppScanCursor = _sanitizeCursor(true, true, nextBuyOppCursor);
+        buyUnwindScanCursor = _sanitizeCursor(true, false, nextBuyUnwindCursor);
+
+        if (targetPrices.length > 0 || targetPricesUnwind.length > 0) {
             _performOpportunity(targetPrices, targetPricesUnwind, totalAmountBuy, totalAmountBuyUnwind, true, price);
         }
-        if(targetPricesSell.length > 0 || targetPricesSellUnwind.length > 0){
+
+        (
+            uint256[] memory targetPricesSell,
+            uint256[] memory targetPricesSellUnwind,
+            uint256 totalAmountSell,
+            uint256 totalAmountSellUnwind,
+            uint256 nextSellOppCursor,
+            uint256 nextSellUnwindCursor,
+        ) = _checkOpportunity(price, false, sellOppScanCursor, sellUnwindScanCursor);
+
+
+        sellOppScanCursor = _sanitizeCursor(false, false, nextSellOppCursor);
+        sellUnwindScanCursor = _sanitizeCursor(false, true, nextSellUnwindCursor);
+
+        if (targetPricesSell.length > 0 || targetPricesSellUnwind.length > 0) {
             _performOpportunity(targetPricesSell, targetPricesSellUnwind, totalAmountSell, totalAmountSellUnwind, false, price);
         }
+
     }
 
     function performOpportunity(
@@ -115,6 +156,11 @@ contract DoppiOpportunity is Ownable, Pausable, AutomationCompatibleInterface, I
         if (_bufferCutBps > BPS || _minBufferBps > BPS) revert InvalidBps();
         opportunityBufferCutBps = _bufferCutBps;
         opportunityMinBufferBps = _minBufferBps;
+    }
+
+    function setMaxCheckSteps(uint256 _steps) external onlyOwner {
+        require(_steps > 0, "invalid step limit");
+        maxCheckSteps = _steps;
     }
 
     modifier onlyForwarder() {
@@ -250,19 +296,22 @@ contract DoppiOpportunity is Ownable, Pausable, AutomationCompatibleInterface, I
         return (node.prev, node.next, node.active);
     }
 
-    function _checkOpportunity(uint256 price, bool isBuy)
+    function _checkOpportunity(uint256 price, bool isBuy, uint256 oppCursor, uint256 unwindCursor)
         internal
         view
         returns (
             uint256[] memory targetPrices,
             uint256[] memory targetPricesUnwind,
             uint256 totalAmount,
-            uint256 totalAmountUnwind
+            uint256 totalAmountUnwind,
+            uint256 nextOppCursor,
+            uint256 nextUnwindCursor,
+            bool hasMore
         )
     {
         uint256 oneDayMove = doppiCore.doppiOffer().getOneDayBuffer(price, isBuy);
         if (oneDayMove == 0) {
-            return (new uint256[](0), new uint256[](0), 0, 0);
+            return (new uint256[](0), new uint256[](0), 0, 0, oppCursor, unwindCursor, false);
         }
 
         uint256 reducedMove = oneDayMove * (BPS - opportunityBufferCutBps) / BPS;
@@ -270,33 +319,40 @@ contract DoppiOpportunity is Ownable, Pausable, AutomationCompatibleInterface, I
             ? reducedMove
             : opportunityMinBufferBps;
 
-        (targetPrices, totalAmount) = _checkOppoOrUnwind(isBuy, price, effectiveBufferBps, false);
-        (targetPricesUnwind, totalAmountUnwind) = _checkOppoOrUnwind(isBuy, price, effectiveBufferBps, true);
+        bool hasMoreOpp;
+        bool hasMoreUnwind;
+        (targetPrices, totalAmount, nextOppCursor, hasMoreOpp) = _checkOppoOrUnwind(isBuy, price, effectiveBufferBps, false, oppCursor);
+        (targetPricesUnwind, totalAmountUnwind, nextUnwindCursor, hasMoreUnwind) = _checkOppoOrUnwind(isBuy, price, effectiveBufferBps, true, unwindCursor);
+        hasMore = hasMoreOpp || hasMoreUnwind;
     }
 
     function _checkOppoOrUnwind(
         bool isBuy,
         uint256 price,
         uint256 oneDayMove,
-        bool unwind
-    ) internal view returns (uint256[] memory targetPrices, uint256 totalAmount) {
+        bool unwind,
+        uint256 cursorInput
+    ) internal view returns (uint256[] memory targetPrices, uint256 totalAmount, uint256 nextCursor, bool hasMore) {
         IDoppiOpportunity opportunityStore = doppiCore.doppiOpportunity();
         (uint256 activeCount, uint256 head, uint256 tail) = opportunityStore.getActiveStrikeSnapshot(isBuy);
         if (activeCount == 0) {
-            return (new uint256[](0), 0);
+            return (new uint256[](0), 0, 0, false);
         }
 
-        uint256[] memory tempTargetPrice = new uint256[](activeCount);
+        uint256 alloc = activeCount < maxCheckSteps ? activeCount : maxCheckSteps;
+        uint256[] memory tempTargetPrice = new uint256[](alloc);
         uint256 count;
+        bool boundedScan = maxCheckSteps != type(uint256).max;
 
         uint256 buffer = price * oneDayMove / 10000;
         uint256 triggerPrice = isBuy ? price + buffer : price - buffer;
         uint256 triggerUnwindPrice = isBuy ? price - buffer : price + buffer;
         uint256 maxSwapInLocal = (isBuy == unwind) ? doppiCore.maxSwap() * doppiCore.priceDecimal() / price : doppiCore.maxSwap();
         bool ascending = isBuy != unwind;
-        uint256 strikePrice = ascending ? tail : head;
+        uint256 strikePrice = _sanitizeCursorWithBounds(opportunityStore, isBuy, ascending, cursorInput, head, tail);
+        uint256 stepsScanned;
 
-        while (strikePrice != 0) {
+        while (strikePrice != 0 && stepsScanned < maxCheckSteps) {
             (uint256 prevStrike, uint256 nextStrike,) = opportunityStore.getStrikeNode(isBuy, strikePrice);
             uint256 cursor = ascending ? prevStrike : nextStrike;
 
@@ -334,9 +390,40 @@ contract DoppiOpportunity is Ownable, Pausable, AutomationCompatibleInterface, I
             }
 
             strikePrice = cursor;
+            unchecked { ++stepsScanned; }
+        }
+
+        if (boundedScan) {
+            hasMore = strikePrice != 0;
+            nextCursor = hasMore ? strikePrice : (ascending ? tail : head);
+        } else {
+            hasMore = false;
+            nextCursor = ascending ? tail : head;
         }
 
         targetPrices = _createResultArrays(tempTargetPrice, count);
+    }
+
+    function _sanitizeCursor(bool isBuy, bool ascending, uint256 cursorInput) internal view returns (uint256) {
+        IDoppiOpportunity opportunityStore = doppiCore.doppiOpportunity();
+        (, uint256 head, uint256 tail) = opportunityStore.getActiveStrikeSnapshot(isBuy);
+        return _sanitizeCursorWithBounds(opportunityStore, isBuy, ascending, cursorInput, head, tail);
+    }
+
+    function _sanitizeCursorWithBounds(
+        IDoppiOpportunity opportunityStore,
+        bool isBuy,
+        bool ascending,
+        uint256 cursorInput,
+        uint256 head,
+        uint256 tail
+    ) internal view returns (uint256) {
+        uint256 fallbackCursor = ascending ? tail : head;
+        if (cursorInput == 0) return fallbackCursor;
+
+        (, , bool active) = opportunityStore.getStrikeNode(isBuy, cursorInput);
+        if (!active) return fallbackCursor;
+        return cursorInput;
     }
 
     function _createResultArrays(

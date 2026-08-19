@@ -106,11 +106,9 @@ abstract contract DoppiTraderAdminView is Ownable, Pausable {
     }
 
     function getPerformanceMultipliers() external view returns (uint256 multiplierA, uint256 multiplierB, uint256 unitPriceA, uint256 unitPriceB) {
-        
-        uint256 price = doppiLP.getPrice();
+                
+        (uint256 currentA, uint256 currentB, uint256 price) = getTotalBalances();
         if(price == 0) return (1e18, 1e18, 1e18, 1e18);
-
-        (uint256 currentA, uint256 currentB, ) = getTotalBalances();
 
         // Convert B values to A using current price
         uint256 currentBInA = (currentB * price) / priceDecimals;
@@ -259,7 +257,8 @@ abstract contract DoppiTraderAdminView is Ownable, Pausable {
     }
 
     function setForwarderAddress(address forwarderAddress) external {
-        _onlyTraderOrOwner();
+        // owner is the deploying factory, which wires the automation hub as forwarder at deploy time
+        if (msg.sender != validTrader && msg.sender != owner()) revert NotValidTrader();
         s_forwarderAddress = forwarderAddress;
     }
 
@@ -460,11 +459,11 @@ abstract contract DoppiTraderAdminView is Ownable, Pausable {
 
         IERC20 fundToken = privateAutomationHub.fundToken();
         
-        if (address(fundToken) == address(assetA)) {
+        if (address(fundToken) == address(assetA) && amountA > 0) {
             if (amountA < defaultTopUp) revert InsufficientTopUpAmount();
             finalAmountA = amountA - defaultTopUp;
             assetA.safeIncreaseAllowance(address(privateAutomationHub), defaultTopUp);
-        } else if (address(fundToken) == address(assetB)) {
+        } else if (address(fundToken) == address(assetB) && amountB > 0) {
             if (amountB < defaultTopUp) revert InsufficientTopUpAmount();
             finalAmountB = amountB - defaultTopUp;
             assetB.safeIncreaseAllowance(address(privateAutomationHub), defaultTopUp);
@@ -634,10 +633,6 @@ abstract contract DoppiTraderAdminView is Ownable, Pausable {
 
     function _onlyTrader() internal view {
         if(msg.sender != validTrader) revert NotValidTrader();
-    }
-
-    function _onlyTraderOrOwner() internal view {
-        if(msg.sender != validTrader && msg.sender != owner()) revert NotValidTrader();
     }
 
     function _getAutoRoundBudget(uint256 availableBalance, uint256 minOrder, uint256 length)

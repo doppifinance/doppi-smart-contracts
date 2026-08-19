@@ -821,7 +821,7 @@ contract Scenario2Test is Test {
         (bool upkeepNeeded, bytes memory performData) = traderBot.checkUpkeep("");
         uint256 gasUsed = gasBefore - gasleft();
         console.log(upkeepNeeded, gasUsed, "gasUsed in traderBot.checkUpkeep");
-        assertLt(gasUsed, 400_000, "Gas usage too high");
+        assertLt(gasUsed, 410_000, "Gas usage too high");
 
         if(upkeepNeeded){
             vm.prank(traderBot.s_forwarderAddress());

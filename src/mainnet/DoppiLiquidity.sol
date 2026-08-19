@@ -53,6 +53,10 @@ contract DoppiLiquidity is SoladyERC20, SoladyOwnable, Pausable, IDoppiLiquidity
     uint256 internal sellTail;
     uint256 internal activeBuyStrikeCount;
     uint256 internal activeSellStrikeCount;
+    uint256 public buyScanCursor;
+    uint256 public sellScanCursor;
+    uint256 public maxCheckStepsBuy = type(uint256).max;
+    uint256 public maxCheckStepsSell = type(uint256).max;
     
 
 
@@ -62,6 +66,7 @@ contract DoppiLiquidity is SoladyERC20, SoladyOwnable, Pausable, IDoppiLiquidity
     event EntryPointsLocked();
     event TraderFactoryAllowed(address indexed traderFactory, bool allowed);
     event EmergencyRedeemed(address indexed owner, address indexed receiver, uint256 shares, uint256 amountA, uint256 amountB);
+    event CheckStepLimitsUpdated(uint256 buySteps, uint256 sellSteps);
 
     error SlippageTooHigh();
 
@@ -313,6 +318,13 @@ contract DoppiLiquidity is SoladyERC20, SoladyOwnable, Pausable, IDoppiLiquidity
         _unpause();
     }
 
+    function setCheckStepLimits(uint256 buySteps, uint256 sellSteps) external onlyOwner {
+        require(buySteps > 0 && sellSteps > 0, "invalid step limits");
+        maxCheckStepsBuy = buySteps;
+        maxCheckStepsSell = sellSteps;
+        emit CheckStepLimitsUpdated(buySteps, sellSteps);
+    }
+
     function approveRouter() external onlyOwner {
         assetA.safeApprove(config.router, type(uint256).max);
         assetB.safeApprove(config.router, type(uint256).max);
@@ -386,22 +398,40 @@ contract DoppiLiquidity is SoladyERC20, SoladyOwnable, Pausable, IDoppiLiquidity
         uint256 currentPrice = DALiquidityLib.getPriceWithFallback(config.chainLinkFeed, config.v3Pool, config.twapDuration, config.maxDelay);
         if(currentPrice == 0) return (false, bytes(""));
 
-        (uint256[] memory buyindexes, uint256 totalBuyAmount) = _getAccumulatedPrices(currentPrice, true);
-        (uint256[] memory sellindexes, uint256 totalSellAmount) = _getAccumulatedPrices(currentPrice, false);
+        (uint256[] memory buyindexes, uint256 totalBuyAmount, uint256 nextBuyCursor, bool buyHasMore) =
+            _getAccumulatedPrices(currentPrice, true, maxCheckStepsBuy, buyScanCursor);
+        (uint256[] memory sellindexes, uint256 totalSellAmount, uint256 nextSellCursor, bool sellHasMore) =
+            _getAccumulatedPrices(currentPrice, false, maxCheckStepsSell, sellScanCursor);
         
         if (totalBuyAmount > 0 || totalSellAmount > 0) {
             (bool isNetBuy, uint256 netAmount) = _netoutBuySell(totalSellAmount, totalBuyAmount, currentPrice);
-            return (true, abi.encode(isNetBuy, buyindexes, sellindexes, netAmount, totalBuyAmount, totalSellAmount));
+            return (true, abi.encode(isNetBuy, buyindexes, sellindexes, netAmount, totalBuyAmount, totalSellAmount, nextBuyCursor, nextSellCursor));
+        }
+
+        // No actionable orders in this bounded slice, but there are more active strikes to scan.
+        if (buyHasMore || sellHasMore) {
+            return (true, abi.encode(false, buyindexes, sellindexes, 0, 0, 0, nextBuyCursor, nextSellCursor));
         }
 
         return (false, bytes(""));
     }
 
-    function performUpkeep(bytes calldata performData) external override onlyForwarder {
+    function performUpkeep(bytes calldata performData) external override onlyForwarder nonReentrant {
         
         if(paused()) return;
-        (bool isNetBuy, uint256[] memory buyindexes, uint256[] memory sellindexes, uint256 totalAmount, uint256 totalBuyAmount, uint256 totalSellAmount) = 
-            abi.decode(performData, (bool, uint256[], uint256[], uint256, uint256, uint256));
+        (
+            bool isNetBuy,
+            uint256[] memory buyindexes,
+            uint256[] memory sellindexes,
+            uint256 totalAmount,
+            uint256 totalBuyAmount,
+            uint256 totalSellAmount,
+            uint256 nextBuyCursor,
+            uint256 nextSellCursor
+        ) = abi.decode(performData, (bool, uint256[], uint256[], uint256, uint256, uint256, uint256, uint256));
+
+        buyScanCursor = _sanitizeScanCursor(true, nextBuyCursor);
+        sellScanCursor = _sanitizeScanCursor(false, nextSellCursor);
         
         uint256 bal = isNetBuy ? assetA.balanceOf(address(this)) : assetB.balanceOf(address(this));
         if(bal >= totalAmount && totalAmount > 0){
@@ -505,10 +535,14 @@ contract DoppiLiquidity is SoladyERC20, SoladyOwnable, Pausable, IDoppiLiquidity
 
     function _getAccumulatedPrices(
         uint256 currentPrice, 
-        bool isBuy
+        bool isBuy,
+        uint256 maxSteps,
+        uint256 scanCursor
     ) internal view returns (
         uint256[] memory targetPrices, 
-        uint256 totalAmount
+        uint256 totalAmount,
+        uint256 nextCursor,
+        bool hasMore
     ) {
         mapping(uint256 => uint256) storage amountMap = isBuy ? amountToBuy : amountToSell;
         mapping(uint256 => StrikeNode) storage strikeNodes = isBuy ? buyStrikeNodes : sellStrikeNodes;
@@ -516,16 +550,19 @@ contract DoppiLiquidity is SoladyERC20, SoladyOwnable, Pausable, IDoppiLiquidity
         uint256 round = isBuy ? activeBuyStrikeCount : activeSellStrikeCount;
         if(round == 0) {
             targetPrices = new uint256[](0);
-            return (targetPrices, 0);
+            return (targetPrices, 0, 0, false);
         }
-        uint256[] memory tempTargetPrice = new uint256[](round);
+        uint256 stepsLimit = maxSteps == 0 ? 1 : maxSteps;
+        bool boundedScan = stepsLimit != type(uint256).max;
+        uint256 alloc = round < stepsLimit ? round : stepsLimit;
+        uint256[] memory tempTargetPrice = new uint256[](alloc);
         uint256 count = 0;
         uint256 maxSwapInLocal = isBuy ? config.maxSwap : config.maxSwap * config.decimals / currentPrice;
         
-        // bool ascending = isBuy != unwind;
-        uint256 strikeprice = isBuy ? buyTail : sellHead; 
+        uint256 strikeprice = _sanitizeScanCursor(isBuy, scanCursor);
+        uint256 stepsScanned;
         
-        while (strikeprice != 0) {
+        while (strikeprice != 0 && stepsScanned < stepsLimit) {
             uint256 nextStrike = isBuy ? strikeNodes[strikeprice].prev : strikeNodes[strikeprice].next;
             
             uint256 amount = amountMap[strikeprice];
@@ -545,13 +582,34 @@ contract DoppiLiquidity is SoladyERC20, SoladyOwnable, Pausable, IDoppiLiquidity
                 count++;
             }
             strikeprice = nextStrike;
+            unchecked { ++stepsScanned; }
         }
-        uint256 arrCount = count < round ? count : round;
+
+        if (boundedScan) {
+            hasMore = strikeprice != 0;
+            nextCursor = hasMore ? strikeprice : (isBuy ? buyTail : sellHead);
+        } else {
+            hasMore = false;
+            nextCursor = isBuy ? buyTail : sellHead;
+        }
+
+        uint256 arrCount = count < alloc ? count : alloc;
         targetPrices = new uint256[](arrCount);
         for (uint256 j = 0; j < arrCount; ) {
             targetPrices[j] = tempTargetPrice[arrCount - 1 - j];
             unchecked { ++j; }
         }
+    }
+
+    function _sanitizeScanCursor(bool isBuy, uint256 cursor) internal view returns (uint256) {
+        uint256 fallbackCursor = isBuy ? buyTail : sellHead;
+        if (cursor == 0) return fallbackCursor;
+
+        StrikeNode storage node = isBuy ? buyStrikeNodes[cursor] : sellStrikeNodes[cursor];
+        if (!node.active) {
+            return fallbackCursor;
+        }
+        return cursor;
     }
 
     function _swapExactOutputV3(uint256 _amountOutAssetB, address _fromToken, address _toToken, address _recipient, uint256 amountIn)

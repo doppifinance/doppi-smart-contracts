@@ -217,11 +217,6 @@ contract PrivateAutomationHub is IPrivateAutomationHub, Ownable, ReentrancyGuard
 
     // ── Billing admin ─────────────────────────────────────────────────────
 
-    function setFundToken(address _fundToken) external onlyOwner {
-        if (_fundToken == address(fundToken)) return;
-        _setFundToken(_fundToken);
-    }
-
     /// @notice Atomically changes the billing token, its native/token feed, and token-denominated limits.
     function setBillingAssetConfig(
         address _fundToken,
@@ -460,13 +455,6 @@ contract PrivateAutomationHub is IPrivateAutomationHub, Ownable, ReentrancyGuard
 
     function getJobId(address bot, PrivateAutomationModule module) external view returns (uint256 jobId) {
         return jobIdByBotModule[bot][uint8(module)];
-    }
-
-    function getJobIdsByBot(address bot) external view returns (PrivateBotJobIds memory jobIds) {
-        jobIds.traderJobId      = jobIdByBotModule[bot][uint8(PrivateAutomationModule.Trader)];
-        jobIds.coreJobId        = jobIdByBotModule[bot][uint8(PrivateAutomationModule.Core)];
-        jobIds.opportunityJobId = jobIdByBotModule[bot][uint8(PrivateAutomationModule.Opportunity)];
-        jobIds.liquidityJobId   = jobIdByBotModule[bot][uint8(PrivateAutomationModule.Liquidity)];
     }
 
     function getJob(uint256 jobId) external view returns (PrivateJobView memory job) {

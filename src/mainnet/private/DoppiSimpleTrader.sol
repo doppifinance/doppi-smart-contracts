@@ -116,13 +116,9 @@ contract DoppiSimpleTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationC
         _updateUnitAndCostBasis(finalAmountA, finalAmountB, currentBalanceA, currentBalanceB, price);
 
         engineStarted = true;
+        nextBuyTriggerPrice = _lowerTriggerPrice(price);
+        nextSellTriggerPrice = _upperTriggerPrice(price);
 
-        if (nextBuyTriggerPrice == 0 && nextSellTriggerPrice == 0) {
-            nextBuyTriggerPrice = _lowerTriggerPrice(price);
-            nextSellTriggerPrice = _upperTriggerPrice(price);
-
-            emit TriggerInitialized(nextBuyTriggerPrice, nextSellTriggerPrice);
-        }
     }
 
     function stop() external nonReentrant {
@@ -245,24 +241,6 @@ contract DoppiSimpleTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationC
         _onlyTrader();
         minOrderA = _minOrderA;
         minOrderB = _minOrderB;
-    }
-
-    function placeOrders() external nonReentrant {
-        _onlyTrader();
-        uint256 price = doppiLP.getPrice();
-        uint256 buyOrderAmount = _getRoundBudget(true);
-        uint256 sellOrderAmount = _getRoundBudget(false);
-
-        bool canBuy = price <= nextBuyTriggerPrice && buyOrderAmount >= minOrderA;
-        bool canSell = price >= nextSellTriggerPrice && sellOrderAmount >= minOrderB;
-        if (!canBuy && !canSell) revert NoEnoughBalance();
-
-        if (canBuy) {
-            _executeBuyOrder(price);
-        }
-        if (canSell) {
-            _executeSellOrder(price);
-        }
     }
 
     function getAveragePrices() external view returns (uint256 avgBuyEntryPrice, uint256 avgSellEntryPrice) {

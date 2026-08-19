@@ -22,8 +22,6 @@ contract DoppiGridTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCom
     
     mapping(uint256 => uint256) public opportunityBuy;
     mapping(uint256 => uint256) public opportunitySell;
-    mapping(uint256 => uint8) private buyStrikeZone;
-    mapping(uint256 => uint8) private sellStrikeZone;
     uint256[] private activeBuyOpportunityStrikes;
     uint256[] private activeSellOpportunityStrikes;
 
@@ -125,13 +123,6 @@ contract DoppiGridTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCom
         _updateUnitAndCostBasis(finalAmountA, finalAmountB, currentBalanceA, currentBalanceB, price);
 
         engineStarted = true;
-        _resetAndPlace(price);
-    }
-
-    function placeOrders() external nonReentrant {
-        _onlyTrader();
-        uint256 price = doppiLP.getPrice();
-        if (_availableBalance(true) == 0 && _availableBalance(false) == 0) revert NoEnoughBalance();
         _resetAndPlace(price);
     }
 
@@ -602,7 +593,6 @@ contract DoppiGridTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCom
                 uint256 amountA = (buyBudget * weight) / BPS;
                 if (amountA >= minA) {
                     opportunityBuy[buyStrike] = amountA;
-                    buyStrikeZone[buyStrike] = uint8(zone);
                     epochOriginalBuyByZone[uint8(zone)] = amountA;
                     activeBuyOpportunityStrikes.push(buyStrike);
                 }
@@ -613,7 +603,6 @@ contract DoppiGridTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCom
                 uint256 amountB = (sellBudget * weight) / BPS;
                 if (amountB >= minB) {
                     opportunitySell[sellStrike] = amountB;
-                    sellStrikeZone[sellStrike] = uint8(zone);
                     epochOriginalSellByZone[uint8(zone)] = amountB;
                     activeSellOpportunityStrikes.push(sellStrike);
                 }

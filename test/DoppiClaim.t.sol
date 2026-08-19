@@ -251,6 +251,95 @@ contract DoppiClaimTest is Test {
         assertEq(token.balanceOf(alice), 225 ether, "month 1 referral uses old rate and month 2 uses new rate");
     }
 
+    function testClaimReferralPointByMonthIdsSingleMonth() public {
+        _registerCode();
+
+        // Month 1 referral volume for Alice via Bob's trade
+        vm.prank(mockDoppiCore);
+        doppiPoints.recordTrade(bob, 10_000 ether);
+
+        // Month 2 referral volume
+        vm.warp(vm.getBlockTimestamp() + 31 days);
+        vm.prank(mockDoppiCore);
+        doppiPoints.recordTrade(bob, 10_000 ether);
+
+        // Enter month 3 so months 1 and 2 are claimable
+        vm.warp(vm.getBlockTimestamp() + 31 days);
+
+        uint24[] memory months = new uint24[](1);
+        months[0] = 1;
+
+        vm.prank(alice);
+        doppiClaim.claimReferralPointByMonthIds(months);
+
+        // Only month 1 was claimed in this tx
+        assertEq(token.balanceOf(alice), 150 ether, "Alice should receive month 1 referral mint only");
+
+        (uint24 startMonthId, uint24 currentMonthId) = referral.getUnclaimedMonthId(alice);
+        assertEq(startMonthId, 2, "next unclaimed month should advance to 2");
+        assertEq(currentMonthId, 3, "current month should be 3");
+
+        (uint256 l1, uint256 l2, uint256 l3,,,) = referral.getTotalReferralRewards(alice);
+        assertEq(l1, 150 ether, "month 2 l1 reward should remain claimable");
+        assertEq(l2 + l3, 0, "no l2/l3 rewards expected");
+    }
+
+    function testClaimReferralPointByMonthIdsRevertOnWrongSequence() public {
+        _registerCode();
+
+        vm.prank(mockDoppiCore);
+        doppiPoints.recordTrade(bob, 10_000 ether);
+
+        vm.warp(vm.getBlockTimestamp() + 31 days);
+
+        uint24[] memory months = new uint24[](1);
+        months[0] = 2; // expected first unclaimed month is 1
+
+        vm.prank(alice);
+        vm.expectRevert("month sequence mismatch");
+        doppiClaim.claimReferralPointByMonthIds(months);
+    }
+
+    function testClaimTradingPointByMonthIdsSingleMonth() public {
+        // Month 1 trading volume
+        vm.prank(mockDoppiCore);
+        doppiPoints.recordTrade(alice, 100 ether);
+
+        // Month 2 trading volume
+        vm.warp(vm.getBlockTimestamp() + 31 days);
+        vm.prank(mockDoppiCore);
+        doppiPoints.recordTrade(alice, 100 ether);
+
+        // Enter month 3 so months 1 and 2 are claimable
+        vm.warp(vm.getBlockTimestamp() + 31 days);
+
+        uint24[] memory months = new uint24[](1);
+        months[0] = 1;
+
+        vm.prank(alice);
+        doppiClaim.claimTradingPointByMonthIds(months);
+
+        assertEq(token.balanceOf(alice), 100 ether, "Alice should receive month 1 trading mint only");
+
+        (uint24 claimedMonthId, uint256 totalPointClaimed) = doppiPoints.claimedPoint(alice);
+        assertEq(claimedMonthId, 1, "claimed month cursor should advance to 1");
+        assertEq(totalPointClaimed, 100 ether, "only month 1 should be marked claimed");
+    }
+
+    function testClaimTradingPointByMonthIdsRevertOnWrongSequence() public {
+        vm.prank(mockDoppiCore);
+        doppiPoints.recordTrade(alice, 100 ether);
+
+        vm.warp(vm.getBlockTimestamp() + 31 days);
+
+        uint24[] memory months = new uint24[](1);
+        months[0] = 2; // expected first unclaimed month is 1
+
+        vm.prank(alice);
+        vm.expectRevert("month sequence mismatch");
+        doppiClaim.claimTradingPointByMonthIds(months);
+    }
+
 
     event Claimed(
         address indexed user,

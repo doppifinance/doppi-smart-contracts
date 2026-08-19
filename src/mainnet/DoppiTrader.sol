@@ -265,8 +265,9 @@ contract DoppiTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCompati
         if (buyPosCount > 0 && sellPosCount > 0) return (false, false);
         if (availableA == 0 && availableB == 0) return (false, false);
 
-        DualAssetOffer memory offerBuy = impliedVol.getSingleOffer(true, traderDefaultDay, 0, price);
-        DualAssetOffer memory offerSell = impliedVol.getSingleOffer(false, traderDefaultDay, 0, price);
+        uint8 last = uint8(maxOrder) - 1;
+        DualAssetOffer memory offerBuy = impliedVol.getSingleOffer(true, traderDefaultDay, last, price);
+        DualAssetOffer memory offerSell = impliedVol.getSingleOffer(false, traderDefaultDay, last, price);
         if(offerBuy.apr == 0 && offerSell.apr == 0) return (false, false);
 
         bool hasValidBuyOrder = false;
@@ -403,6 +404,7 @@ contract DoppiTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCompati
 
     function _place_oneside(bool isBuy) internal {
         (BulkDepositParam[] memory params, uint256 available) = _prepareOrders(isBuy);
+        if (params.length == 0) return;
         _placeOrders(isBuy, params, available);
     }
     

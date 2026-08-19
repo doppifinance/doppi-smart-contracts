@@ -5,9 +5,12 @@ interface IDoppiPoints {
 
     function recordTrade(address trader, uint256 volumeInUSDT) external;
     function resetPoint(address trader) external;
+    function resetPointByMonthId(address trader, uint24 monthId) external;
     function getCurrentMonthId() external view returns (uint24);
+    function getUnclaimedMonthId(address trader) external view returns (uint24 start, uint24 current);
     function getMonthlyVolume(address trader, uint24 monthId) external view returns (uint256);
     function claimedPoint(address trader) external view returns (uint24 claimedMonthId, uint256 totalPointClaimed);
+    function pointsUsedForFees(address trader) external view returns (uint256);
     function getAllPointData(
         address trader
     )

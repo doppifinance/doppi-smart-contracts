@@ -24,9 +24,6 @@ interface IPrivateAutomationHub is AutomationCompatibleInterface {
     /// @notice Returns job id for a specific bot/module pair, or 0 if missing.
     function getJobId(address bot, PrivateAutomationModule module) external view returns (uint256 jobId);
 
-    /// @notice Returns all module job ids for a private bot.
-    function getJobIdsByBot(address bot) external view returns (PrivateBotJobIds memory jobIds);
-
     /// @notice Returns normalized job view for operator tooling.
     function getJob(uint256 jobId) external view returns (PrivateJobView memory job);
 

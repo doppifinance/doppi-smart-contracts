@@ -129,6 +129,29 @@ contract DoppiOpportunityTest is Test {
         doppiOpportunity.performUpkeep(performData);
     }
 
+    function test_performUpkeep_recomputesWhenPriceMoves() public {
+        depositUSDT();
+
+        DualAssetOffer memory buyOffer = impliedVol.getOffer(true, 1, 1);
+
+        // At this price, buy opportunity is expected and checkUpkeep should return true.
+        oracle.setPrice(int256(95_500 * 1e8));
+        (bool upkeepNeeded, bytes memory performData) = doppiOpportunity.checkUpkeep("");
+        assertTrue(upkeepNeeded);
+
+        // Move price before perform so the previous check result is stale.
+        oracle.setPrice(int256(120_000 * 1e8));
+
+        OpportunityOrders memory beforeOrder = doppiCore.getOpportunityOrders(true, buyOffer.strikePrice);
+        vm.prank(mockForwarder);
+        doppiOpportunity.performUpkeep(performData);
+        OpportunityOrders memory afterOrder = doppiCore.getOpportunityOrders(true, buyOffer.strikePrice);
+
+        // No stale execution should happen: swapped/out amounts must remain unchanged.
+        assertEq(afterOrder.swappedAmount, beforeOrder.swappedAmount);
+        assertEq(afterOrder.outAmount, beforeOrder.outAmount);
+    }
+
     function test_checkUpkeep_opportunityTakeSellProfit() public {
         
         vm.startPrank(doppiCore.owner());            

@@ -45,10 +45,6 @@ contract MockPrivateAutomationHubForSimple is IPrivateAutomationHub {
         return 0;
     }
 
-    function getJobIdsByBot(address) external pure returns (PrivateBotJobIds memory jobIds) {
-        return jobIds;
-    }
-
     function getJob(uint256) external pure returns (PrivateJobView memory job) {
         return job;
     }
