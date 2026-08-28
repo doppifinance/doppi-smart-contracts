@@ -82,24 +82,6 @@ contract MockToken6Decimals is MockToken {
     }
 }
 
-contract MockV3PoolForPoints {
-    address public token0;
-    bool public shouldRevertObserve;
-
-    constructor(address _token0) {
-        token0 = _token0;
-    }
-
-    function setShouldRevertObserve(bool value) external {
-        shouldRevertObserve = value;
-    }
-
-    function observe(uint32[] calldata) external view returns (int56[] memory, uint160[] memory) {
-        if (shouldRevertObserve) revert("pool broken");
-        return (new int56[](2), new uint160[](2));
-    }
-}
-
 contract PrivateAutomationHubTest is Test {
     PrivateAutomationHub internal hub;
 
@@ -692,50 +674,6 @@ contract PrivateAutomationHubTest is Test {
         assertEq(value, 0);
     }
 
-    function test_setDoppiPointsPriceFeed_rejectsNonV3Pool() public {
-        // A Chainlink-style feed (no token0()) must be rejected when enabling dynamic pricing.
-        vm.prank(owner);
-        vm.expectRevert();
-        hub.setDoppiPointsPriceFeed(address(bnbOracle), true);
-    }
-
-    function test_setDoppiPointsPriceFeed_acceptsValidV3Pool() public {
-        MockV3PoolForPoints pool = new MockV3PoolForPoints(address(fundToken));
-
-        vm.prank(owner);
-        hub.setDoppiPointsPriceFeed(address(pool), true);
-
-        assertEq(hub.doppiPointsPriceFeed(), address(pool));
-        assertTrue(hub.useDynamicPointPrice());
-    }
-
-    function test_dynamicPointsPricing_poolFailureDoesNotRevertBilling() public {
-        MockV3PoolForPoints pool = new MockV3PoolForPoints(address(fundToken));
-        pool.setShouldRevertObserve(true);
-
-        vm.startPrank(owner);
-        hub.setDoppiPointsContract(address(mockDoppiPoints));
-        hub.setDoppiPointsPriceFeed(address(pool), true);
-        vm.stopPrank();
-
-        address sharedBot = _registerSharedBot();
-        vm.prank(trader);
-        hub.enablePointsPayment(sharedBot);
-        _seedCredit(sharedBot, 1000 ether);
-
-        botTarget.setCheckResponse(true, abi.encode("bot"));
-        (bool needed, bytes memory pd) = hub.checkUpkeep("");
-        assertTrue(needed);
-
-        vm.txGasPrice(TEST_GAS_PRICE);
-        vm.prank(executor);
-        hub.performUpkeep(pd);
-
-        // Broken pool falls back to zero points value; fee is still collected in fundToken.
-        assertGt(fundToken.balanceOf(treasury), 0);
-        assertEq(mockDoppiPoints.spentPoints(trader), 0);
-    }
-
     function test_getPointValueInUSDT_fixedRate() public {
         vm.prank(owner);
         hub.setDoppiPointsContract(address(mockDoppiPoints));
@@ -918,8 +856,10 @@ contract PrivateAutomationHubTest is Test {
         MockOracle bnbDoppiOracle = new MockOracle(int256(60000 * 1e8), 8);
         uint256 topUp = hub.defaultTopUp();
 
-        vm.prank(owner);
+        vm.startPrank(owner);
+        hub.setDoppiToken(address(doppi));
         hub.setBillingAssetConfig(address(doppi), address(bnbDoppiOracle), 0, topUp);
+        vm.stopPrank();
 
         assertEq(address(hub.fundToken()), address(doppi));
         assertEq(hub.fundTokenDecimals(), 1e18);
@@ -953,9 +893,9 @@ contract PrivateAutomationHubTest is Test {
         // Cost per unit of gas must scale with the feed ratio (60000 / 600 = 100x).
         assertEq(doppiRun.rawCost * usdtGasCostWei, usdtRun.rawCost * 100 * doppiGasCostWei);
 
-        // (10-11) Points re-enabled but under-funded: fee splits across points and DOPPI credit.
-        uint256 partialPoints = (doppiRun.rawCost * 1000) / 2;
-        uint256 expectedPointsValue = (partialPoints * 10) / 10000;
+        // (10-11) Points re-enabled but under-funded in DOPPI mode: strict 1:1 split.
+        uint256 partialPoints = doppiRun.rawCost / 2;
+        uint256 expectedPointsValue = partialPoints;
         _setAvailablePoints(partialPoints);
         vm.prank(trader);
         hub.enablePointsPayment(bot);

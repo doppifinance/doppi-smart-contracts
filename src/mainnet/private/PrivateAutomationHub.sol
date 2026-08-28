@@ -10,7 +10,6 @@ import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {IPrivateAutomationHub} from "../../Interface/IPrivateAutomationHub.sol";
 import {IDoppiPoints} from "../../Interface/IDoppiPoints.sol";
 import {AggregatorV3Interface} from "../../Interface/AggregatorV3Interface.sol";
-import {IUniswapV3Pool} from "@uniswap/v3-core/contracts/interfaces/IUniswapV3Pool.sol";
 import {DALiquidityLib} from "../../Library/DALiquidityLib.sol";
 import {
     PrivateBotJobIds,
@@ -79,7 +78,6 @@ contract PrivateAutomationHub is IPrivateAutomationHub, Ownable, ReentrancyGuard
     // ── DoppiPoints Integration ────────────────────────────────────────────
     event DoppiPointsContractSet(address indexed doppiPoints);
     event DoppiPointsExchangeRateUpdated(uint256 rateBps);
-    event DoppiPointsPriceFeedUpdated(address indexed feed, bool isDynamic);
     event PointsPaymentEnabled(address indexed bot, address indexed trader);
     event PointsPaymentDisabled(address indexed bot, address indexed trader);
     event PointsUsedForFee(uint256 indexed jobId, address indexed bot, uint256 pointsDeducted, uint256 fundTokenSaved);
@@ -127,8 +125,6 @@ contract PrivateAutomationHub is IPrivateAutomationHub, Ownable, ReentrancyGuard
     // ── DoppiPoints Integration ────────────────────────────────────────────
     IDoppiPoints public doppiPoints;
     uint256 public doppiPointsExchangeRateBps = 10;  // basis points, e.g., 10 = 1 point : 0.001 fund token
-    bool public useDynamicPointPrice;
-    address public doppiPointsPriceFeed;
 
     // ── Access ────────────────────────────────────────────────────────────
     mapping(address => bool) public registrars;
@@ -296,26 +292,12 @@ contract PrivateAutomationHub is IPrivateAutomationHub, Ownable, ReentrancyGuard
         emit DoppiPointsContractSet(_doppiPoints);
     }
 
-    /// @notice Set exchange rate for DoppiPoints to fundToken (in basis points).
+    /// @notice Set static exchange rate for DoppiPoints to non-DOPPI fundToken (in basis points).
     /// @param _rateBps e.g., 10000 = 1:1, 5000 = 0.5:1, 20000 = 2:1
     function setDoppiPointsExchangeRate(uint256 _rateBps) external onlyOwner {
         if (_rateBps == 0) revert InvalidJob();
         doppiPointsExchangeRateBps = _rateBps;
         emit DoppiPointsExchangeRateUpdated(_rateBps);
-    }
-
-    /// @notice Set Doppi/native V3 pool for dynamic pricing (when Doppi token launches).
-    /// @param _pool Address of a Uniswap/Pancake V3 Doppi/native pool (NOT a Chainlink feed)
-    /// @param _useDynamic If true, use TWAP price from the pool; if false, use fixed exchange rate
-    function setDoppiPointsPriceFeed(address _pool, bool _useDynamic) external onlyOwner {
-        if (_useDynamic) {
-            if (_pool == address(0) || _pool.code.length == 0) revert InvalidAddress();
-            // Reverts if _pool is not a V3 pool exposing this selector, catching Chainlink feed misconfiguration.
-            IUniswapV3Pool(_pool).token0();
-        }
-        doppiPointsPriceFeed = _pool;
-        useDynamicPointPrice = _useDynamic;
-        emit DoppiPointsPriceFeedUpdated(_pool, _useDynamic);
     }
 
     // ── Credit management ─────────────────────────────────────────────────
@@ -719,13 +701,11 @@ contract PrivateAutomationHub is IPrivateAutomationHub, Ownable, ReentrancyGuard
 
         uint256 normalizedFee = Math.mulDiv(feeInFundToken, 1e18, fundTokenDecimals);
 
-        // Calculate points needed from a whole-token BPS exchange rate.
+        // DOPPI fund-token mode is strict 1:1 in normalized (1e18) units.
+        // Non-DOPPI fund-tokens use a static BPS conversion.
         uint256 pointsNeeded;
-        if (useDynamicPointPrice && doppiPointsPriceFeed != address(0)) {
-            uint256 doppiPrice = _getDoppiTwapPriceSafe();
-
-            if (doppiPrice == 0) return 0;
-            pointsNeeded = Math.mulDiv(normalizedFee, 1e8, doppiPrice, Math.Rounding.Ceil);
+        if (doppiToken != address(0) && address(fundToken) == doppiToken) {
+            pointsNeeded = normalizedFee;
         } else {
             if (doppiPointsExchangeRateBps == 0) return 0;
             pointsNeeded = Math.mulDiv(
@@ -747,10 +727,8 @@ contract PrivateAutomationHub is IPrivateAutomationHub, Ownable, ReentrancyGuard
     /// @dev Get fundToken value of a specific number of points
     function _getPointValueInFundToken(uint256 numPoints) internal view returns (uint256) {
         uint256 normalizedValue;
-        if (useDynamicPointPrice && doppiPointsPriceFeed != address(0)) {
-            uint256 doppiPrice = _getDoppiTwapPriceSafe();
-            if (doppiPrice == 0) return 0;
-            normalizedValue = Math.mulDiv(numPoints, doppiPrice, 1e8);
+        if (doppiToken != address(0) && address(fundToken) == doppiToken) {
+            normalizedValue = numPoints;
         } else {
             if (doppiPointsExchangeRateBps == 0) return 0;
             normalizedValue = Math.mulDiv(numPoints, doppiPointsExchangeRateBps, 10000);
@@ -819,20 +797,6 @@ contract PrivateAutomationHub is IPrivateAutomationHub, Ownable, ReentrancyGuard
             : 1e8;
 
         emit ChainlinkFeedUpdated(_chainlinkFeed, priceDecimals);
-    }
-
-    /// @dev Never reverts; a misbehaving/misconfigured V3 pool must not block checkUpkeep or billing.
-    function _getDoppiTwapPriceSafe() internal view returns (uint256) {
-        try this.getDoppiTwapPrice() returns (uint256 twapPrice) {
-            return twapPrice;
-        } catch {
-            return 0;
-        }
-    }
-
-    /// @dev External wrapper so pool failures can be caught with try/catch.
-    function getDoppiTwapPrice() external view returns (uint256) {
-        return DALiquidityLib.getTWAPPrice(doppiPointsPriceFeed, 3600);
     }
 
     function _setFundToken(address _fundToken) internal {
