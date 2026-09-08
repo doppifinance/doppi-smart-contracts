@@ -56,6 +56,7 @@ contract DoppiOpportunity is Ownable, Pausable, AutomationCompatibleInterface, I
     function checkUpkeep(bytes calldata) external view override returns (bool upkeepNeeded, bytes memory performData) {
         
         if(paused()) return (false, bytes(""));
+        if(doppiCore.emergencyMode()) return (false, bytes(""));
 
         uint256 price = doppiLP.getPrice();
         if(price == 0) return (false, bytes(""));
@@ -95,6 +96,8 @@ contract DoppiOpportunity is Ownable, Pausable, AutomationCompatibleInterface, I
     function performUpkeep(bytes calldata) external override onlyForwarder nonReentrant {
         
         if(paused()) return;
+        if(doppiCore.emergencyMode()) return;
+
         uint256 price = doppiLP.getPrice();
         if(price == 0) return;
 

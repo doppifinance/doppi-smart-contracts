@@ -99,7 +99,7 @@ library TestParamLib {
 			decimals: 10 ** 8,
 			v3Pool: PCSWAP_V3Pool,
 			twapDuration: 3600,
-			maxDepositPercentage: 15000, // 2x
+			maxDepositPercentage: 10000, // 2x
 			maxDelay: 1 minutes,
 			maxSwap: 25000 ether, // maxswap per once for unwinding 
 			priceGap: 500,

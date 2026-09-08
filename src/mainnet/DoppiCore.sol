@@ -40,6 +40,10 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
     IDoppiOffer public doppiOffer;
     IDoppiPoints public doppiPoints;
 
+    // Tracks unsettled per-token liabilities stored in pending settlements.
+    uint256 public totalPendingLiabilityA;
+    uint256 public totalPendingLiabilityB;
+
     uint32 private constant SECONDS_PER_YEAR = 31536000;
     uint24 private constant SECONDS_PER_DAY = 86400;
     uint16 private constant BASIS_POINTS = 10000;
@@ -271,6 +275,7 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
     }
 
     function settleOrders(uint8 day) external nonReentrant onlyOwner {
+        if (emergencyMode) revert EmergencyModeActive(); 
         uint256 price = _getPriceFromLP();
         uint64 endPosId = _getReadyAllPositions(day);
         uint64 start = nextProcessId[day];
@@ -302,12 +307,14 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
         uint256 payoutToClaim = pending.pendingPayout;
         if (payoutToClaim > 0 && _attemptDirectTransfer(IERC20(pending.payoutToken), receiver, payoutToClaim)) {
             pending.pendingPayout = 0;
+            _decreasePendingLiability(IERC20(pending.payoutToken), payoutToClaim);
             paidPayout = payoutToClaim;
         }
 
         uint256 interestToClaim = pending.pendingInterest;
         if (interestToClaim > 0 && _attemptTransferWithFee(IERC20(pending.interestToken), receiver, interestToClaim)) {
             pending.pendingInterest = 0;
+            _decreasePendingLiability(IERC20(pending.interestToken), interestToClaim);
             paidInterest = interestToClaim;
         }
 
@@ -531,8 +538,10 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
         }
         if (priceE8 == 0 || priceE8 > type(uint96).max) revert InvalidEmergencyConfig();
 
-        uint256 snapshotAssetA = assetA.balanceOf(address(this));
-        uint256 snapshotAssetB = assetB.balanceOf(address(this));
+        uint256 currentAssetA = assetA.balanceOf(address(this));
+        uint256 currentAssetB = assetB.balanceOf(address(this));
+        uint256 snapshotAssetA = currentAssetA > totalPendingLiabilityA ? currentAssetA - totalPendingLiabilityA : 0;
+        uint256 snapshotAssetB = currentAssetB > totalPendingLiabilityB ? currentAssetB - totalPendingLiabilityB : 0;
         uint256 snapshotTotalBuy = totalBuyDeposits;
         uint256 snapshotTotalSell = totalSellDeposits;
         uint256 snapshotTotalWeightA = snapshotTotalBuy + (snapshotTotalSell * priceE8) / 1e8;
@@ -991,6 +1000,13 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
         });
         pendingSettlementIdsByOwner[owner].push(pendingId);
 
+        if (pendingPayout > 0) {
+            _increasePendingLiability(payoutToken, pendingPayout);
+        }
+        if (pendingInterest > 0) {
+            _increasePendingLiability(interestToken, pendingInterest);
+        }
+
         emit PendingSettlementCreated(
             pendingId,
             owner
@@ -1006,6 +1022,7 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
         nonReentrant
         returns (uint256 amountOut)
     {
+        if (emergencyMode) revert EmergencyModeActive();
         _checkOpportunityBot();
         return _swapLowLevel(amountIn, price, isBuy);
     }
@@ -1019,6 +1036,8 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
         bool isBuy,
         uint256 strikePrice
     ) external nonReentrant returns (uint256 reducedUpdated, uint256 reducedoutUpdated) {
+        
+        if (emergencyMode) revert EmergencyModeActive();
         _checkOpportunityBot();
         return _executeOpportunity(totalAmount, totalAmountOut, price, reduced, reducedout, isBuy, strikePrice);
     }
@@ -1032,8 +1051,26 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
         bool isBuy,
         uint256 strikePrice
     ) external nonReentrant returns (uint256 reducedUpdated, uint256 reducedoutUpdated) {
+        
+        if (emergencyMode) revert EmergencyModeActive();
         _checkOpportunityBot();
         return _executeUnwind(totalAmountUnwind, amountOutUnwind, price, reduced, reducedout, isBuy, strikePrice);
+    }
+
+    function _increasePendingLiability(IERC20 token, uint256 amount) internal {
+        if (address(token) == address(assetA)) {
+            totalPendingLiabilityA += amount;
+        } else if (address(token) == address(assetB)) {
+            totalPendingLiabilityB += amount;
+        }
+    }
+
+    function _decreasePendingLiability(IERC20 token, uint256 amount) internal {
+        if (address(token) == address(assetA)) {
+            totalPendingLiabilityA = totalPendingLiabilityA >= amount ? totalPendingLiabilityA - amount : 0;
+        } else if (address(token) == address(assetB)) {
+            totalPendingLiabilityB = totalPendingLiabilityB >= amount ? totalPendingLiabilityB - amount : 0;
+        }
     }
 
     function _executeOpportunity(

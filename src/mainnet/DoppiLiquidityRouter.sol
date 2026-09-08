@@ -63,8 +63,10 @@ contract DoppiLiquidityRouter is Ownable, Pausable, ReentrancyGuard {
     /// @dev This function allows users to redeem their shares for the underlying assets without any checks on available capacity or liabilities. It must ensure DoppiCore has settled all positions before allowing withdrawals to prevent insolvency. The function should be protected against reentrancy and can only be called when the contract is paused and in emergency mode.
     function emergencyWithdraw() external whenEmergency whenPaused nonReentrant {
         
-        if (_getCurrentDeposits(true) != 0 || _getCurrentDeposits(false) != 0) {
-            revert CoreLiabilitiesOutstanding();
+        if (!_isCoreEmergency()) {
+            if (_getCurrentDeposits(true) != 0 || _getCurrentDeposits(false) != 0) {
+                revert CoreLiabilitiesOutstanding();
+            }
         }
         
         uint256 userShares = IERC20(address(doppiLP)).balanceOf(msg.sender);
@@ -149,6 +151,14 @@ contract DoppiLiquidityRouter is Ownable, Pausable, ReentrancyGuard {
         (bool success, bytes memory data) = address(doppiCore).staticcall(callData);
         require(success && data.length == 32, "liabilities call failed");
         total = abi.decode(data, (uint256));
+    }
+
+    function _isCoreEmergency() internal view returns (bool coreEmergency) {
+
+        bytes memory callData = abi.encodeWithSelector(bytes4(keccak256("isEmergency()")));
+        (bool success, bytes memory data) = address(doppiCore).staticcall(callData);
+        require(success && data.length == 32, "isEmergency call failed");
+        coreEmergency = abi.decode(data, (bool));
     }
 
     function _redeem(uint256 _shares) internal returns (uint256 assetsA, uint256 assetsB) {
