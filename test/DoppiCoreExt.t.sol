@@ -502,7 +502,7 @@ contract DoppiCoreExtTest is Test {
         doppiCore.emergencyWithdrawCoreOnly(type(uint256).max, user1);
         vm.stopPrank();
 
-        uint256 pos1day = doppiCore.getPositionLength(1);
+        uint256 pos1day = doppiCore.nextPositionId(1) - doppiCore.nextProcessId(1);
         console.log(pos1day);
         uint256 countB = doppiCore.getBuyPositionCount(user1);
         console.log(countB, "count buy");

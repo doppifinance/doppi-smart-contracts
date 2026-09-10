@@ -7,6 +7,8 @@ contract MockDoppiCore {
     constructor() {
 	}
     
+    bool public emergencyMode = true;
+
     function getInterestLiabilities() external view returns (uint256, uint256) {
         return (0, 0);
     }
@@ -15,4 +17,5 @@ contract MockDoppiCore {
     {
         return 0;
     }
+
 }

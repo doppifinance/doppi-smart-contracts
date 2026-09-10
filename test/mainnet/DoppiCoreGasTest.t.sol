@@ -192,7 +192,7 @@ contract DoppiCoreGasTest is Test {
         _doppiCoreCheckUpkeep_performUpkeep();
         _doppiCoreCheckUpkeep_performUpkeep();
 
-        uint256 pos1day = doppiCore.getPositionLength(1);
+        uint256 pos1day = doppiCore.nextPositionId(1) - doppiCore.nextProcessId(1);
         console.log("pos1day", pos1day);
         assertEq(pos1day, 0);
         // doppiCore.display();
@@ -439,8 +439,8 @@ contract DoppiCoreGasTest is Test {
         }
         console.log(min, max, "min and max strike price");
         console.log(total1day, total3day, "total1day and total3day");   
-        uint256 pos1day = doppiCore.getPositionLength(1);
-        uint256 pos3day = doppiCore.getPositionLength(3);
+        uint256 pos1day = doppiCore.nextPositionId(1) - doppiCore.nextProcessId(1);
+        uint256 pos3day = doppiCore.nextPositionId(3) - doppiCore.nextProcessId(3);
         // console.log(pos1day, "pos1day");
         // console.log(pos3day, "pos3day");
         assertEq(pos1day, 100); 
@@ -490,8 +490,8 @@ contract DoppiCoreGasTest is Test {
         endPosId2 = doppiCore.getReadyAllPositions(3);
         assertEq(endPosId, 0);    // all positions settled
         assertEq(endPosId2, 0); // all positions settled
-        pos1day = doppiCore.getPositionLength(1);
-        pos3day = doppiCore.getPositionLength(3);
+        pos1day = doppiCore.nextPositionId(1) - doppiCore.nextProcessId(1);
+        pos3day = doppiCore.nextPositionId(3) - doppiCore.nextProcessId(3);
         
         assertEq(pos1day, 0); 
         assertEq(pos3day, 0); 
@@ -598,7 +598,7 @@ contract DoppiCoreGasTest is Test {
         assertEq(upperBound, 10200000000000);
 
         // total 10 orders
-        uint64 totalOrders = doppiCore.getPositionLength(1);
+        uint64 totalOrders = doppiCore.nextPositionId(1) - doppiCore.nextProcessId(1);
         assertEq(totalOrders, 10);
         uint64 endPosId = doppiCore.getReadyAllPositions(1);
         assertEq(endPosId, 0);
@@ -616,7 +616,7 @@ contract DoppiCoreGasTest is Test {
 
         _doppiCoreCheckUpkeep_performUpkeep();
 
-        totalOrders = doppiCore.getPositionLength(1);
+        totalOrders = doppiCore.nextPositionId(1) - doppiCore.nextProcessId(1);
         assertEq(totalOrders, 0);
         assertEq(doppiCore.nextPositionId(1), doppiCore.nextProcessId(1));
 

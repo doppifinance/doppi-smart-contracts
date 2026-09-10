@@ -104,10 +104,6 @@ abstract contract DoppiCoreView {
         }
     }
 
-    function getPositionLength(uint8 day) public view returns (uint64){
-        return nextPositionId[day] > nextProcessId[day] ? nextPositionId[day] - nextProcessId[day] : 0;
-    } 
-
     function canAcceptDeposit(bool isBuy, uint256 depositAmount) public view returns (bool) {
         uint256 maxDeposit = doppiLP.getMaxDepositAmount(isBuy);
         uint256 currentDeposits = getCurrentDeposits(isBuy); 

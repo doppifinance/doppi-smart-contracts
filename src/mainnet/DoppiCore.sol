@@ -269,6 +269,7 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
         
         _onlyForwarder();
         if(paused()) return;
+        if(emergencyMode) return;
         
         (uint8[] memory durationDay, uint64[] memory endPositionId) = abi.decode(performData, (uint8[], uint64[]));
         _processNewSettlements(durationDay, endPositionId);
@@ -439,10 +440,6 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
         nextPositionId[_day] = 1;
     }
 
-    function isEmergency() external view returns (bool){
-        return emergencyMode;
-    } 
-
     function getReadyAllPositions(uint8 day) public view 
         returns (
             uint64 endPositionId
@@ -450,10 +447,6 @@ contract DoppiCore is DoppiCoreAdmin, DoppiCoreView, ReentrancyGuard, Automation
         
         return _getReadyAllPositions(day);
     }
-
-    function getDoppiOffer() external view returns (address){
-        return address(doppiOffer);
-    } 
 
     // Internal functions
     function _getReadyAllPositions(uint8 day) internal view 

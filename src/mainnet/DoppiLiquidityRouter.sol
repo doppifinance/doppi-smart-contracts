@@ -155,9 +155,9 @@ contract DoppiLiquidityRouter is Ownable, Pausable, ReentrancyGuard {
 
     function _isCoreEmergency() internal view returns (bool coreEmergency) {
 
-        bytes memory callData = abi.encodeWithSelector(bytes4(keccak256("isEmergency()")));
+        bytes memory callData = abi.encodeWithSelector(bytes4(keccak256("emergencyMode()")));
         (bool success, bytes memory data) = address(doppiCore).staticcall(callData);
-        require(success && data.length == 32, "isEmergency call failed");
+        require(success && data.length == 32, "emergencyMode call failed");
         coreEmergency = abi.decode(data, (bool));
     }
 

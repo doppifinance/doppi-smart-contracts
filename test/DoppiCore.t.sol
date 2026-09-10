@@ -798,7 +798,7 @@ contract DoppiCoreTest is Test {
         doppiCore.setEmergencyMode(true);
         vm.stopPrank();
 
-        assertTrue(doppiCore.isEmergency());
+        assertTrue(doppiCore.emergencyMode());
         assertTrue(doppiCore.paused());
 
         // Funds owed to user1 must still sit in DoppiCore while emergency mode is active.
