@@ -9,6 +9,7 @@ import {IBlackScholes} from "../../src/Interface/IBlackScholes.sol";
 import {DoppiTraderFactory} from "../../src/mainnet/DoppiTraderFactory.sol";
 import {DoppiTrader} from "../../src/mainnet/DoppiTrader.sol";
 import {DoppiCore} from "../../src/mainnet/DoppiCore.sol";
+import {DoppiCorePositionLens} from "../../src/mainnet/DoppiCorePositionLens.sol";
 import {DoppiLiquidity} from "../../src/mainnet/DoppiLiquidity.sol";
 import {DoppiLiquidityRouter} from "../../src/mainnet/DoppiLiquidityRouter.sol";
 import {BlackScholes} from "../../src/mainnet/BlackScholes.sol";
@@ -62,6 +63,7 @@ contract DeployDoppiAllMainnet is Script {
         DoppiPoints doppiPoints = _deployDoppiPoints();
         DoppiLiquidity doppiLP = _deployDoppiLiquidity();
         DoppiCore doppiCore = _deployDoppiCore(doppiLP, impliedVol, doppiPoints);
+        DoppiCorePositionLens positionLens = new DoppiCorePositionLens(address(doppiCore));
         DoppiOpportunity doppiOpportunity = _deployDoppiOpportunity(address(doppiCore), address(doppiLP));
         DoppiReferral doppiReferral = _deployDoppiReferral(address(doppiPoints));
     
@@ -190,6 +192,7 @@ contract DeployDoppiAllMainnet is Script {
         console.log("DoppiPoints:", address(doppiPoints));
         console.log("DoppiLiquidity:", address(doppiLP));
         console.log("DoppiCore:", address(doppiCore));
+        console.log("DoppiCorePositionLens:", address(positionLens));
         console.log("DoppiOpportunity:", address(doppiOpportunity));
         console.log("DoppiLiquidityRouter:", address(doppiRouter));
         console.log("DoppiTraderFactory:", address(doppiFactory));

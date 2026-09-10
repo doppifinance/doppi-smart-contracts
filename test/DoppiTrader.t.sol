@@ -5,6 +5,7 @@ import "forge-std/Test.sol";
 import {DoppiTraderFactory} from "../src/mainnet/DoppiTraderFactory.sol";
 import {DoppiTrader} from "../src/mainnet/DoppiTrader.sol";
 import {DoppiCore} from "../src/mainnet/DoppiCore.sol";
+import {DoppiCorePositionLens} from "../src/mainnet/DoppiCorePositionLens.sol";
 import {DoppiLiquidity} from "../src/mainnet/DoppiLiquidity.sol";
 import {DoppiLiquidityRouter} from "../src/mainnet/DoppiLiquidityRouter.sol";
 import {BlackScholes} from "../src/mainnet/BlackScholes.sol";
@@ -32,6 +33,7 @@ contract DoppiTraderTest is Test {
     DoppiTraderFactory doppiFactory;
     DoppiTrader doppiTrader;
     DoppiCore doppiCore;
+    DoppiCorePositionLens positionLens;
     DoppiLiquidity doppiLP;
     DoppiLiquidityRouter doppiRouter;
     BlackScholes blackScholes;
@@ -95,6 +97,7 @@ contract DoppiTraderTest is Test {
         doppiLP.approveRouter();
 
         doppiCore = new DoppiCore(address(usdt), address(btc), doppiLP, impliedVol, address(doppiPoints));
+        positionLens = new DoppiCorePositionLens(address(doppiCore));
         doppiPoints.setDoppiCore(address(doppiCore), true);
 
         opportunityBot = new DoppiOpportunity(address(doppiCore), address(doppiLP));
@@ -187,7 +190,7 @@ contract DoppiTraderTest is Test {
     function test_start() public {
         _start();
 
-        DualAssetPosition[] memory positions = doppiCore.get_positions_buy(address(doppiTrader));
+        DualAssetPosition[] memory positions = positionLens.getPositionsBuy(address(doppiTrader));
         assertEq(positions.length, 5);
 
         // total of USDT 50k in trader bot, 50% in liquidity
@@ -198,7 +201,7 @@ contract DoppiTraderTest is Test {
         assertEq(positions[0].amount, 22500 ether); // 45%
 
         // total of BTC 0.50 in trader bot, 0.50 in liquidity
-        positions = doppiCore.get_positions_sell(address(doppiTrader));
+        positions = positionLens.getPositionsSell(address(doppiTrader));
         assertEq(positions.length, 5);
         assertEq(positions[4].amount, 0.025 ether); // 5%
         assertEq(positions[3].amount, 0.05 ether); // 10%
@@ -252,11 +255,11 @@ contract DoppiTraderTest is Test {
 
         _start();
 
-        DualAssetPosition[] memory positions = doppiCore.get_positions_buy(address(doppiTrader));
+        DualAssetPosition[] memory positions = positionLens.getPositionsBuy(address(doppiTrader));
         assertEq(positions.length, 3);
 
         // total of BTC 0.50 in trader bot, 0.50 in liquidity
-        positions = doppiCore.get_positions_sell(address(doppiTrader));
+        positions = positionLens.getPositionsSell(address(doppiTrader));
         assertEq(positions.length, 3);
         
         // Check BTC balance decreased
@@ -273,10 +276,10 @@ contract DoppiTraderTest is Test {
         doppiTrader.start(amountUSDT, 0);
         vm.stopPrank();
 
-        DualAssetPosition[] memory positions = doppiCore.get_positions_buy(address(doppiTrader));
+        DualAssetPosition[] memory positions = positionLens.getPositionsBuy(address(doppiTrader));
         assertEq(positions.length, 5);
 
-        positions = doppiCore.get_positions_sell(address(doppiTrader));
+        positions = positionLens.getPositionsSell(address(doppiTrader));
         assertEq(positions.length, 0);
 
         // Check USDT balance decreased
@@ -440,9 +443,9 @@ contract DoppiTraderTest is Test {
         doppiCore.performUpkeep(performData);
         vm.stopPrank();
 
-        DualAssetPosition[] memory positionssell = doppiCore.get_positions_sell(address(doppiTrader));
+        DualAssetPosition[] memory positionssell = positionLens.getPositionsSell(address(doppiTrader));
         assertEq(positionssell.length, 0);
-        DualAssetPosition[] memory positions = doppiCore.get_positions_buy(address(doppiTrader));
+        DualAssetPosition[] memory positions = positionLens.getPositionsBuy(address(doppiTrader));
         assertEq(positions.length, 0);
 
         // update implied volatility to trigger checkupkeep in trader bot
@@ -484,9 +487,9 @@ contract DoppiTraderTest is Test {
         vm.prank(mockForwarder);
         doppiCore.performUpkeep(performData);
         vm.stopPrank();
-        DualAssetPosition[] memory positionssell = doppiCore.get_positions_sell(address(doppiTrader));
+        DualAssetPosition[] memory positionssell = positionLens.getPositionsSell(address(doppiTrader));
         assertEq(positionssell.length, 0);
-        DualAssetPosition[] memory positions = doppiCore.get_positions_buy(address(doppiTrader));
+        DualAssetPosition[] memory positions = positionLens.getPositionsBuy(address(doppiTrader));
         assertEq(positions.length, 0);
 
         // ***** END 
@@ -501,9 +504,9 @@ contract DoppiTraderTest is Test {
         
         vm.prank(mockForwarder);
         doppiTrader.performUpkeep(performData);
-        positionssell = doppiCore.get_positions_sell(address(doppiTrader));
+        positionssell = positionLens.getPositionsSell(address(doppiTrader));
         assertGt(positionssell.length, 0);
-        positions = doppiCore.get_positions_buy(address(doppiTrader));
+        positions = positionLens.getPositionsBuy(address(doppiTrader));
         assertGt(positions.length, 0);
         // ***** END 
     
@@ -533,9 +536,9 @@ contract DoppiTraderTest is Test {
         assertTrue(upkeepNeeded);
         vm.prank(mockForwarder);
         doppiCore.performUpkeep(performData);
-        DualAssetPosition[] memory positionssell = doppiCore.get_positions_sell(address(doppiTrader));
+        DualAssetPosition[] memory positionssell = positionLens.getPositionsSell(address(doppiTrader));
         assertEq(positionssell.length, 0);
-        DualAssetPosition[] memory positions = doppiCore.get_positions_buy(address(doppiTrader));
+        DualAssetPosition[] memory positions = positionLens.getPositionsBuy(address(doppiTrader));
         assertEq(positions.length, 0);
 
         // ***** END 
@@ -562,9 +565,9 @@ contract DoppiTraderTest is Test {
         assertTrue(upkeepNeeded);
         vm.prank(mockForwarder);
         doppiCore.performUpkeep(performData);
-        DualAssetPosition[] memory positionssell = doppiCore.get_positions_sell(address(doppiTrader));
+        DualAssetPosition[] memory positionssell = positionLens.getPositionsSell(address(doppiTrader));
         assertEq(positionssell.length, 0);
-        DualAssetPosition[] memory positions = doppiCore.get_positions_buy(address(doppiTrader));
+        DualAssetPosition[] memory positions = positionLens.getPositionsBuy(address(doppiTrader));
         assertEq(positions.length, 0);
 
         // ***** END    
@@ -784,7 +787,7 @@ contract DoppiTraderTest is Test {
         
         _start();
 
-        DualAssetPosition[] memory positions = doppiCore.get_positions_buy(address(doppiTrader));
+        DualAssetPosition[] memory positions = positionLens.getPositionsBuy(address(doppiTrader));
         assertEq(positions.length, 3);
 
         // total of USDT 50k in trader bot, 50% in liquidity
@@ -793,7 +796,7 @@ contract DoppiTraderTest is Test {
         assertEq(positions[2].amount, 5000 ether); // 10%
         
         // total of BTC 0.50 in trader bot, 0.50 in liquidity
-        positions = doppiCore.get_positions_sell(address(doppiTrader));
+        positions = positionLens.getPositionsSell(address(doppiTrader));
         assertEq(positions.length, 3);
         assertEq(positions[0].amount, 0.3 ether); // 60%
         assertEq(positions[1].amount, 0.15 ether); // 30%
@@ -818,7 +821,7 @@ contract DoppiTraderTest is Test {
         doppiTrader.placeOrders();
         vm.stopPrank();
 
-        DualAssetPosition[] memory buyPositions = doppiCore.get_positions_buy(address(doppiTrader));
+        DualAssetPosition[] memory buyPositions = positionLens.getPositionsBuy(address(doppiTrader));
         assertEq(buyPositions.length, 4);
 
         uint256 totalPlaced;
@@ -843,7 +846,7 @@ contract DoppiTraderTest is Test {
         doppiTrader.placeOrders();
         vm.stopPrank();
 
-        DualAssetPosition[] memory buyPositions = doppiCore.get_positions_buy(address(doppiTrader));
+        DualAssetPosition[] memory buyPositions = positionLens.getPositionsBuy(address(doppiTrader));
         assertEq(buyPositions.length, 5);
 
         uint256 totalPlaced;
@@ -868,7 +871,7 @@ contract DoppiTraderTest is Test {
         doppiTrader.placeOrders();
         vm.stopPrank();
 
-        DualAssetPosition[] memory buyPositions = doppiCore.get_positions_buy(address(doppiTrader));
+        DualAssetPosition[] memory buyPositions = positionLens.getPositionsBuy(address(doppiTrader));
         assertEq(buyPositions.length, 4);
 
         uint256 totalPlaced;
@@ -893,7 +896,7 @@ contract DoppiTraderTest is Test {
         doppiTrader.placeOrders();
         vm.stopPrank();
 
-        DualAssetPosition[] memory buyPositions = doppiCore.get_positions_buy(address(doppiTrader));
+        DualAssetPosition[] memory buyPositions = positionLens.getPositionsBuy(address(doppiTrader));
         assertEq(buyPositions.length, 5);
 
         uint256 available = 1000 ether;
@@ -922,7 +925,7 @@ contract DoppiTraderTest is Test {
         doppiTrader.placeOrders();
         vm.stopPrank();
 
-        DualAssetPosition[] memory buyPositions = doppiCore.get_positions_buy(address(doppiTrader));
+        DualAssetPosition[] memory buyPositions = positionLens.getPositionsBuy(address(doppiTrader));
         assertEq(buyPositions.length, 5);
 
         uint256 totalPlaced;
@@ -960,7 +963,7 @@ contract DoppiTraderTest is Test {
     //     assertEq(orderConfig[1].strikeZone, 2);
     //     assertEq(orderConfig[2].weight, 1000);
     //     assertEq(orderConfig[2].strikeZone, 4);  
-        DualAssetPosition[] memory buyPositions = doppiCore.get_positions_buy(address(doppiTrader));
+        DualAssetPosition[] memory buyPositions = positionLens.getPositionsBuy(address(doppiTrader));
         assertEq(buyPositions.length, 2);
         console.log(buyPositions[0].strikePrice, buyPositions[1].strikePrice);
         console.log(buyPositions[0].amount, buyPositions[1].amount);

@@ -158,9 +158,9 @@ abstract contract DoppiTraderAdminView is Ownable, Pausable {
     function setDefaultDay(uint8 _day) external {
         _onlyTrader();
         bool valid;
-        uint8[] memory supportDays = doppiCore.supportDays();
-        for (uint256 x = 0; x < supportDays.length; ) {
-            if (supportDays[x] == _day) { valid = true; break; }
+        uint256 dayCount = doppiCore.getSupportDaysLength();
+        for (uint256 x = 0; x < dayCount; ) {
+            if (doppiCore.supportDays(x) == _day) { valid = true; break; }
             unchecked { ++x; }
         }
         if(valid){

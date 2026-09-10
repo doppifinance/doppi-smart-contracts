@@ -38,50 +38,6 @@ abstract contract DoppiCoreView {
 
     /// @notice Reference to external DoppiOpportunity storage
     IDoppiOpportunity public doppiOpportunity;
-    
-    // View functions for positions    
-    function get_positions_buy(address _owner) external view returns (DualAssetPosition[] memory) {
-        
-        uint256 totalCount = _getBuyPositionCount(_owner);
-        DualAssetPosition[] memory result = new DualAssetPosition[](totalCount);
-        
-        // Second pass: Fill the final array
-        uint256 resultIndex = 0;
-        for (uint256 x = 0; x < supportDays.length; ) {
-            uint8 day = supportDays[x];            
-            for (uint64 i = nextProcessId[day]; i < nextPositionId[day]; ) {
-                if (positions_buy[day][i].owner == _owner) {
-                    result[resultIndex] = positions_buy[day][i];
-                    resultIndex++;
-                }
-                unchecked { ++i; }
-            }
-            unchecked { ++x; }
-        }
-        
-        return result;
-    }
-
-    function get_positions_sell(address _owner) external view returns (DualAssetPosition[] memory) {
-        
-        uint256 totalCount = _getSellPositionCount(_owner);
-        DualAssetPosition[] memory result = new DualAssetPosition[](totalCount);
-        
-        uint256 resultIndex = 0;
-        for (uint256 x = 0; x < supportDays.length; ) {
-            uint8 day = supportDays[x];
-            for (uint64 i = nextProcessId[day]; i < nextPositionId[day]; ) {
-                if (positions_sell[day][i].owner == _owner) {
-                    result[resultIndex] = positions_sell[day][i];
-                    resultIndex++;
-                }
-                unchecked { ++i; }
-            }
-            unchecked { ++x; }
-        }
-        
-        return result;
-    }
 
     function getBuyPositionCount(address _owner) external view returns (uint256 count) {
         count = activeBuyCount[_owner];
@@ -93,6 +49,10 @@ abstract contract DoppiCoreView {
 
     function getOwnerPositionPrincipals(address _owner) external view returns (uint256 buyPrincipal, uint256 sellPrincipal) {
         return (activeBuyPrincipal[_owner], activeSellPrincipal[_owner]);
+    }
+
+    function getSupportDaysLength() external view returns (uint256) {
+        return supportDays.length;
     }
 
     function getCurrentDeposits(bool isBuy) public view returns (uint256 currentDeposits) {

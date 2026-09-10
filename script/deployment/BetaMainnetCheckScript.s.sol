@@ -59,9 +59,9 @@ contract MyScript is Script {
     function _getTotalOrders() internal view {
 
         console.log("start doppi core orders");
-        uint64 length = doppiCore.getPositionLength(1);
         uint64 nextId = doppiCore.nextProcessId(1);
         uint64 nextPositionId = doppiCore.nextPositionId(1);
+        uint64 length = nextPositionId - nextId;
         
         console.log(length, nextId, nextPositionId, "length, nextId");
         uint64 end = nextId + length;

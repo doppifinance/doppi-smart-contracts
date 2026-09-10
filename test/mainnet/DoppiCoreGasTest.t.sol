@@ -9,6 +9,7 @@ import {IBlackScholes} from "../../src/Interface/IBlackScholes.sol";
 import {DoppiTraderFactory} from "../../src/mainnet/DoppiTraderFactory.sol";
 import {DoppiTrader} from "../../src/mainnet/DoppiTrader.sol";
 import {DoppiCore} from "../../src/mainnet/DoppiCore.sol";
+import {DoppiCorePositionLens} from "../../src/mainnet/DoppiCorePositionLens.sol";
 import {IDoppiOpportunity} from "../../src/Interface/IDoppiOpportunity.sol";
 import {DoppiLiquidity} from "../../src/mainnet/DoppiLiquidity.sol";
 import {DoppiLiquidityRouter} from "../../src/mainnet/DoppiLiquidityRouter.sol";
@@ -31,6 +32,7 @@ contract DoppiCoreGasTest is Test {
     DoppiTraderFactory doppiFactory;
     // DoppiTrader doppiTrader;
     DoppiCore doppiCore;
+    DoppiCorePositionLens positionLens;
     DoppiLiquidity doppiLP;
     DoppiLiquidityRouter doppiRouter;
     BlackScholes blackScholes;
@@ -94,6 +96,7 @@ contract DoppiCoreGasTest is Test {
         doppiPoints = _deployDoppiPoints();
         doppiLP = _deployDoppiLiquidity();
         doppiCore = _deployDoppiCore(doppiLP, impliedVol, doppiPoints);
+        positionLens = new DoppiCorePositionLens(address(doppiCore));
         doppiOpportunity = _deployDoppiOpportunity(address(doppiCore), address(doppiLP));
         doppiReferral = _deployDoppiReferral(address(doppiPoints));
     
@@ -169,8 +172,8 @@ contract DoppiCoreGasTest is Test {
 
         console.log(max, min, "max, min");
 
-        // console.log(doppiCore.get_positions_buy(0x00000000000000000000000000000000000004f6).length);
-        assertTrue(doppiCore.get_positions_buy(0x00000000000000000000000000000000000004f6).length > 0);
+        // console.log(positionLens.getPositionsBuy(0x00000000000000000000000000000000000004f6).length);
+        assertTrue(positionLens.getPositionsBuy(0x00000000000000000000000000000000000004f6).length > 0);
         
         int256 newPrice = int256(9152000000000);
         _manipulateRealChainlink(newPrice, address(oracle));
