@@ -11,12 +11,12 @@ import "../../src/mainnet/private/DoppiSimpleTrader.sol";
 import "../../src/mainnet/DoppiFeePool.sol";
 contract PrintDoppiConfig is Script {
     // Mainnet BTC-USDT
-    address internal constant MAINNET_BTC_CORE = 0xa2d49d1c8b89Cd0b11AeA445887661CDcF9e9611;
-    address internal constant MAINNET_BTC_LP = 0x2deB22F6fCFE371c5024b52045850d9B32d33Bcd;
-    address internal constant MAINNET_BTC_OPPORTUNITY = 0x66C4e3c5A73d0fF469462a7fE7D740DF972CbB6D;
+    address internal constant MAINNET_BTC_CORE = 0x13073F01791C01Fd6b73fc1B9558B7944f9a0D7e;
+    address internal constant MAINNET_BTC_LP = 0x3Df1Eb646f4B39441d73AdbFE6e14710f5877CDE;
+    address internal constant MAINNET_BTC_OPPORTUNITY = 0xbf051f272222F20F7E41df89Ed0b8a00736E976b;
     address internal constant MAINNET_BTC_GRID_BOT = address(0);
     address internal constant MAINNET_BTC_SIMPLE_BOT = address(0);
-    address internal constant MAINNET_FEE_POOL_ADDR = 0xe22Bb28304db385390cE3C3D5eCd889F907a89aB;
+    address internal constant MAINNET_FEE_POOL_ADDR = 0xA3ec92E6B7494329Cf0Cf4feFA0a00859D5Ef73f;
 
     // Localhost example from current local scripts
     address internal constant LOCAL_CORE = 0x53DBB13EFE722256DA8e603635f9d59647C0DdAc;
@@ -36,7 +36,8 @@ contract PrintDoppiConfig is Script {
     address internal constant FEE_POOL_ADDR = LOCAL_FEE_POOL_ADDR;
 
     function run() external view {
-        _run(CORE_ADDR, LP_ADDR, OPPORTUNITY_ADDR, GRID_BOT_ADDR, SIMPLE_BOT_ADDR, FEE_POOL_ADDR);
+        // _run(CORE_ADDR, LP_ADDR, OPPORTUNITY_ADDR, GRID_BOT_ADDR, SIMPLE_BOT_ADDR, FEE_POOL_ADDR);
+        _run(MAINNET_BTC_CORE, MAINNET_BTC_LP, MAINNET_BTC_OPPORTUNITY, MAINNET_BTC_GRID_BOT, MAINNET_BTC_SIMPLE_BOT, MAINNET_FEE_POOL_ADDR);
     }
 
     function _run(
@@ -86,6 +87,7 @@ contract PrintDoppiConfig is Script {
         console.log("sharedLiquidity", pool.sharedLiquidity());
         console.log("feeReceiver", pool.feeReceiver());
         console.log("sharedLPSplitBps", pool.sharedLPSplitBps());
+        console.log("owner", pool.owner());
     }
 
 

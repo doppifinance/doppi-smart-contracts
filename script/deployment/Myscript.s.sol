@@ -36,7 +36,7 @@ contract MyScript is Script {
 
     function run() external {
         
-        uint256 deployerPrivateKey = vm.envUint("PRIVATE_KEY_MAINNET");
+        uint256 deployerPrivateKey = vm.envUint("PRIVATE_KEY");
         
         // Start broadcasting transactions
         vm.startBroadcast(deployerPrivateKey);
