@@ -68,7 +68,9 @@ contract DoppiSimpleTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationC
     error NoEnoughBalance();
     error RecordTradeFailed();
 
-    constructor() Ownable(msg.sender) {}
+    constructor() Ownable(msg.sender) {
+        _disableInitializers();
+    }
 
     function initialize(
         address _trader,
@@ -85,9 +87,6 @@ contract DoppiSimpleTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationC
         doppiPoints = IDoppiPoints(_doppiPoints);
         validTrader = _trader;
         _transferOwnership(msg.sender);
-
-        assetA.safeIncreaseAllowance(_doppiLP, type(uint256).max);
-        assetB.safeIncreaseAllowance(_doppiLP, type(uint256).max);
 
         maxSwap = 10000 ether;
         priceDecimals = 10 ** doppiLP.getPriceDecimals();
@@ -117,13 +116,9 @@ contract DoppiSimpleTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationC
         _updateUnitAndCostBasis(finalAmountA, finalAmountB, currentBalanceA, currentBalanceB, price);
 
         engineStarted = true;
+        nextBuyTriggerPrice = _lowerTriggerPrice(price);
+        nextSellTriggerPrice = _upperTriggerPrice(price);
 
-        if (nextBuyTriggerPrice == 0 && nextSellTriggerPrice == 0) {
-            nextBuyTriggerPrice = _lowerTriggerPrice(price);
-            nextSellTriggerPrice = _upperTriggerPrice(price);
-
-            emit TriggerInitialized(nextBuyTriggerPrice, nextSellTriggerPrice);
-        }
     }
 
     function stop() external nonReentrant {
@@ -248,24 +243,6 @@ contract DoppiSimpleTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationC
         minOrderB = _minOrderB;
     }
 
-    function placeOrders() external nonReentrant {
-        _onlyTrader();
-        uint256 price = doppiLP.getPrice();
-        uint256 buyOrderAmount = _getRoundBudget(true);
-        uint256 sellOrderAmount = _getRoundBudget(false);
-
-        bool canBuy = price <= nextBuyTriggerPrice && buyOrderAmount >= minOrderA;
-        bool canSell = price >= nextSellTriggerPrice && sellOrderAmount >= minOrderB;
-        if (!canBuy && !canSell) revert NoEnoughBalance();
-
-        if (canBuy) {
-            _executeBuyOrder(price);
-        }
-        if (canSell) {
-            _executeSellOrder(price);
-        }
-    }
-
     function getAveragePrices() external view returns (uint256 avgBuyEntryPrice, uint256 avgSellEntryPrice) {
         avgBuyEntryPrice = _averageBuyEntryPrice();
         avgSellEntryPrice = _averageSellEntryPrice();
@@ -333,6 +310,7 @@ contract DoppiSimpleTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationC
 
         bool wasEmpty = unWindBuy[price] == 0;
 
+        _approveLPExact(assetA, amountInA);
         uint256 amountOutB = doppiLP.swap(amountInA, price, true);
         _recordTradeVolumeInA(amountInA);
 
@@ -362,6 +340,7 @@ contract DoppiSimpleTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationC
 
         bool wasEmpty = unWindSell[price] == 0;
 
+        _approveLPExact(assetB, amountInB);
         uint256 amountOutA = doppiLP.swap(amountInB, price, false);
         _recordTradeVolumeInA((amountInB * price) / priceDecimals);
 
@@ -411,6 +390,7 @@ contract DoppiSimpleTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationC
         }
 
         if (totalInB == 0) return;
+        _approveLPExact(assetB, totalInB);
         uint256 totalOutA = doppiLP.swap(totalInB, price, false);
         _recordTradeVolumeInA((totalInB * price) / priceDecimals);
 
@@ -460,6 +440,7 @@ contract DoppiSimpleTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationC
         }
 
         if (totalInA == 0) return;
+        _approveLPExact(assetA, totalInA);
         uint256 totalOutB = doppiLP.swap(totalInA, price, true);
         _recordTradeVolumeInA(totalInA);
 
@@ -728,5 +709,10 @@ contract DoppiSimpleTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationC
 
     function _onlyForwarder() internal view {
         if (msg.sender != s_forwarderAddress) revert OnlyForwarder();
+    }
+
+    function _approveLPExact(IERC20 token, uint256 amount) internal {
+        if (amount == 0) return;
+        token.forceApprove(address(doppiLP), amount);
     }
 }

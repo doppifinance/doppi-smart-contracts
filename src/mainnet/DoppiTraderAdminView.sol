@@ -98,28 +98,17 @@ abstract contract DoppiTraderAdminView is Ownable, Pausable {
         totalAssetB += totalLPAssetB;
 
         if(address(doppiCore) != address(0)) {
-            DualAssetPosition[] memory buyPositions = doppiCore.get_positions_buy(address(this));
-            uint256 length = buyPositions.length;
-            for (uint256 i = 0; i < length; ) {
-                totalAssetA += buyPositions[i].amount;
-                unchecked { ++i; }
-            }
-            DualAssetPosition[] memory sellPositions = doppiCore.get_positions_sell(address(this));
-            length = sellPositions.length;
-            for (uint256 i = 0; i < length; ) {
-                totalAssetB += sellPositions[i].amount;
-                unchecked { ++i; }
-            }
+            (uint256 buyPrincipal, uint256 sellPrincipal) = doppiCore.getOwnerPositionPrincipals(address(this));
+            totalAssetA += buyPrincipal;
+            totalAssetB += sellPrincipal;
         }
         
     }
 
     function getPerformanceMultipliers() external view returns (uint256 multiplierA, uint256 multiplierB, uint256 unitPriceA, uint256 unitPriceB) {
-        
-        uint256 price = doppiLP.getPrice();
+                
+        (uint256 currentA, uint256 currentB, uint256 price) = getTotalBalances();
         if(price == 0) return (1e18, 1e18, 1e18, 1e18);
-
-        (uint256 currentA, uint256 currentB, ) = getTotalBalances();
 
         // Convert B values to A using current price
         uint256 currentBInA = (currentB * price) / priceDecimals;
@@ -169,9 +158,9 @@ abstract contract DoppiTraderAdminView is Ownable, Pausable {
     function setDefaultDay(uint8 _day) external {
         _onlyTrader();
         bool valid;
-        uint8[] memory supportDays = doppiCore.supportDays();
-        for (uint8 x = 0; x < supportDays.length; ) {
-            if (supportDays[x] == _day) { valid = true; break; }
+        uint256 dayCount = doppiCore.getSupportDaysLength();
+        for (uint256 x = 0; x < dayCount; ) {
+            if (doppiCore.supportDays(x) == _day) { valid = true; break; }
             unchecked { ++x; }
         }
         if(valid){
@@ -268,7 +257,8 @@ abstract contract DoppiTraderAdminView is Ownable, Pausable {
     }
 
     function setForwarderAddress(address forwarderAddress) external {
-        _onlyTraderOrOwner();
+        // owner is the deploying factory, which wires the automation hub as forwarder at deploy time
+        if (msg.sender != validTrader && msg.sender != owner()) revert NotValidTrader();
         s_forwarderAddress = forwarderAddress;
     }
 
@@ -394,7 +384,7 @@ abstract contract DoppiTraderAdminView is Ownable, Pausable {
         if (feePool.code.length > 0) {
             (bool ok, ) = feePool.call(abi.encodeWithSelector(FEE_POOL_NOTIFY_SELECTOR, token, fee));
             if (!ok) {
-                revert("FeePool notify failed");
+                // leave as is, no revert
             }
         }
         emit FeePaid(token, fee);
@@ -407,7 +397,7 @@ abstract contract DoppiTraderAdminView is Ownable, Pausable {
         if (activeBuyStrikeCount == 0 && activeSellStrikeCount == 0) return;
 
         uint256 price = doppiLP.getPrice();
-        if (price == 0) revert InvalidPrice();
+        if (price == 0) return;
 
         _payStopBuyProfitFees(price, feeBps);
         _payStopSellProfitFees(price, feeBps);
@@ -469,11 +459,11 @@ abstract contract DoppiTraderAdminView is Ownable, Pausable {
 
         IERC20 fundToken = privateAutomationHub.fundToken();
         
-        if (address(fundToken) == address(assetA)) {
+        if (address(fundToken) == address(assetA) && amountA > 0) {
             if (amountA < defaultTopUp) revert InsufficientTopUpAmount();
             finalAmountA = amountA - defaultTopUp;
             assetA.safeIncreaseAllowance(address(privateAutomationHub), defaultTopUp);
-        } else if (address(fundToken) == address(assetB)) {
+        } else if (address(fundToken) == address(assetB) && amountB > 0) {
             if (amountB < defaultTopUp) revert InsufficientTopUpAmount();
             finalAmountB = amountB - defaultTopUp;
             assetB.safeIncreaseAllowance(address(privateAutomationHub), defaultTopUp);
@@ -645,10 +635,6 @@ abstract contract DoppiTraderAdminView is Ownable, Pausable {
         if(msg.sender != validTrader) revert NotValidTrader();
     }
 
-    function _onlyTraderOrOwner() internal view {
-        if(msg.sender != validTrader && msg.sender != owner()) revert NotValidTrader();
-    }
-
     function _getAutoRoundBudget(uint256 availableBalance, uint256 minOrder, uint256 length)
         internal
         view
@@ -669,7 +655,7 @@ abstract contract DoppiTraderAdminView is Ownable, Pausable {
         }
         if (activeWeightSlots == 0) return 0;
 
-        uint256 maxSplit = length < 5 ? length : 5;
+        uint256 maxSplit = length < 3 ? length : 3;
         for (uint256 split = maxSplit; split > 0; ) {
             uint256 candidateBudget = availableBalance / split;
             if (candidateBudget > 0) {

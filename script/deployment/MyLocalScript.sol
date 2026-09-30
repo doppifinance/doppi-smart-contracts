@@ -12,10 +12,9 @@ import "../../src/mainnet/private/DoppiSimpleTrader.sol";
 // import "../../src/mainnet/DoppiPoints.sol";
 import "../../src/mainnet/DoppiClaim.sol";
 import "../../src/mainnet/DoppiReferral.sol";
-import "../../src/mainnet/private/PrivateDoppiTraderFactory.sol";
 import "../../src/mainnet/private/DoppiGridTrader.sol";
-import {IPrivateAutomationHub} from "../../src/Interface/IPrivateAutomationHub.sol";
-import {BotBillingState, PrivateJobView} from "../../src/mainnet/private/PrivateAutomationHubTypes.sol";
+import {IPrivateAutomationHub, PrivateAutomationModule} from "../../src/Interface/IPrivateAutomationHub.sol";
+import {BotBillingState, PrivateBotJobIds, PrivateJobView} from "../../src/mainnet/private/PrivateAutomationHubTypes.sol";
 import {MockOracle} from "../../src/test/MockOracle.sol";
 import {DoppiTraderFactory} from "../../src/mainnet/DoppiTraderFactory.sol";
 import {TestParamLib} from "../../src/Library/TestParamLib.sol";
@@ -28,12 +27,21 @@ interface IPrivateAutomationHubBilling is IPrivateAutomationHub {
 
 interface IPrivateAutomationHubDebug is IPrivateAutomationHubBilling {
     function scanCursor() external view returns (uint256);
-    function getJobIdsByBot(address bot) external view returns (PrivateBotJobIds memory jobIds);
+    function getJobId(address bot, PrivateAutomationModule module) external view returns (uint256 jobId);
     function getJob(uint256 jobId) external view returns (PrivateJobView memory job);
     function doppiPointsExchangeRateBps() external view returns (uint256);
     function setDoppiPointsExchangeRate(uint256 _rateBps) external;
     function minCreditThreshold() external view returns (uint256);
     function getPointValueInUSDT(uint256 numPoints) external view returns (uint256);
+}
+
+interface IPrivateCoreStackFactory {
+    function privateAutomationHub() external view returns (address);
+    function botPrivateCore(address bot) external view returns (address);
+    function botPrivateOpportunity(address bot) external view returns (address);
+    function botPrivateLiquidity(address bot) external view returns (address);
+    function setLPConfig(ConfigParam calldata _lpConfig) external;
+    function setPrivateLiquidityConfig(address bot) external;
 }
 
 
@@ -44,21 +52,23 @@ contract MyLocalScript is Script {
     function run() external {
         
         
-        // address doppiOffer_ETH = address(0xf7b682DaF52C134B1746413c428625781A8b0Ab3);
+        address doppiOffer_ETH = address(0xf94d4514DB6c9139b553b6A7A8c11b9cb68C6288);
         // address doppiLP_ETH = address(0x3f3284764A9bD533E0a372Da38Ea936D7D30f897);
-        address doppiLP = address(0x1AfF2C2e40c151CB09A3a5D7b2A6dCD30396bEFF);
-        address doppiCore = address(0x4A139Dc529B5C729FAfd8c92FA6D40b020233303);
-        address doppiOpportunity = address(0xab0C65B13963008c5A540a2F83c36626928354AD);
-        address doppiClaimAdr = address(0xe1fFd705eD2963BA55b66e334C90AE399d6E33b9);
-        address privateHub = address(0xe40F340FF5D083Aa3EEEe02F4D213aB00Bf29613);
+        address doppiLP = address(0x6c1fE1Bc0B776207Ac6eb7162b904cE50B72E200);
+        address doppiCore = address(0x1E9753724160D4E7875DCDf5Dae599b8D53Cd2Aa);
+        address doppiOpportunity = address(0x45FC454f495cd9a7b64702833b21dF4599935d59);
+        address doppiClaimAdr = address(0xC6ed51595C90D5Ea1f2A8CEcBE9EEe33456A4529);
+        address privateHub = address(0x64650c8A12E6b039cfB00c35c5E20982833EBe9d);
         
         // uint256 pointValueInUSDT = IPrivateAutomationHubDebug(privateHub).getPointValueInUSDT(107);
         // console.log(pointValueInUSDT, "pointValueInUSDT for 107 points");
 
-        // DoppiClaim claim = DoppiClaim(doppiClaimAdr);
-        // console.log(claim.paused(), "claim.paused()");
+        DoppiClaim claim = DoppiClaim(doppiClaimAdr);
+        console.log(claim.paused(), "claim.paused()");
 
         // DoppiOffer offer = DoppiOffer(doppiOffer_ETH);
+        // DualAssetOffer[] memory buyoffers = offer.getBuyOffers(1);
+        // console.log(buyoffers.length, "buyoffers length");
         // uint256 buffer = offer.getOneDayBuffer(1_842 * 1e8, true);
 
         // console.log(buffer, "buffer");
@@ -68,21 +78,57 @@ contract MyLocalScript is Script {
         // for (uint256 i = 0; i < buyoffers.length; i++) {
         //     console.log("Buy Offer", i, "APR:", buyoffers[i].apr);
         // }
-        _manipulateRealChainlink(doppiLP, int256(64_100 * 1e8), address(0xd83b89a056258dBC2133731Ee5FA44e5bE11690B));
+
+        
+        DoppiLiquidity lp = DoppiLiquidity(doppiLP);
+        console.log("Price:", lp.getPrice());
+    
+        _manipulateRealChainlink(doppiLP, int256(77600 * 1e8), address(0x6C35038225E98A594DFbA98067F1907064C6D9A8));
         // _manipulateRealChainlink(doppiLP_ETH, int256(2_069 * 1e8), address(0xf512De86d7c347b19483EDb08048ADA34551F74E));
-        // DoppiLiquidity lp = DoppiLiquidity(doppiLP);
+
+        // DoppiCore core = DoppiCore(doppiCore);
+        // console.log(core.emergencyMode(), "core.emergencyMode()");
+        // console.log(core.paused(), "core.paused()");
+        // console.log(DoppiLiquidity(address(core.doppiLP())).getPrice(), "doppiLP.getPrice()");
+        // console.log(core.UPKEEPS_PER_CHECK(), "core.upkeeps_per_check()");
+        // console.log(core.nextPositionId(1), "core.nextPositionId()");
+        // console.log(core.nextProcessId(1), "core.nextProcessId()");
+
+        // (
+        //     uint256 currentDeposits,
+        //     uint256 maxDepositAmount,
+        //     uint256 availableCapacity
+        // ) = lp.getPoolCapacityInfo(true);
+        // console.log(currentDeposits, "lp.getPoolCapacityInfo(true).currentDeposits");
+        // console.log(maxDepositAmount, "lp.getPoolCapacityInfo(true).maxDepositAmount");
+        // console.log(availableCapacity, "lp.getPoolCapacityInfo(true).availableCapacity");
+
+        // (
+        //     currentDeposits,
+        //     maxDepositAmount,
+        //     availableCapacity
+        // ) = lp.getPoolCapacityInfo(false);
+
+        // console.log(currentDeposits, "lp.getPoolCapacityInfo(false).currentDeposits");
+        // console.log(maxDepositAmount, "lp.getPoolCapacityInfo(false).maxDepositAmount");
+        // console.log(availableCapacity, "lp.getPoolCapacityInfo(false).availableCapacity");
+        
+        // console.log("Price:", lp.getPrice());
+
         // (, , uint256 availableCapacity) = lp.getPoolCapacityInfo(true);
         // console.log(availableCapacity, "availableCapacity");
         
         // _checkSharedUpkeep(doppiCore, doppiOpportunity, doppiLP);
 
-        // PrivateDoppiTraderFactory factory = PrivateDoppiTraderFactory(address(0x4a0dEFe3aF7e5Bd2500aDe85Ba37A743801e9D84)); 
+        // IPrivateCoreStackFactory factory = IPrivateCoreStackFactory(address(0x4a0dEFe3aF7e5Bd2500aDe85Ba37A743801e9D84)); 
         // IPrivateAutomationHubDebug hub = IPrivateAutomationHubDebug(address(factory.privateAutomationHub()));
         // console.log(hub.minCreditThreshold(), "minCreditThreshold");
         // address bot2 = address(0xca7219123f3d60aBF14DB1B61F37AF030C114d16);
         // address bot1 = address(0x41DAfaBbAa45C6f35aCE79E901FF0534B0fEd317); // private
 
-        // DoppiTrader traderCommonBot = DoppiTrader(address(0x3179244DAA2C5e7b741c913276eD90c0fF3733a7));
+        // DoppiTrader traderCommonBot = DoppiTrader(address(0x564C0979b1C3baC8c90ee8DdE3991D7F7eD2FFF9));
+        // _debugTraderCheckUpkeep(traderCommonBot);
+        
         // // DoppiTrader traderBot = DoppiTrader(bot);
         // (uint256 totalAssetA, uint256 totalAssetB, uint256 price2) = traderCommonBot.getTotalBalances();
         // console.log("TraderBot Total Asset A:", totalAssetA);
@@ -128,13 +174,14 @@ contract MyLocalScript is Script {
         // console.log("Multiplier B:", multiplierB);
         // console.log("Unit Price A:", unitPriceA);
 
-        // DoppiGridTrader traderGridBot = DoppiGridTrader(address(0x46A8904211993824973bf970f3e2fD4347561deB));
-        // // DoppiGridTrader.EpochZoneInfo[] memory zones = traderGridBot.getEpochZoneInfo();
-        // // _display(zones, 0);
-        // // _display(zones, 1);
-        // // _display(zones, 2);
-        // // _display(zones, 3);
-        // // _display(zones, 4);
+        // DoppiGridTrader traderGridBot = DoppiGridTrader(address(0xC35E7d56888EBc505eD8da9fA3BE531CBa1c946C));
+        // DoppiGridTrader.EpochZoneInfo[] memory zones = traderGridBot.getEpochZoneInfo();
+        // _display(zones, 0, traderGridBot);
+        // _display(zones, 1, traderGridBot);
+        // _display(zones, 2, traderGridBot);
+        // _display(zones, 3, traderGridBot);
+        // _display(zones, 4, traderGridBot);
+        
 
         
         // (DoppiSimpleTrader.StrikePnLView[] memory items, int256 totalPnl, uint256 currentPrice) = traderGridBot.getStrikePnL(true);
@@ -148,6 +195,13 @@ contract MyLocalScript is Script {
         //     console.logInt(items[i].pnl);
         // }
 
+        // (uint256 multiplierA, uint256 multiplierB, uint256 unitPriceA, uint256 unitPriceB) = traderGridBot.getPerformanceMultipliers();
+        // console.log("Multiplier A:", multiplierA, "Multiplier B:", multiplierB);
+        // console.log("Unit Price A:", unitPriceA, "Unit Price B:", unitPriceB);
+
+        // console.log("Total Units A:", traderGridBot.totalUnits());
+        // console.log("Total Units B:", traderGridBot.totalUnitsB());
+        
         // (uint256 lower, uint256 upper) = traderGridBot.getLowerUpperBound();
         // console.log("Lower Bound:", lower, "Upper Bound:", upper);
         // for (uint256 i = lower; i <= upper;) {
@@ -168,7 +222,7 @@ contract MyLocalScript is Script {
         // }
 
         // // _traderBotInfo(bot);
-        // address bot1 = address(0x64D2Aa585bCd4b80819C1a56FA0BA444812C18E7); // private
+        // address bot1 = address(0x564C0979b1C3baC8c90ee8DdE3991D7F7eD2FFF9); // private
         // // _manipulateRealChainlinkByFactory(factory, bot1, int256(63_900 * 1e8));
         // _privateBotInfo(factory, bot1);
         
@@ -177,12 +231,12 @@ contract MyLocalScript is Script {
         // _runPrivateAutomationHubUpkeep(factory);
         // _getBotBilling(factory, bot1);
 
-        
-        // PrivateBotJobIds memory jobId = hub.getJobIdsByBot(bot1);
+        // IPrivateAutomationHubDebug hub = IPrivateAutomationHubDebug(address(privateHub));
+        // uint256 jobId = hub.getJobId(bot1, PrivateAutomationModule.Trader);
+        // PrivateJobView memory job = hub.getJob(jobId);
         // console.log("Doppi Points Exchange Rate Bps:", hub.doppiPointsExchangeRateBps());
 
-        // console.log("jobId:", jobId.coreJobId);
-        // PrivateJobView memory job = hub.getJob(jobId.coreJobId);
+        // console.log("jobId:", jobId);
         // console.log(job.failCount, "failCount core job");
         // console.log(job.gasLimitHint, "gasLimitHint core job");
         
@@ -193,54 +247,88 @@ contract MyLocalScript is Script {
         
     }
 
-    function _display(DoppiGridTrader.EpochZoneInfo[] memory zones, uint256 index) internal view {
-        console.log(zones[index].zone, "zone"); // 1
-        console.log(zones[index].buyStrike, "buyStrike");
-        console.log(zones[index].sellStrike, "sellStrike");
-        console.log(zones[index].originalBuyAmount, "originalBuyAmount");
-        console.log(zones[index].originalSellAmount, "originalSellAmount");
-        console.log(zones[index].remainingBuyOpportunity, "remainingBuyOpportunity");
-        console.log(zones[index].remainingSellOpportunity, "remainingSellOpportunity");
+    function _display(DoppiGridTrader.EpochZoneInfo[] memory zones, uint256 index, DoppiGridTrader traderGridBot) internal view {
+        // console.log(zones[index].zone, "zone"); // 1
+        // console.log(zones[index].buyStrike, "buyStrike");
+        // console.log(zones[index].sellStrike, "sellStrike");
+        // console.log(zones[index].originalBuyAmount, "originalBuyAmount");
+        // console.log(zones[index].originalSellAmount, "originalSellAmount");
+        // console.log(zones[index].remainingBuyOpportunity, "remainingBuyOpportunity");
+        // console.log(zones[index].remainingSellOpportunity, "remainingSellOpportunity");
+        
+        if(zones[index].buyStrike > 0)  {
+            console.log(zones[index].originalBuyAmount, "originalBuyAmount");
+            console.log(zones[index].originalSellAmount, "originalSellAmount");
+            console.log(zones[index].remainingBuyOpportunity, "remainingBuyOpportunity");
+            console.log(zones[index].remainingSellOpportunity, "remainingSellOpportunity");
+            console.log(traderGridBot.getOpportunityInfo(true, zones[index].buyStrike), "opportunityBuy");
+        }
+        if(zones[index].sellStrike > 0)  {
+            console.log(zones[index].originalBuyAmount, "originalBuyAmount");
+            console.log(zones[index].originalSellAmount, "originalSellAmount");
+            console.log(zones[index].remainingBuyOpportunity, "remainingBuyOpportunity");
+            console.log(zones[index].remainingSellOpportunity, "remainingSellOpportunity");
+            console.log(traderGridBot.getOpportunityInfo(false, zones[index].sellStrike), "opportunitySell");
+        }
         // console.log(zones[index].pendingBuyUnwind, "pendingBuyUnwind");
         // console.log(zones[index].pendingSellUnwind, "pendingSellUnwind");
     }
 
-    // function _displayNew(DoppiGridTrader.EpochZoneCurrentInfo[] memory epochZones,
-    //         DoppiGridTrader.ZonePendingUnwindInfo[] memory pendingByZone,
-    //         DoppiGridTrader.UnwindBucketInfo[] memory buyUnwindBuckets,
-    //         DoppiGridTrader.UnwindBucketInfo[] memory sellUnwindBuckets) 
-    // internal view {
-        
-    //     for (uint256 i = 0; i < epochZones.length; i++) {
-    //         console.log(epochZones[i].zone, "zone");
-    //         console.log(epochZones[i].buyStrike, "buyStrike");
-    //         console.log(epochZones[i].sellStrike, "sellStrike");
-    //         console.log(epochZones[i].originalBuyAmount, "originalBuyAmount");
-    //         console.log(epochZones[i].originalSellAmount, "originalSellAmount");
-    //         console.log(epochZones[i].remainingBuyOpportunity, "remainingBuyOpportunity");
-    //         console.log(epochZones[i].remainingSellOpportunity, "remainingSellOpportunity");
-            
-    //     }
+    function _debugTraderCheckUpkeep(DoppiTrader traderBot) internal view {
+        address bot = address(traderBot);
+        DoppiCore core = DoppiCore(address(traderBot.doppiCore()));
+        DoppiLiquidity lp = DoppiLiquidity(address(traderBot.doppiLP()));
+        DoppiOffer offer = DoppiOffer(address(traderBot.impliedVol()));
 
-    //     for (uint256 i = 0; i < pendingByZone.length; i++) {
-    //         console.log(pendingByZone[i].zone, "zone");
-    //         console.log(pendingByZone[i].pendingBuyUnwind, "pendingBuyUnwind");
-    //         console.log(pendingByZone[i].pendingSellUnwind, "pendingSellUnwind");           
-    //     }
+        console.log("========== DoppiTrader checkUpkeep debug ==========");
+        console.log(bot, "bot");
+        console.log(traderBot.s_forwarderAddress(), "s_forwarderAddress");
+        console.log(traderBot.paused(), "bot.paused()");
+        console.log(core.paused(), "core.paused()");
 
-    //     for (uint256 i = 0; i < buyUnwindBuckets.length; i++) {
-    //         console.log(buyUnwindBuckets[i].strike, "strike");
-    //         console.log(buyUnwindBuckets[i].amount, "amount");
-    //         console.log(buyUnwindBuckets[i].cost, "cost");
-    //     }
+        uint256 price = lp.getPrice();
+        console.log(price, "lp.getPrice()");
 
-    //     for (uint256 i = 0; i < sellUnwindBuckets.length; i++) {
-    //         console.log(sellUnwindBuckets[i].strike, "strike");
-    //         console.log(sellUnwindBuckets[i].amount, "amount");
-    //         console.log(sellUnwindBuckets[i].cost, "cost");          
-    //     }
-        
-    // }
+        uint256 buyPos = core.getBuyPositionCount(bot);
+        uint256 sellPos = core.getSellPositionCount(bot);
+        console.log(buyPos, "core.getBuyPositionCount(bot)");
+        console.log(sellPos, "core.getSellPositionCount(bot)");
+
+        address assetA = address(traderBot.assetA());
+        address assetB = address(traderBot.assetB());
+        uint256 balA = IERC20(assetA).balanceOf(bot);
+        uint256 balB = IERC20(assetB).balanceOf(bot);
+        (uint256 undoA, uint256 undoB) = traderBot.undoStat();
+
+        uint256 availableA = balA > undoA ? balA - undoA : 0;
+        uint256 availableB = balB > undoB ? balB - undoB : 0;
+
+        console.log(balA, "assetA.balanceOf(bot)");
+        console.log(balB, "assetB.balanceOf(bot)");
+        console.log(undoA, "undoStat.undo_assetA");
+        console.log(undoB, "undoStat.undo_assetB");
+        console.log(availableA, "availableA(balanceA-undoA)");
+        console.log(availableB, "availableB(balanceB-undoB)");
+
+        uint8 day = traderBot.traderDefaultDay();
+        DualAssetOffer memory buyOffer = offer.getSingleOffer(true, day, 0, price);
+        DualAssetOffer memory sellOffer = offer.getSingleOffer(false, day, 0, price);
+        console.log(day, "traderDefaultDay");
+        console.log(buyOffer.apr, "buyOffer.apr");
+        console.log(sellOffer.apr, "sellOffer.apr");
+
+        (, , uint256 capBuy) = lp.getPoolCapacityInfo(true);
+        (, , uint256 capSell) = lp.getPoolCapacityInfo(false);
+        console.log(capBuy, "lp.availableCapacity.buy");
+        console.log(capSell, "lp.availableCapacity.sell");
+        console.log(core.minOrderA(), "core.minOrderA");
+        console.log(core.minOrderB(), "core.minOrderB");
+
+        (bool upkeepNeeded, bytes memory performData) = traderBot.checkUpkeep("0x");
+        console.log("TraderBot checkUpkeep needed:", upkeepNeeded);
+        console.log(performData.length, "performData.length");
+        console.log("==================================================");
+    }
 
     function _manipulateRealChainlink(address _doppiLP, int256 newPrice, address oracleAddress) internal {
         
@@ -293,7 +381,7 @@ contract MyLocalScript is Script {
         
     }
 
-    function _manipulateRealChainlinkByFactory(PrivateDoppiTraderFactory factory,  address bot, int256 newPrice, address oracleAddress) internal {
+    function _manipulateRealChainlinkByFactory(IPrivateCoreStackFactory factory,  address bot, int256 newPrice, address oracleAddress) internal {
         
         MockOracle _oracle = MockOracle(oracleAddress);
         address privateLiquidityAddr = factory.botPrivateLiquidity(bot);
@@ -371,127 +459,127 @@ contract MyLocalScript is Script {
     }
 
 
-    function _privateBotInfo(PrivateDoppiTraderFactory factory, address bot) internal view {
-        address privateCoreAddr = factory.botPrivateCore(bot);
-        address privateOpportunityAddr = factory.botPrivateOpportunity(bot);
-        address privateLiquidityAddr = factory.botPrivateLiquidity(bot);
+    // function _privateBotInfo(IPrivateCoreStackFactory factory, address bot) internal view {
+    //     address privateCoreAddr = factory.botPrivateCore(bot);
+    //     address privateOpportunityAddr = factory.botPrivateOpportunity(bot);
+    //     address privateLiquidityAddr = factory.botPrivateLiquidity(bot);
 
-        console.log("PrivateCore Address:", privateCoreAddr);
-        console.log("PrivateOpportunity Address:", privateOpportunityAddr);
-        console.log("PrivateLiquidity Address:", privateLiquidityAddr);
+    //     console.log("PrivateCore Address:", privateCoreAddr);
+    //     console.log("PrivateOpportunity Address:", privateOpportunityAddr);
+    //     console.log("PrivateLiquidity Address:", privateLiquidityAddr);
 
         
 
-        DoppiCore privateCore = DoppiCore(privateCoreAddr);
-        DoppiOpportunity privateOpportunity = DoppiOpportunity(privateOpportunityAddr);
-        (bool upkeepNeeded, bytes memory performData) = privateOpportunity.checkUpkeep("");
-        console.log("PrivateOpportunity Upkeep Needed:", upkeepNeeded);
+    //     DoppiCore privateCore = DoppiCore(privateCoreAddr);
+    //     DoppiOpportunity privateOpportunity = DoppiOpportunity(privateOpportunityAddr);
+    //     (bool upkeepNeeded, bytes memory performData) = privateOpportunity.checkUpkeep("");
+    //     console.log("PrivateOpportunity Upkeep Needed:", upkeepNeeded);
         
-        console.log(address(privateOpportunity.doppiLP()), "privateOpportunity doppiLP Address:");
-        console.log(address(privateLiquidityAddr), "PrivateCore PrivateLiquidity Address:");
+    //     console.log(address(privateOpportunity.doppiLP()), "privateOpportunity doppiLP Address:");
+    //     console.log(address(privateLiquidityAddr), "PrivateCore PrivateLiquidity Address:");
         
-        DoppiLiquidity privateLiquidity = DoppiLiquidity(address(privateOpportunity.doppiLP()));
+    //     DoppiLiquidity privateLiquidity = DoppiLiquidity(address(privateOpportunity.doppiLP()));
 
 
-        (uint256 lowerBound, uint256 upperBound) = privateOpportunity.getLowerUpperBound();
-        _displayBound(privateCore, lowerBound, upperBound);
+    //     (uint256 lowerBound, uint256 upperBound) = privateOpportunity.getLowerUpperBound();
+    //     _displayBound(privateCore, lowerBound, upperBound);
 
-        (lowerBound, upperBound) = privateOpportunity.getLowerUpperBound();
-        _displayBoundLP(privateLiquidity, lowerBound, upperBound);
+    //     (lowerBound, upperBound) = privateOpportunity.getLowerUpperBound();
+    //     _displayBoundLP(privateLiquidity, lowerBound, upperBound);
 
-        uint256 price = privateLiquidity.getPrice();
-        console.log("PrivateLiquidity Current Price:", price);
+    //     uint256 price = privateLiquidity.getPrice();
+    //     console.log("PrivateLiquidity Current Price:", price);
 
-        uint256 oneDayMove = privateCore.doppiOffer().getOneDayBuffer(price, false);
-        console.log("PrivateCore One Day Move:", oneDayMove);
+    //     uint256 oneDayMove = privateCore.doppiOffer().getOneDayBuffer(price, false);
+    //     console.log("PrivateCore One Day Move:", oneDayMove);
         
         
-        uint256 buyCount = privateCore.getBuyPositionCount(bot);
-        uint256 sellCount = privateCore.getSellPositionCount(bot);
-        uint256 minOrderA = privateCore.minOrderA();
-        uint256 minOrderB = privateCore.minOrderB();
-        uint256 maxSwap = privateCore.maxSwap();
+    //     uint256 buyCount = privateCore.getBuyPositionCount(bot);
+    //     uint256 sellCount = privateCore.getSellPositionCount(bot);
+    //     uint256 minOrderA = privateCore.minOrderA();
+    //     uint256 minOrderB = privateCore.minOrderB();
+    //     uint256 maxSwap = privateCore.maxSwap();
 
-        console.log("PrivateCore Buy Position Count:", buyCount);
-        console.log("PrivateCore Sell Position Count:", sellCount);
-        console.log("PrivateCore Min Order A:", minOrderA);
-        console.log("PrivateCore Min Order B:", minOrderB);
-        console.log("PrivateCore Max Swap:", maxSwap);
+    //     console.log("PrivateCore Buy Position Count:", buyCount);
+    //     console.log("PrivateCore Sell Position Count:", sellCount);
+    //     console.log("PrivateCore Min Order A:", minOrderA);
+    //     console.log("PrivateCore Min Order B:", minOrderB);
+    //     console.log("PrivateCore Max Swap:", maxSwap);
 
-        (uint256 lpAssetA, uint256 lpAssetB) = privateLiquidity.getBalances(bot);
-        console.log("PrivateLP AssetA Balance:", lpAssetA);
-        console.log("PrivateLP AssetB Balance:", lpAssetB);
+    //     (uint256 lpAssetA, uint256 lpAssetB) = privateLiquidity.getBalances(bot);
+    //     console.log("PrivateLP AssetA Balance:", lpAssetA);
+    //     console.log("PrivateLP AssetB Balance:", lpAssetB);
 
-        DoppiTrader traderBot = DoppiTrader(bot);
-        (uint256 totalAssetA, uint256 totalAssetB, uint256 price2) = traderBot.getTotalBalances();
-        console.log("TraderBot Total Asset A:", totalAssetA);
-        console.log("TraderBot Total Asset B:", totalAssetB);
-        console.log("TraderBot Current Price:", price2);
-        (uint256 multiplierA, uint256 multiplierB, ,) = traderBot.getPerformanceMultipliers();
-        console.log("TraderBot Performance Multiplier A:", multiplierA);
-        console.log("TraderBot Performance Multiplier B:", multiplierB);
-    }
+    //     DoppiTrader traderBot = DoppiTrader(bot);
+    //     (uint256 totalAssetA, uint256 totalAssetB, uint256 price2) = traderBot.getTotalBalances();
+    //     console.log("TraderBot Total Asset A:", totalAssetA);
+    //     console.log("TraderBot Total Asset B:", totalAssetB);
+    //     console.log("TraderBot Current Price:", price2);
+    //     (uint256 multiplierA, uint256 multiplierB, ,) = traderBot.getPerformanceMultipliers();
+    //     console.log("TraderBot Performance Multiplier A:", multiplierA);
+    //     console.log("TraderBot Performance Multiplier B:", multiplierB);
+    // }
 
-    function _runPrivateAutomationHubUpkeep(PrivateDoppiTraderFactory factory) internal {
-        address hubAddr = factory.privateAutomationHub();
-        console.log("PrivateAutomationHub Address:", hubAddr);
+    // function _runPrivateAutomationHubUpkeep(IPrivateCoreStackFactory factory) internal {
+    //     address hubAddr = factory.privateAutomationHub();
+    //     console.log("PrivateAutomationHub Address:", hubAddr);
 
-        if (hubAddr == address(0)) {
-            console.log("PrivateAutomationHub not configured on factory");
-            return;
-        }
+    //     if (hubAddr == address(0)) {
+    //         console.log("PrivateAutomationHub not configured on factory");
+    //         return;
+    //     }
 
-        IPrivateAutomationHubDebug hub = IPrivateAutomationHubDebug(hubAddr);
-        // console.log("Hub scanCursor before:", scanCursorBefore);
+    //     IPrivateAutomationHubDebug hub = IPrivateAutomationHubDebug(hubAddr);
+    //     // console.log("Hub scanCursor before:", scanCursorBefore);
 
-        (bool upkeepNeeded, bytes memory performData) = hub.checkUpkeep("");
-        console.log("Hub checkUpkeep needed:", upkeepNeeded);
-        console.log("Hub performData length:", performData.length);
+    //     (bool upkeepNeeded, bytes memory performData) = hub.checkUpkeep("");
+    //     console.log("Hub checkUpkeep needed:", upkeepNeeded);
+    //     console.log("Hub performData length:", performData.length);
 
-        if (!upkeepNeeded) {
-            console.log("No eligible jobs to perform");
-            return;
-        }
+    //     if (!upkeepNeeded) {
+    //         console.log("No eligible jobs to perform");
+    //         return;
+    //     }
 
-        (uint256 nextCursor, uint256[] memory jobIds, bytes[] memory payloads) =
-            abi.decode(performData, (uint256, uint256[], bytes[]));
+    //     (uint256 nextCursor, uint256[] memory jobIds, bytes[] memory payloads) =
+    //         abi.decode(performData, (uint256, uint256[], bytes[]));
 
-        console.log("Decoded nextCursor:", nextCursor);
-        console.log("Selected job count:", jobIds.length);
-        console.log("Selected payload count:", payloads.length);
+    //     console.log("Decoded nextCursor:", nextCursor);
+    //     console.log("Selected job count:", jobIds.length);
+    //     console.log("Selected payload count:", payloads.length);
 
-        for (uint256 i = 0; i < jobIds.length; ) {
-            PrivateJobView memory beforeJob = hub.getJob(jobIds[i]);
-            console.log("Before jobId:", jobIds[i]);
-            console.log("Before active:", beforeJob.active);
-            console.log("Before failCount:", beforeJob.failCount);
-            console.log("Before lastRunAt:", uint256(beforeJob.lastRunAt));
-            console.log("Before nextEligibleAt:", uint256(beforeJob.nextEligibleAt));
-            unchecked { ++i; }
-        }
+    //     for (uint256 i = 0; i < jobIds.length; ) {
+    //         PrivateJobView memory beforeJob = hub.getJob(jobIds[i]);
+    //         console.log("Before jobId:", jobIds[i]);
+    //         console.log("Before active:", beforeJob.active);
+    //         console.log("Before failCount:", beforeJob.failCount);
+    //         console.log("Before lastRunAt:", uint256(beforeJob.lastRunAt));
+    //         console.log("Before nextEligibleAt:", uint256(beforeJob.nextEligibleAt));
+    //         unchecked { ++i; }
+    //     }
 
-        uint256 deployerPrivateKey = vm.envUint("PRIVATE_KEY");
-        vm.startBroadcast(deployerPrivateKey);
-        hub.performUpkeep(performData);
-        vm.stopBroadcast();
-        console.log("Hub performUpkeep executed");
+    //     uint256 deployerPrivateKey = vm.envUint("PRIVATE_KEY");
+    //     vm.startBroadcast(deployerPrivateKey);
+    //     hub.performUpkeep(performData);
+    //     vm.stopBroadcast();
+    //     console.log("Hub performUpkeep executed");
 
-        uint256 scanCursorAfter = hub.scanCursor();
-        console.log("Hub scanCursor after:", scanCursorAfter);
+    //     uint256 scanCursorAfter = hub.scanCursor();
+    //     console.log("Hub scanCursor after:", scanCursorAfter);
 
-        for (uint256 i = 0; i < jobIds.length; ) {
-            PrivateJobView memory afterJob = hub.getJob(jobIds[i]);
-            console.log("After jobId:", jobIds[i]);
-            console.log("After active:", afterJob.active);
-            console.log("After failCount:", afterJob.failCount);
-            console.log("After lastRunAt:", uint256(afterJob.lastRunAt));
-            console.log("After nextEligibleAt:", uint256(afterJob.nextEligibleAt));
-            unchecked { ++i; }
-        }
+    //     for (uint256 i = 0; i < jobIds.length; ) {
+    //         PrivateJobView memory afterJob = hub.getJob(jobIds[i]);
+    //         console.log("After jobId:", jobIds[i]);
+    //         console.log("After active:", afterJob.active);
+    //         console.log("After failCount:", afterJob.failCount);
+    //         console.log("After lastRunAt:", uint256(afterJob.lastRunAt));
+    //         console.log("After nextEligibleAt:", uint256(afterJob.nextEligibleAt));
+    //         unchecked { ++i; }
+    //     }
 
-    }
+    // }
 
-    function _getBotBilling(PrivateDoppiTraderFactory factory, address bot) internal view {
+    function _getBotBilling(IPrivateCoreStackFactory factory, address bot) internal view {
         address hubAddr = factory.privateAutomationHub();
         console.log("PrivateAutomationHub Address:", hubAddr);
 

@@ -22,8 +22,6 @@ contract DoppiGridTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCom
     
     mapping(uint256 => uint256) public opportunityBuy;
     mapping(uint256 => uint256) public opportunitySell;
-    mapping(uint256 => uint8) private buyStrikeZone;
-    mapping(uint256 => uint8) private sellStrikeZone;
     uint256[] private activeBuyOpportunityStrikes;
     uint256[] private activeSellOpportunityStrikes;
 
@@ -70,7 +68,9 @@ contract DoppiGridTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCom
     error NoEnoughBalance();
     error RecordTradeFailed();
 
-    constructor() Ownable(msg.sender) {}
+    constructor() Ownable(msg.sender) {
+        _disableInitializers();
+    }
 
     function initialize(
         address _trader,
@@ -88,9 +88,6 @@ contract DoppiGridTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCom
         doppiPoints = IDoppiPoints(_doppiPoints);
         validTrader = _trader;
         _transferOwnership(msg.sender);
-
-        assetA.safeIncreaseAllowance(_doppiLP, type(uint256).max);
-        assetB.safeIncreaseAllowance(_doppiLP, type(uint256).max);
     
         _initializeOrderConfigs(_weights);
         traderDefaultDay = 1;
@@ -98,7 +95,7 @@ contract DoppiGridTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCom
         maxSwap = 30000 ether;
         unwindGapMultiplier = 1;
         priceDecimals = 10 ** doppiLP.getPriceDecimals();
-        epochDuration = 1 days;
+        epochDuration = 2 days;
         minOrderA = 50 ether;
         minOrderB = 0.0005 ether;
         opportunityBufferCutBps = 2000;
@@ -126,13 +123,6 @@ contract DoppiGridTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCom
         _updateUnitAndCostBasis(finalAmountA, finalAmountB, currentBalanceA, currentBalanceB, price);
 
         engineStarted = true;
-        _resetAndPlace(price);
-    }
-
-    function placeOrders() external nonReentrant {
-        _onlyTrader();
-        uint256 price = doppiLP.getPrice();
-        if (_availableBalance(true) == 0 && _availableBalance(false) == 0) revert NoEnoughBalance();
         _resetAndPlace(price);
     }
 
@@ -295,7 +285,7 @@ contract DoppiGridTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCom
 
     function setEpochDuration(uint32 _epochDuration) external {
         _onlyTrader();
-        require(_epochDuration > 0, "invalid epoch duration");
+        require(_epochDuration > 1 days && _epochDuration < 15 days, "invalid epoch duration");
         epochDuration = _epochDuration;
     }
 
@@ -326,7 +316,6 @@ contract DoppiGridTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCom
 
     function _performOpportunityBuy(uint256 price) internal {
         if (activeBuyOpportunityStrikes.length == 0) return;
-        uint256 gap = _priceGapWithDecimals();
         uint256 buffer = _getBufferAmount(price, true);
         uint256 maxIn = maxSwap;
         uint256 totalIn;
@@ -339,12 +328,12 @@ contract DoppiGridTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCom
                 uint256 remaining = maxIn > totalIn ? maxIn - totalIn : 0;
                 if (remaining == 0) break;
                 uint256 toSwap = amount > remaining ? remaining : amount;
+                _approveLPExact(assetA, toSwap);
                 uint256 amountOut = doppiLP.swap(toSwap, price, true);
                 _recordTradeVolumeInA(toSwap);
                 opportunityBuy[strike] = amount - toSwap;
                 totalIn += toSwap;
 
-                uint8 zone = buyStrikeZone[strike];
                 unWindBuy[strike] += amountOut;
                 unWindBuyCostA[strike] += toSwap;
                 undoStat.undo_assetB += amountOut;
@@ -360,7 +349,6 @@ contract DoppiGridTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCom
 
     function _performOpportunitySell(uint256 price) internal {
         if (activeSellOpportunityStrikes.length == 0) return;
-        uint256 gap = _priceGapWithDecimals();
         uint256 buffer = _getBufferAmount(price, false);
         uint256 maxIn = maxSwap * priceDecimals / price;
         uint256 totalIn;
@@ -374,11 +362,11 @@ contract DoppiGridTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCom
                 uint256 remaining = maxIn > totalIn ? maxIn - totalIn : 0;
                 if (remaining == 0) break;
                 uint256 toSwap = amount > remaining ? remaining : amount;
+                _approveLPExact(assetB, toSwap);
                 uint256 amountOut = doppiLP.swap(toSwap, price, false);
                 _recordTradeVolumeInA((toSwap * price) / priceDecimals);
                 opportunitySell[strike] = amount - toSwap;
                 totalIn += toSwap;
-                uint8 zone = sellStrikeZone[strike];
 
                 unWindSell[strike] += amountOut;
                 unWindSellCostB[strike] += toSwap;
@@ -420,6 +408,7 @@ contract DoppiGridTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCom
         }
 
         if (totalIn == 0) return;
+        _approveLPExact(assetB, totalIn);
         uint256 totalOut = doppiLP.swap(totalIn, price, false);
         _recordTradeVolumeInA((totalIn * price) / priceDecimals);
 
@@ -467,6 +456,7 @@ contract DoppiGridTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCom
         }
 
         if (totalIn == 0) return;
+        _approveLPExact(assetA, totalIn);
         uint256 totalOut = doppiLP.swap(totalIn, price, true);
         _recordTradeVolumeInA(totalIn);
 
@@ -576,9 +566,16 @@ contract DoppiGridTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCom
         uint256 gap = _priceGapWithDecimals();
         uint256 anchor = _roundPrice(price, gap);
 
-        for (uint8 z = 0; z < maxOrder; ) {
-            epochOriginalBuyByZone[z] = 0;
-            epochOriginalSellByZone[z] = 0;
+        uint256 maxOrderLocal = maxOrder;
+        uint256 maxSupportedZones = uint256(type(uint8).max) + 1;
+        if (maxOrderLocal > maxSupportedZones) {
+            maxOrderLocal = maxSupportedZones;
+        }
+
+        for (uint256 z = 0; z < maxOrderLocal; ) {
+            uint8 zone = uint8(z);
+            epochOriginalBuyByZone[zone] = 0;
+            epochOriginalSellByZone[zone] = 0;
             unchecked {
                 ++z;
             }
@@ -596,7 +593,6 @@ contract DoppiGridTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCom
                 uint256 amountA = (buyBudget * weight) / BPS;
                 if (amountA >= minA) {
                     opportunityBuy[buyStrike] = amountA;
-                    buyStrikeZone[buyStrike] = uint8(zone);
                     epochOriginalBuyByZone[uint8(zone)] = amountA;
                     activeBuyOpportunityStrikes.push(buyStrike);
                 }
@@ -607,7 +603,6 @@ contract DoppiGridTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCom
                 uint256 amountB = (sellBudget * weight) / BPS;
                 if (amountB >= minB) {
                     opportunitySell[sellStrike] = amountB;
-                    sellStrikeZone[sellStrike] = uint8(zone);
                     epochOriginalSellByZone[uint8(zone)] = amountB;
                     activeSellOpportunityStrikes.push(sellStrike);
                 }
@@ -784,9 +779,16 @@ contract DoppiGridTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCom
         activeBuyStrikeCount = 0;
         activeSellStrikeCount = 0;
 
-        for (uint8 z = 0; z < maxOrder; ) {
-            epochOriginalBuyByZone[z] = 0;
-            epochOriginalSellByZone[z] = 0;
+        uint256 maxOrderLocal = maxOrder;
+        uint256 maxSupportedZones = uint256(type(uint8).max) + 1;
+        if (maxOrderLocal > maxSupportedZones) {
+            maxOrderLocal = maxSupportedZones;
+        }
+
+        for (uint256 z = 0; z < maxOrderLocal; ) {
+            uint8 zone = uint8(z);
+            epochOriginalBuyByZone[zone] = 0;
+            epochOriginalSellByZone[zone] = 0;
             unchecked {
                 ++z;
             }
@@ -795,5 +797,10 @@ contract DoppiGridTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCom
 
     function _onlyForwarder() internal view {
         if (msg.sender != s_forwarderAddress) revert OnlyForwarder();
+    }
+
+    function _approveLPExact(IERC20 token, uint256 amount) internal {
+        if (amount == 0) return;
+        token.forceApprove(address(doppiLP), amount);
     }
 }

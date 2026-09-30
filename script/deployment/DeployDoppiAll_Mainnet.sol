@@ -9,6 +9,7 @@ import {IBlackScholes} from "../../src/Interface/IBlackScholes.sol";
 import {DoppiTraderFactory} from "../../src/mainnet/DoppiTraderFactory.sol";
 import {DoppiTrader} from "../../src/mainnet/DoppiTrader.sol";
 import {DoppiCore} from "../../src/mainnet/DoppiCore.sol";
+import {DoppiCorePositionLens} from "../../src/mainnet/DoppiCorePositionLens.sol";
 import {DoppiLiquidity} from "../../src/mainnet/DoppiLiquidity.sol";
 import {DoppiLiquidityRouter} from "../../src/mainnet/DoppiLiquidityRouter.sol";
 import {BlackScholes} from "../../src/mainnet/BlackScholes.sol";
@@ -17,10 +18,8 @@ import {DoppiPoints} from "../../src/mainnet/DoppiPoints.sol";
 import {DoppiClaim} from "../../src/mainnet/DoppiClaim.sol";
 import {DOPPI} from "../../src/test/Doppi.sol";
 import {DoppiOpportunity} from "../../src/mainnet/DoppiOpportunity.sol";
-// import {DoppiUpkeepManager} from "../../src/mainnet/DoppiUpkeepManager.sol";
 import {MockRegistryConsumer} from "../../src/test/MockRegistryConsumerLocalhost.sol";
 import {DoppiReferral} from "../../src/mainnet/DoppiReferral.sol";
-import {PrivateDoppiTraderFactory} from "../../src/mainnet/private/PrivateDoppiTraderFactory.sol";
 import {PrivateDoppiGridTraderFactory} from "../../src/mainnet/private/PrivateDoppiGridTraderFactory.sol";
 import {PrivateDoppiSimpleTraderFactory} from "../../src/mainnet/private/PrivateDoppiSimpleTraderFactory.sol";
 import {PrivateAutomationHub} from "../../src/mainnet/private/PrivateAutomationHub.sol";
@@ -64,6 +63,7 @@ contract DeployDoppiAllMainnet is Script {
         DoppiPoints doppiPoints = _deployDoppiPoints();
         DoppiLiquidity doppiLP = _deployDoppiLiquidity();
         DoppiCore doppiCore = _deployDoppiCore(doppiLP, impliedVol, doppiPoints);
+        DoppiCorePositionLens positionLens = new DoppiCorePositionLens(address(doppiCore));
         DoppiOpportunity doppiOpportunity = _deployDoppiOpportunity(address(doppiCore), address(doppiLP));
         DoppiReferral doppiReferral = _deployDoppiReferral(address(doppiPoints));
     
@@ -117,19 +117,6 @@ contract DeployDoppiAllMainnet is Script {
         doppiLP.setDoppiTraderFactory(address(privateSimpleFactory));
         
 
-        // Deploy private factory
-        PrivateDoppiTraderFactory privateFactory = new PrivateDoppiTraderFactory(
-            IERC20(USDT),
-            IERC20(BTC),
-            address(impliedVol),
-            address(doppiPoints),
-            address(doppiFactory),
-            address(privateTraderImpl),
-            address(privateCoreImpl),
-            address(privateOpportunityImpl)
-        );
-        privateFactory.setLPConfig(configLP);
-
         // Deploy PrivateAutomationHub for private bot job scheduling and billing
         PrivateAutomationHub privateAutomationHub = new PrivateAutomationHub(
             deployer, // owner (deployer EOA)
@@ -146,9 +133,6 @@ contract DeployDoppiAllMainnet is Script {
             privateFeeToSharedLPBps
         );
 
-        doppiFeePool.setCoreAuthorizer(address(privateFactory));
-        privateFactory.setDefaultPrivateTreasury(address(doppiFeePool), privateTreasuryFeeBps);
-
         doppiFeePool.setCoreAuthorizer(address(privateGridFactory));
         privateGridFactory.setDefaultPrivateTreasury(address(doppiFeePool), privateTreasuryFeeBps);
 
@@ -157,7 +141,6 @@ contract DeployDoppiAllMainnet is Script {
 
         // Wire hub to both shared and private factories for auto job registration.
         doppiFactory.setPrivateAutomationHub(address(privateAutomationHub));
-        privateFactory.setPrivateAutomationHub(address(privateAutomationHub));
         privateGridFactory.setPrivateAutomationHub(address(privateAutomationHub));
         privateSimpleFactory.setPrivateAutomationHub(address(privateAutomationHub));
 
@@ -165,10 +148,10 @@ contract DeployDoppiAllMainnet is Script {
         privateAutomationHub.setDoppiPointsContract(address(doppiPoints));
         privateAutomationHub.setDoppiPointsExchangeRate(7); // 100000 point ~= 0.7 USDT unit (basis points)
         privateAutomationHub.setMinCreditThreshold(1 ether);
+        privateAutomationHub.setGlobalLimits(1, 64);
 
         // Register both factories + deployer as registrars in the hub.
         privateAutomationHub.setRegistrar(address(doppiFactory), true);
-        privateAutomationHub.setRegistrar(address(privateFactory), true);
         privateAutomationHub.setRegistrar(address(privateGridFactory), true);
         privateAutomationHub.setRegistrar(address(privateSimpleFactory), true);
         privateAutomationHub.setRegistrar(deployer, true);
@@ -179,7 +162,6 @@ contract DeployDoppiAllMainnet is Script {
         // Authorize PrivateAutomationHub to deduct points for fees in DoppiPoints
         doppiPoints.setAuthorizedPointsDeductor(address(privateAutomationHub), true);
 
-        doppiPoints.setCoreRegistrar(address(privateFactory), true);
         doppiPoints.setCoreRegistrar(address(privateGridFactory), true);
         doppiPoints.setCoreRegistrar(address(privateSimpleFactory), true);
 
@@ -188,8 +170,7 @@ contract DeployDoppiAllMainnet is Script {
 
         doppiLP.setForwarderAddress(forwarder);
 
-        doppiFactory.setDefaultRatioLP(2000); // 20% of capital go to LP
-        privateFactory.setDefaultRatioLP(2000); // 20% of capital go to LP
+        doppiFactory.setDefaultRatioLP(5000); // 50% of capital go to LP
         
 
 
@@ -211,13 +192,13 @@ contract DeployDoppiAllMainnet is Script {
         console.log("DoppiPoints:", address(doppiPoints));
         console.log("DoppiLiquidity:", address(doppiLP));
         console.log("DoppiCore:", address(doppiCore));
+        console.log("DoppiCorePositionLens:", address(positionLens));
         console.log("DoppiOpportunity:", address(doppiOpportunity));
         console.log("DoppiLiquidityRouter:", address(doppiRouter));
         console.log("DoppiTraderFactory:", address(doppiFactory));
         console.log("DoppiReferral:", address(doppiReferral));
         console.log("DoppiClaim:", address(doppiClaim));
         console.log("DoppiToken:", address(doppiToken));
-        console.log("PrivateDoppiFactory:", address(privateFactory));
         console.log("PrivateAutomationHub:", address(privateAutomationHub));
         console.log("DoppiFeePool:", address(doppiFeePool));
         console.log("PrivateGridFactory:", address(privateGridFactory));
@@ -327,7 +308,7 @@ contract DeployDoppiAllMainnet is Script {
 
     function _deployDoppiReferral(address _doppiPoints) internal returns (DoppiReferral) {
         console.log("Deploying DoppiReferral...");
-        DoppiReferral doppiReferral = new DoppiReferral(_doppiPoints, 300, 200, 100); // 3.0%, 2.0%, 1.0%
+        DoppiReferral doppiReferral = new DoppiReferral(_doppiPoints, 1000, 700, 300); // 10.0%, 7.0%, 3.0%
         console.log("DoppiReferral deployed at:", address(doppiReferral));
         doppiReferral.setMinVolumeForL2L3(50_000 ether, 100_000 ether); // for pre launch only
         DoppiPoints(_doppiPoints).setDoppiReferral(address(doppiReferral));
@@ -342,6 +323,7 @@ contract DeployDoppiAllMainnet is Script {
         impliedVol.setTwapDuration(3600);
         impliedVol.setPancakeV3Pool(PCSWAP_V3Pool);
         impliedVol.setMaxOfferAPR(40000); // 400% max APR
+        impliedVol.setAdmin(forwarder, true);
         return impliedVol;
     }
 

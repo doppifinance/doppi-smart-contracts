@@ -108,6 +108,20 @@ contract DoppiPoints is Ownable, Pausable {
         emit PointsReset(trader, readyPoint);
     }
 
+    function resetPointByMonthId(address trader, uint24 monthId) external onlyDoppiClaim {
+        ClaimedPoint storage ref = claimedPoint[trader];
+        uint24 currentMonthId = _currentMonthId();
+
+        require(ref.claimedMonthId + 1 == monthId, "should claimed earlier month");
+        require(currentMonthId > monthId, "still in current month");
+
+        uint256 monthlyPoint = monthlyVolume[monthId][trader];
+        ref.totalPointClaimed += monthlyPoint;
+        ref.claimedMonthId = monthId;
+
+        emit PointsReset(trader, monthlyPoint);
+    }
+
     function getReferralVolumeByMonth(address referrer, uint24 monthId)
         external view returns (uint256 l1, uint256 l2, uint256 l3)
     {
@@ -131,6 +145,12 @@ contract DoppiPoints is Ownable, Pausable {
 
     function getCurrentMonthId() external view returns (uint24) {
         return _currentMonthId();
+    }
+
+    function getUnclaimedMonthId(address trader) external view returns (uint24 start, uint24 current) {
+        ClaimedPoint memory claimed = claimedPoint[trader];
+        current = _currentMonthId();
+        start = claimed.claimedMonthId + 1;
     }
 
     /// @notice Get trader's volume for a specific monthId

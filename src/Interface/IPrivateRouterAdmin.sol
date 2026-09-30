@@ -3,7 +3,6 @@ pragma solidity ^0.8.26;
 
 interface IPrivateRouterAdmin {
     function setDoppiCore(address _doppiCore) external;
-    function setPrivateMode(bool _privateMode) external;
     function setAllowedUser(address user, bool allowed) external;
     function setPause() external;
     function setUnPause() external;

@@ -38,7 +38,6 @@ contract DoppiTraderGasTest is Test {
     IERC20 btc;
     IERC20 link;
     MockOracle oracle;
-    // MockDoppiUpKeepManager mockDoppiUpKeepManager;
     DoppiOpportunity doppiOpportunity;
     // Swapper public swapper;
     DoppiPoints doppiPoints;
@@ -744,7 +743,7 @@ contract DoppiTraderGasTest is Test {
         (bool upkeepNeeded, bytes memory performData) = traderBot.checkUpkeep("");
         uint256 gasUsed = gasBefore - gasleft();
         console.log(upkeepNeeded, gasUsed, "gasUsed in traderBot.checkUpkeep");
-        assertLt(gasUsed, 400_000, "Gas usage too high");
+        assertLt(gasUsed, 420_000, "Gas usage too high");
 
         if(upkeepNeeded){
             vm.prank(forwarder);

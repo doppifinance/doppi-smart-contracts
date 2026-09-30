@@ -38,7 +38,6 @@ contract DoppiLiquidityETHTest is Test {
     IERC20 btc;
     IERC20 link;
     MockOracle oracle;
-    // MockDoppiUpKeepManager mockDoppiUpKeepManager;
     DoppiOpportunity doppiOpportunity;
     // Swapper public swapper;
     DoppiPoints doppiPoints;
@@ -155,7 +154,7 @@ contract DoppiLiquidityETHTest is Test {
         uint256 maxSell = doppiCore.acceptedDeposit(false);
         
         assertEq(maxBuy, 1500 ether - interestLiabilitiesA, "maxBuy should be 1500 USDT - interest after 500 USDT buy position");
-        assertApproxEqAbs(maxSell, ((1500 ether - interestLiabilitiesA) / uint256(newPrice) * 1e8), 0.0000001 ether,  "maxSell should be 1500 USDT - interest equivalent in ETH after 500 USDT buy position"); 
+        assertEq(maxSell, 0, "maxSell should be 0 when LP ETH balance is 0 under balance-based capacity");
         
     }
 

@@ -205,6 +205,47 @@ contract DoppiLiquidityRouterTest is Test {
         vm.stopPrank();
     }
 
+    function test_EmergencyWithdraw_WorksWhenPriceIsZero() public {
+        vm.startPrank(user1);
+
+        uint256 depositAmount = 100 * 10 ** usdt.decimals();
+        usdt.approve(address(router), depositAmount);
+        uint256 shares = router.deposit(address(usdt), depositAmount);
+
+        doppiLP.approve(address(router), shares);
+        vm.stopPrank();
+
+        vm.startPrank(owner);
+        router.setPause();
+        router.setEmergencyMode(true);
+        oracle.setPrice(0);
+        vm.stopPrank();
+
+        uint256 startUsdt = usdt.balanceOf(user1);
+        uint256 startBtc = btc.balanceOf(user1);
+
+        vm.startPrank(user1);
+        router.emergencyWithdraw();
+        vm.stopPrank();
+
+        assertEq(doppiLP.balanceOf(user1), 0);
+        assertTrue(usdt.balanceOf(user1) > startUsdt);
+        assertEq(btc.balanceOf(user1), startBtc);
+    }
+
+    function test_EmergencyWithdraw_RevertsWhenEmergencyDisabled() public {
+        vm.startPrank(user1);
+
+        uint256 depositAmount = 100 * 10 ** usdt.decimals();
+        usdt.approve(address(router), depositAmount);
+        uint256 shares = router.deposit(address(usdt), depositAmount);
+        doppiLP.approve(address(router), shares);
+
+        vm.expectRevert("Not in emergency mode");
+        router.emergencyWithdraw();
+        vm.stopPrank();
+    }
+
     function test_MultipleUsersDeposit() public {
         // User 1 deposits Asset A
         vm.startPrank(user1);

@@ -4,7 +4,6 @@ pragma solidity ^0.8.26;
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IPrivateAutomationHub} from "../src/Interface/IPrivateAutomationHub.sol";
 import {
-    RegisterPrivateBotParams,
     PrivateBotJobIds,
     PrivateAutomationModule,
     PrivateJobConfig,
@@ -37,27 +36,13 @@ contract MockPrivateAutomationHubForSimple is IPrivateAutomationHub {
         creditBalance = _creditBalance;
     }
 
-    function registerPrivateBotJobs(RegisterPrivateBotParams calldata)
-        external
-        pure
-        returns (PrivateBotJobIds memory jobIds)
-    {
-        return jobIds;
-    }
-
     function registerSharedBotJob(address, address, uint32) external returns (uint256 jobId) {
         sharedRegisterCount += 1;
         return sharedRegisterCount;
     }
 
-    function disablePrivateBotJobs(address) external pure {}
-
     function getJobId(address, PrivateAutomationModule) external pure returns (uint256 jobId) {
         return 0;
-    }
-
-    function getJobIdsByBot(address) external pure returns (PrivateBotJobIds memory jobIds) {
-        return jobIds;
     }
 
     function getJob(uint256) external pure returns (PrivateJobView memory job) {
@@ -99,5 +84,9 @@ contract MockPrivateAutomationHubForSimple is IPrivateAutomationHub {
 
     function minCreditThreshold() external view returns (uint256){
         return creditThreshold;
+    }
+
+    function getPointValueInUSDT(uint256 numPoints) external view returns (uint256){
+        return numPoints * 1e18;
     }
 }

@@ -230,6 +230,7 @@ contract DoppiOffer is IDoppiOffer, Ownable {
         returns (DualAssetOffer[] memory selloffers) 
     {
         uint256 price = DALiquidityLib.getPriceWithFallback(chainLinkFeed, pancakeV3Pool, twapDuration, maxDelay);
+        if(price == 0) return new DualAssetOffer[](0);
         uint256 duration = SECONDS_PER_DAY * _numDays;
         uint256 roundedPrice = (price / priceGapWithDecimals) * priceGapWithDecimals;
         uint256 strikePriceZone0 = roundedPrice + priceGapWithDecimals;
@@ -251,6 +252,7 @@ contract DoppiOffer is IDoppiOffer, Ownable {
         returns (DualAssetOffer[] memory buyoffers) 
     {
         uint256 price = DALiquidityLib.getPriceWithFallback(chainLinkFeed, pancakeV3Pool, twapDuration, maxDelay);
+        if(price == 0) return new DualAssetOffer[](0);
         uint256 duration = SECONDS_PER_DAY * _numDays;
         uint256 roundedPrice = (price / priceGapWithDecimals) * priceGapWithDecimals;
         uint256 strikePriceZone0 = roundedPrice;

@@ -28,6 +28,9 @@ contract PrivateDoppiGridTraderFactory is Ownable, IDoppiTraderFactory {
     BotRegistryLib.BotRegistry internal botRegistry;
 
     error NotTraderBot();
+    error InvalidImplementation();
+    error InvalidTreasuryFee();
+    error InvalidProfitFee();
 
     event GridBotDeployed(address indexed trader, address indexed traderBot, uint32 botId);
     event PrivateAutomationHubUpdated(address indexed hub);
@@ -78,6 +81,7 @@ contract PrivateDoppiGridTraderFactory is Ownable, IDoppiTraderFactory {
 
 
     function updateImplementation(address newImplementation) external onlyOwner {
+        if (newImplementation == address(0) || newImplementation.code.length == 0) revert InvalidImplementation();
         traderBotImplementation = newImplementation;
     }
 
@@ -87,6 +91,8 @@ contract PrivateDoppiGridTraderFactory is Ownable, IDoppiTraderFactory {
     }
 
     function setDefaultPrivateTreasury(address _treasury, uint16 _treasuryFee) external onlyOwner {
+        if (_treasuryFee > 3000) revert InvalidTreasuryFee();
+        if (_treasury == address(0) && _treasuryFee != 0) revert InvalidTreasuryFee();
         defaultPrivateTreasury = _treasury;
         defaultPrivateTreasuryFee = _treasuryFee;
         emit DefaultPrivateTreasuryUpdated(_treasury, _treasuryFee);
@@ -94,6 +100,7 @@ contract PrivateDoppiGridTraderFactory is Ownable, IDoppiTraderFactory {
 
 
     function setFeeConfig(address traderBot, address _feePool, uint16 _profitFeeBps) external onlyOwner {
+        if (_profitFeeBps > 3000) revert InvalidProfitFee();
         if (!botRegistry.isBot(traderBot)) revert NotTraderBot();
         DoppiGridTrader(traderBot).setFeeConfig(_feePool, _profitFeeBps);
     }

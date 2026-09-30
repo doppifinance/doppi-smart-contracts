@@ -104,6 +104,17 @@ contract DoppiLiquidityTest is Test {
 
     // ===== BASIC FUNCTIONALITY TESTS =====
 
+    function test_setConfig_acceptsMaxSlippage() public {
+        configLP.slippage = doppiLP.MAX_SLIPPAGE_BPS();
+        doppiLP.setConfig(configLP);
+    }
+
+    function test_setConfig_revertsAboveMaxSlippage() public {
+        configLP.slippage = doppiLP.MAX_SLIPPAGE_BPS() + 1;
+        vm.expectRevert(DoppiLiquidity.SlippageTooHigh.selector);
+        doppiLP.setConfig(configLP);
+    }
+
     function testEqualSharesForEquivalentDeposits() public {
         vm.startPrank(user);
 

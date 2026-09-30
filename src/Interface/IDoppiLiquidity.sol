@@ -20,12 +20,16 @@ interface IDoppiLiquidity {
     function interestGet(
         address _interestToken,
         uint256 interest,
-        uint256 price,
-        bool isBuy
+        uint256 price
     ) external;
     function getPoolCapacityInfo(bool isBuy) external view returns (
         uint256 currentDeposits,
         uint256 maxDepositAmount,
         uint256 availableCapacity
     );
+    function emergencyRedeemShares(
+        address owner,
+        uint256 shares,
+        address receiver
+    ) external returns (uint256 amountA, uint256 amountB);
 }

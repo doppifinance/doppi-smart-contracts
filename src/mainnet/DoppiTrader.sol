@@ -8,6 +8,8 @@ import "./DoppiTraderAdminView.sol";
 
 contract DoppiTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCompatibleInterface, Initializable {
     using SafeERC20 for IERC20;
+
+    uint256 private constant EMERGENCY_SCAN_LIMIT = 100;
     
     event BulkDeposited(address indexed trader, uint256 totalAmount, bool isBuy);
     event UnwindPerformed(address indexed trader, bool isBuy, uint256 amountIn, uint256 amountOut);
@@ -21,6 +23,7 @@ contract DoppiTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCompati
 
 
     constructor() Ownable(msg.sender) {
+        _disableInitializers();
     }
 
     // Remove the constructor and replace with initialize function
@@ -43,15 +46,6 @@ contract DoppiTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCompati
         validTrader = _trader;
         _transferOwnership(msg.sender); 
 
-        // Batch approvals
-        address[] memory tokens = new address[](3);
-        tokens[0] = _doppiCore;
-        tokens[1] = _doppiRouter;
-        tokens[2] = _doppiLP;
-        for (uint256 i = 0; i < tokens.length; i++) {
-            assetA.safeIncreaseAllowance(tokens[i], type(uint256).max);
-            assetB.safeIncreaseAllowance(tokens[i], type(uint256).max);
-        }
         // Initialize with default weights
         _initializeOrderConfigs(_weights);
         impliedVol = doppiCore.doppiOffer();
@@ -118,15 +112,12 @@ contract DoppiTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCompati
         _removeMapping();
     }
 
-    function emergencyWithdraw() external nonReentrant {
+    function emergencyWithdrawLP() external nonReentrant {
         _onlyTrader();
         if (!doppiRouter.isEmergency() || !doppiRouter.paused()) revert NotEmergency();
-        // make sure no active orders
-        uint256 buyPosCount = doppiCore.getBuyPositionCount(address(this));
-        uint256 sellPosCount = doppiCore.getSellPositionCount(address(this));
-        if (buyPosCount > 0 || sellPosCount > 0) revert ActiveOrders();
 
-        IERC20(address(doppiLP)).safeIncreaseAllowance(address(doppiRouter), IERC20(address(doppiLP)).balanceOf(address(this)));
+        uint256 shares = IERC20(address(doppiLP)).balanceOf(address(this));
+        _approveExact(IERC20(address(doppiLP)), address(doppiRouter), shares);
         doppiRouter.emergencyWithdraw();
 
         assetA.safeTransfer(msg.sender, assetA.balanceOf(address(this)));
@@ -141,8 +132,17 @@ contract DoppiTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCompati
         _removeMapping();
     }
 
-    
-    
+    function emergencyWithdraw() external nonReentrant {
+        _onlyTrader();
+        if (!doppiCore.emergencyMode() || !doppiCore.paused()) revert NotEmergency();
+
+        if (
+            doppiCore.getBuyPositionCount(address(this)) > 0 ||
+            doppiCore.getSellPositionCount(address(this)) > 0
+        ) {
+            doppiCore.emergencyWithdrawCoreOnly(EMERGENCY_SCAN_LIMIT, address(this));
+        }
+    }
 
     function createUnwindPosition(uint256 _payout, uint256 _strikePrice, bool _isBuyUndo) external nonReentrant {
         
@@ -177,7 +177,7 @@ contract DoppiTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCompati
         (targetPricesSell, totalSellAmountInA) =_checkUndoTrade(false, price);
         
         if (totalBuyAmountInB > 0 || totalSellAmountInA > 0) {
-            (bool isNetBuy, uint256 netAmount) = _netoutBuySell(totalSellAmountInA, totalBuyAmountInB, price);
+            (, uint256 netAmount) = _netoutBuySell(totalSellAmountInA, totalBuyAmountInB, price);
             if(netAmount > 0){
                 return (true, abi.encode(true, false, false));
             }
@@ -207,6 +207,7 @@ contract DoppiTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCompati
             if (totalBuyAmountInB > 0 || totalSellAmountInA > 0) {
                 (bool isNetBuy, uint256 netAmount) = _netoutBuySell(totalSellAmountInA, totalBuyAmountInB, currentPrice);
                 if(netAmount > 0){
+                    _approveExact(isNetBuy ? assetA : assetB, address(doppiLP), netAmount);
                     uint256 amountOut = doppiLP.swap(netAmount, currentPrice, isNetBuy);
                     _clearUnwindMap(targetPricesBuy, true, totalBuyAmountInB);
                     _clearUnwindMap(targetPricesSell, false, totalSellAmountInA);  
@@ -264,8 +265,9 @@ contract DoppiTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCompati
         if (buyPosCount > 0 && sellPosCount > 0) return (false, false);
         if (availableA == 0 && availableB == 0) return (false, false);
 
-        DualAssetOffer memory offerBuy = impliedVol.getSingleOffer(true, traderDefaultDay, 0, price);
-        DualAssetOffer memory offerSell = impliedVol.getSingleOffer(false, traderDefaultDay, 0, price);
+        uint8 last = uint8(maxOrder) - 1;
+        DualAssetOffer memory offerBuy = impliedVol.getSingleOffer(true, traderDefaultDay, last, price);
+        DualAssetOffer memory offerSell = impliedVol.getSingleOffer(false, traderDefaultDay, last, price);
         if(offerBuy.apr == 0 && offerSell.apr == 0) return (false, false);
 
         bool hasValidBuyOrder = false;
@@ -393,6 +395,8 @@ contract DoppiTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCompati
     }
 
     function _placeOrders(bool isBuy, BulkDepositParam[] memory params, uint256 available) internal returns (bool) {
+        uint256 totalAmount = _sumBulkAmounts(params);
+        _approveExact(isBuy ? assetA : assetB, address(doppiCore), totalAmount);
         doppiCore.bulkDeposit(isBuy, params, available);
         emit BulkDeposited(msg.sender, available, isBuy);
         return true;
@@ -400,6 +404,7 @@ contract DoppiTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCompati
 
     function _place_oneside(bool isBuy) internal {
         (BulkDepositParam[] memory params, uint256 available) = _prepareOrders(isBuy);
+        if (params.length == 0) return;
         _placeOrders(isBuy, params, available);
     }
     
@@ -488,12 +493,26 @@ contract DoppiTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCompati
     }
 
     function _deposit(address _token, uint256 _amount) internal returns (uint256 shares) {
+        _approveExact(IERC20(_token), address(doppiRouter), _amount);
         return doppiRouter.deposit(_token, _amount);
     }
 
     function _withdrawFromLP(uint256 _shares) internal {
-        IERC20(address(doppiLP)).safeIncreaseAllowance(address(doppiRouter), _shares);
+        _approveExact(IERC20(address(doppiLP)), address(doppiRouter), _shares);
         doppiRouter.redeem(_shares);
+    }
+
+    function _sumBulkAmounts(BulkDepositParam[] memory params) internal pure returns (uint256 totalAmount) {
+        uint256 length = params.length;
+        for (uint256 i = 0; i < length; ) {
+            totalAmount += params[i].amount;
+            unchecked { ++i; }
+        }
+    }
+
+    function _approveExact(IERC20 token, address spender, uint256 amount) internal {
+        if (amount == 0) return;
+        token.forceApprove(spender, amount);
     }
     
     function _onlyDoppiCore() internal view {
@@ -504,7 +523,7 @@ contract DoppiTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCompati
         if (msg.sender != s_forwarderAddress) revert OnlyForwarder();
     }
 
-    function _getFeePool() internal view override returns (address) {
+    function _getFeePool() internal pure override returns (address) {
         return address(0);
     }
 }

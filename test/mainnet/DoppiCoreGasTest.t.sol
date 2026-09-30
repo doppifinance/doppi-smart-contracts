@@ -9,6 +9,7 @@ import {IBlackScholes} from "../../src/Interface/IBlackScholes.sol";
 import {DoppiTraderFactory} from "../../src/mainnet/DoppiTraderFactory.sol";
 import {DoppiTrader} from "../../src/mainnet/DoppiTrader.sol";
 import {DoppiCore} from "../../src/mainnet/DoppiCore.sol";
+import {DoppiCorePositionLens} from "../../src/mainnet/DoppiCorePositionLens.sol";
 import {IDoppiOpportunity} from "../../src/Interface/IDoppiOpportunity.sol";
 import {DoppiLiquidity} from "../../src/mainnet/DoppiLiquidity.sol";
 import {DoppiLiquidityRouter} from "../../src/mainnet/DoppiLiquidityRouter.sol";
@@ -31,6 +32,7 @@ contract DoppiCoreGasTest is Test {
     DoppiTraderFactory doppiFactory;
     // DoppiTrader doppiTrader;
     DoppiCore doppiCore;
+    DoppiCorePositionLens positionLens;
     DoppiLiquidity doppiLP;
     DoppiLiquidityRouter doppiRouter;
     BlackScholes blackScholes;
@@ -39,7 +41,6 @@ contract DoppiCoreGasTest is Test {
     IERC20 btc;
     IERC20 link;
     MockOracle oracle;
-    // MockDoppiUpKeepManager mockDoppiUpKeepManager;
     DoppiOpportunity doppiOpportunity;
     // Swapper public swapper;
     DoppiPoints doppiPoints;
@@ -95,6 +96,7 @@ contract DoppiCoreGasTest is Test {
         doppiPoints = _deployDoppiPoints();
         doppiLP = _deployDoppiLiquidity();
         doppiCore = _deployDoppiCore(doppiLP, impliedVol, doppiPoints);
+        positionLens = new DoppiCorePositionLens(address(doppiCore));
         doppiOpportunity = _deployDoppiOpportunity(address(doppiCore), address(doppiLP));
         doppiReferral = _deployDoppiReferral(address(doppiPoints));
     
@@ -170,8 +172,8 @@ contract DoppiCoreGasTest is Test {
 
         console.log(max, min, "max, min");
 
-        // console.log(doppiCore.get_positions_buy(0x00000000000000000000000000000000000004f6).length);
-        assertTrue(doppiCore.get_positions_buy(0x00000000000000000000000000000000000004f6).length > 0);
+        // console.log(positionLens.getPositionsBuy(0x00000000000000000000000000000000000004f6).length);
+        assertTrue(positionLens.getPositionsBuy(0x00000000000000000000000000000000000004f6).length > 0);
         
         int256 newPrice = int256(9152000000000);
         _manipulateRealChainlink(newPrice, address(oracle));
@@ -193,7 +195,7 @@ contract DoppiCoreGasTest is Test {
         _doppiCoreCheckUpkeep_performUpkeep();
         _doppiCoreCheckUpkeep_performUpkeep();
 
-        uint256 pos1day = doppiCore.getPositionLength(1);
+        uint256 pos1day = doppiCore.nextPositionId(1) - doppiCore.nextProcessId(1);
         console.log("pos1day", pos1day);
         assertEq(pos1day, 0);
         // doppiCore.display();
@@ -440,8 +442,8 @@ contract DoppiCoreGasTest is Test {
         }
         console.log(min, max, "min and max strike price");
         console.log(total1day, total3day, "total1day and total3day");   
-        uint256 pos1day = doppiCore.getPositionLength(1);
-        uint256 pos3day = doppiCore.getPositionLength(3);
+        uint256 pos1day = doppiCore.nextPositionId(1) - doppiCore.nextProcessId(1);
+        uint256 pos3day = doppiCore.nextPositionId(3) - doppiCore.nextProcessId(3);
         // console.log(pos1day, "pos1day");
         // console.log(pos3day, "pos3day");
         assertEq(pos1day, 100); 
@@ -491,8 +493,8 @@ contract DoppiCoreGasTest is Test {
         endPosId2 = doppiCore.getReadyAllPositions(3);
         assertEq(endPosId, 0);    // all positions settled
         assertEq(endPosId2, 0); // all positions settled
-        pos1day = doppiCore.getPositionLength(1);
-        pos3day = doppiCore.getPositionLength(3);
+        pos1day = doppiCore.nextPositionId(1) - doppiCore.nextProcessId(1);
+        pos3day = doppiCore.nextPositionId(3) - doppiCore.nextProcessId(3);
         
         assertEq(pos1day, 0); 
         assertEq(pos3day, 0); 
@@ -599,7 +601,7 @@ contract DoppiCoreGasTest is Test {
         assertEq(upperBound, 10200000000000);
 
         // total 10 orders
-        uint64 totalOrders = doppiCore.getPositionLength(1);
+        uint64 totalOrders = doppiCore.nextPositionId(1) - doppiCore.nextProcessId(1);
         assertEq(totalOrders, 10);
         uint64 endPosId = doppiCore.getReadyAllPositions(1);
         assertEq(endPosId, 0);
@@ -617,7 +619,7 @@ contract DoppiCoreGasTest is Test {
 
         _doppiCoreCheckUpkeep_performUpkeep();
 
-        totalOrders = doppiCore.getPositionLength(1);
+        totalOrders = doppiCore.nextPositionId(1) - doppiCore.nextProcessId(1);
         assertEq(totalOrders, 0);
         assertEq(doppiCore.nextPositionId(1), doppiCore.nextProcessId(1));
 

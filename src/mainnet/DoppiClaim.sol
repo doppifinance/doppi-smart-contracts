@@ -33,6 +33,7 @@ interface IDoppiReferral {
             uint256 currentL2,
             uint256 currentL3
         );
+    function resetClaimsByMonthId(address user, uint24 monthId) external;
     function resetClaims(address user) external;
 }
 
@@ -89,6 +90,41 @@ contract DoppiClaim is Ownable, Pausable, ReentrancyGuard {
         emit Claimed(user, readyPoint, 0, 0, 0, mintAmount);
     }
 
+    /// @notice Claim trading points for specific completed months in sequence.
+    /// @dev Uses bounded month batches to avoid large unbounded loops in one transaction.
+    ///      Disabled when fee-deducted points exist, since deductions are tracked globally, not per month.
+    function claimTradingPointByMonthIds(uint24[] calldata monthIds) external whenNotPaused nonReentrant {
+        address user = msg.sender;
+        require(monthIds.length > 0, "empty month ids");
+        require(doppiPoints.pointsUsedForFees(user) == 0, "fee deductions exist");
+
+        (uint24 expectedMonthId, uint24 currentMonthId) = doppiPoints.getUnclaimedMonthId(user);
+
+        uint256 totalPoints;
+        uint256 mintAmount;
+
+        for (uint256 i = 0; i < monthIds.length; i++) {
+            uint24 monthId = monthIds[i];
+            require(monthId == expectedMonthId, "month sequence mismatch");
+            require(monthId < currentMonthId, "current month not claimable");
+
+            uint256 monthlyPoint = doppiPoints.getMonthlyVolume(user, monthId);
+            if (monthlyPoint > 0) {
+                totalPoints += monthlyPoint;
+                mintAmount += (monthlyPoint * _rateForMonth(monthId)) / BASIS_POINTS;
+            }
+
+            doppiPoints.resetPointByMonthId(user, monthId);
+            expectedMonthId = monthId + 1;
+        }
+
+        require(totalPoints > 0, "no points to claim");
+        require(mintAmount > 0, "mint amount too small");
+
+        doppiToken.mint(user, mintAmount);
+        emit Claimed(user, totalPoints, 0, 0, 0, mintAmount);
+    }
+
     function claimReferralPoint() external whenNotPaused nonReentrant {
         address user = msg.sender;
 
@@ -100,6 +136,47 @@ contract DoppiClaim is Ownable, Pausable, ReentrancyGuard {
         doppiToken.mint(user, mintAmount);
 
         emit Claimed(user, 0, l1, l2, l3, mintAmount);
+    }
+
+    /// @notice Claim referral points for specific completed months in sequence.
+    /// @dev This allows bounded gas usage by splitting claims across multiple transactions.
+    function claimReferralPointByMonthIds(uint24[] calldata monthIds) external whenNotPaused nonReentrant {
+        address user = msg.sender;
+        require(monthIds.length > 0, "empty month ids");
+
+        (uint24 expectedMonthId, uint24 currentMonthId) = doppiReferral.getUnclaimedMonthId(user);
+
+        uint256 l1Total;
+        uint256 l2Total;
+        uint256 l3Total;
+        uint256 totalPoints;
+        uint256 mintAmount;
+
+        for (uint256 i = 0; i < monthIds.length; i++) {
+            uint24 monthId = monthIds[i];
+            require(monthId == expectedMonthId, "month sequence mismatch");
+            require(monthId < currentMonthId, "current month not claimable");
+
+            (uint256 l1, uint256 l2, uint256 l3) = doppiReferral.getReferralRewardsByMonthId(user, monthId);
+            uint256 monthlyPoint = l1 + l2 + l3;
+
+            if (monthlyPoint > 0) {
+                l1Total += l1;
+                l2Total += l2;
+                l3Total += l3;
+                totalPoints += monthlyPoint;
+                mintAmount += (monthlyPoint * _rateForMonth(monthId)) / BASIS_POINTS;
+            }
+
+            doppiReferral.resetClaimsByMonthId(user, monthId);
+            expectedMonthId = monthId + 1;
+        }
+
+        require(totalPoints > 0, "no points to claim");
+        require(mintAmount > 0, "mint amount too small");
+
+        doppiToken.mint(user, mintAmount);
+        emit Claimed(user, 0, l1Total, l2Total, l3Total, mintAmount);
     }
 
     function getMyReferralPointToToken(address _user) external view returns (uint256) {

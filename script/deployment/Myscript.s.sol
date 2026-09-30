@@ -36,7 +36,7 @@ contract MyScript is Script {
 
     function run() external {
         
-        uint256 deployerPrivateKey = vm.envUint("PRIVATE_KEY_MAINNET");
+        uint256 deployerPrivateKey = vm.envUint("PRIVATE_KEY");
         
         // Start broadcasting transactions
         vm.startBroadcast(deployerPrivateKey);
@@ -197,8 +197,8 @@ contract MyScript is Script {
         console.log(doppiCore.minOrderA(), "Min Order A");
         console.log(doppiCore.minOrderB(), "Min Order B");
 
-        uint64 length = doppiCore.getPositionLength(1);
         uint64 nextId = doppiCore.nextProcessId(1);
+        uint64 length = doppiCore.nextPositionId(1) - nextId;
         uint64 end = nextId + length;
         console.log("length:", length);
 

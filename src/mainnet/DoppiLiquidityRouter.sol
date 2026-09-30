@@ -21,14 +21,12 @@ contract DoppiLiquidityRouter is Ownable, Pausable, ReentrancyGuard {
     address public immutable assetA;
     address public immutable assetB;
     bool public emergencyMode;
-    bool public privateMode;
-    mapping(address => bool) public allowedUsers;
+
+    error CoreLiabilitiesOutstanding();
     
     event Deposited(address indexed user, uint256 amount, address asset, uint256 shares);
     event Redeemed(address indexed user, uint256 shares, uint256 assetsA, uint256 assetsB);
     event EmergencyWithdraw(address indexed user, uint256 shares, uint256 assetsA, uint256 assetsB);
-    event PrivateModeUpdated(bool enabled);
-    event AllowedUserUpdated(address indexed user, bool allowed);
     
     constructor(IERC20 _assetA, IERC20 _assetB, IDoppiLiquidity _doppiLP) Ownable(msg.sender) {
         doppiLP = _doppiLP;
@@ -39,7 +37,6 @@ contract DoppiLiquidityRouter is Ownable, Pausable, ReentrancyGuard {
     }
 
     function deposit(address _asset, uint256 _amount) external nonReentrant whenNotPaused returns (uint256 shares) {
-        _onlyAllowedUser();
         IERC20(_asset).safeTransferFrom(msg.sender, address(this), _amount);
 
         if (_asset == assetA) {
@@ -55,7 +52,6 @@ contract DoppiLiquidityRouter is Ownable, Pausable, ReentrancyGuard {
     }
 
     function redeem(uint256 _shares) external nonReentrant whenNotPaused returns (uint256 assetsA, uint256 assetsB) {
-        _onlyAllowedUser();
         
         uint256 maxWithdrawable = _getWithdrawableAmount(msg.sender);
         require(_shares <= maxWithdrawable, "exceeds available capacity");
@@ -66,20 +62,18 @@ contract DoppiLiquidityRouter is Ownable, Pausable, ReentrancyGuard {
     /// @notice Emergency withdraw function for users to redeem their shares without restrictions during emergency mode. Only callable when the contract is paused and in emergency mode.
     /// @dev This function allows users to redeem their shares for the underlying assets without any checks on available capacity or liabilities. It must ensure DoppiCore has settled all positions before allowing withdrawals to prevent insolvency. The function should be protected against reentrancy and can only be called when the contract is paused and in emergency mode.
     function emergencyWithdraw() external whenEmergency whenPaused nonReentrant {
-        _onlyAllowedUser();
+        
+        if (!_isCoreEmergency()) {
+            if (_getCurrentDeposits(true) != 0 || _getCurrentDeposits(false) != 0) {
+                revert CoreLiabilitiesOutstanding();
+            }
+        }
+        
         uint256 userShares = IERC20(address(doppiLP)).balanceOf(msg.sender);
         require(userShares > 0, "No shares to withdraw");   
-        require(_isPending() == false, "Pending orders exist"); // Ensure no pending orders in DoppiCore   
 
         IERC20(address(doppiLP)).safeTransferFrom(msg.sender, address(this), userShares);
-        (uint256 ratioA, uint256 ratioB) = doppiLP.assetRatio();
-        uint256 totalRatio = ratioA + ratioB;
-        require(totalRatio > 0, "Pool empty or price unavailable");
-        uint256 firstHalf = userShares * ratioA / totalRatio;
-        uint256 secondHalf = userShares - firstHalf;        
-        uint256 assetsA = entryPointA.redeem(firstHalf, msg.sender, address(this));
-        uint256 assetsB = entryPointB.redeem(secondHalf, msg.sender, address(this));
-        doppiLP.cleanUpUnwind(assetsA, assetsB);
+        (uint256 assetsA, uint256 assetsB) = doppiLP.emergencyRedeemShares(address(this), userShares, msg.sender);
 
         emit EmergencyWithdraw(msg.sender, userShares, assetsA, assetsB);
     }
@@ -94,17 +88,6 @@ contract DoppiLiquidityRouter is Ownable, Pausable, ReentrancyGuard {
 
     function setEmergencyMode(bool _emergency) external whenPaused onlyOwner {
         emergencyMode = _emergency;
-    }
-
-    function setPrivateMode(bool _privateMode) external onlyOwner {
-        privateMode = _privateMode;
-        emit PrivateModeUpdated(_privateMode);
-    }
-
-    function setAllowedUser(address user, bool allowed) external onlyOwner {
-        require(user != address(0), "zero user");
-        allowedUsers[user] = allowed;
-        emit AllowedUserUpdated(user, allowed);
     }
 
     function setPause() external onlyOwner {
@@ -154,20 +137,6 @@ contract DoppiLiquidityRouter is Ownable, Pausable, ReentrancyGuard {
         _;
     }
 
-    function _onlyAllowedUser() internal view {
-        if (privateMode) {
-            require(allowedUsers[msg.sender], "Not allowed user");
-        }
-    }
-
-    // internal
-
-    function _isPending() internal view returns (bool) {
-        uint256 totalBuy = _getCurrentDeposits(true);
-        uint256 totalSell = _getCurrentDeposits(false);
-        return totalBuy > 0 || totalSell > 0;
-    }
-
     function _getTotalInterestLiabilities() internal view returns (uint256 liabilityA, uint256 liabilityB) {
         
         require(doppiCore != address(0), "doppiCore not set");
@@ -182,6 +151,14 @@ contract DoppiLiquidityRouter is Ownable, Pausable, ReentrancyGuard {
         (bool success, bytes memory data) = address(doppiCore).staticcall(callData);
         require(success && data.length == 32, "liabilities call failed");
         total = abi.decode(data, (uint256));
+    }
+
+    function _isCoreEmergency() internal view returns (bool coreEmergency) {
+
+        bytes memory callData = abi.encodeWithSelector(bytes4(keccak256("emergencyMode()")));
+        (bool success, bytes memory data) = address(doppiCore).staticcall(callData);
+        require(success && data.length == 32, "emergencyMode call failed");
+        coreEmergency = abi.decode(data, (bool));
     }
 
     function _redeem(uint256 _shares) internal returns (uint256 assetsA, uint256 assetsB) {

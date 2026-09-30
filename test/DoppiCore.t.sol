@@ -3,6 +3,7 @@ pragma solidity ^0.8.26;
 
 import "forge-std/Test.sol";
 import {DoppiCore} from "../src/mainnet/DoppiCore.sol";
+import {DoppiCorePositionLens} from "../src/mainnet/DoppiCorePositionLens.sol";
 import {DoppiLiquidity} from "../src/mainnet/DoppiLiquidity.sol";
 import {DoppiLiquidityRouter} from "../src/mainnet/DoppiLiquidityRouter.sol";
 import {DoppiTraderFactory} from "../src/mainnet/DoppiTraderFactory.sol";
@@ -37,6 +38,7 @@ contract BlockedReceiverToken is MockToken {
 
 contract DoppiCoreTest is Test {
     DoppiCore doppiCore;
+    DoppiCorePositionLens positionLens;
     DoppiLiquidity doppiLP;
     DoppiLiquidityRouter doppiRouter;
     DoppiTraderFactory traderFactory;
@@ -96,6 +98,7 @@ contract DoppiCoreTest is Test {
         doppiLP.approveRouter();
                 
         doppiCore = new DoppiCore(address(usdt), address(btc), doppiLP, impliedVol, address(doppiPoints));
+        positionLens = new DoppiCorePositionLens(address(doppiCore));
         doppiPoints.setDoppiCore(address(doppiCore), true);
 
         doppiLP.setDoppiCore(address(doppiCore));
@@ -454,8 +457,8 @@ contract DoppiCoreTest is Test {
     function test_get_positions() public {
         // Initially no positions
 
-        DualAssetPosition[] memory buyPositions = doppiCore.get_positions_buy(user1);
-        DualAssetPosition[] memory sellPositions = doppiCore.get_positions_sell(user1);
+        DualAssetPosition[] memory buyPositions = positionLens.getPositionsBuy(user1);
+        DualAssetPosition[] memory sellPositions = positionLens.getPositionsSell(user1);
         assertEq(buyPositions.length, 0);
         assertEq(sellPositions.length, 0);
 
@@ -464,8 +467,8 @@ contract DoppiCoreTest is Test {
         _depositBTC();
 
         // Check positions
-        buyPositions = doppiCore.get_positions_buy(user1);
-        sellPositions = doppiCore.get_positions_sell(user1);
+        buyPositions = positionLens.getPositionsBuy(user1);
+        sellPositions = positionLens.getPositionsSell(user1);
         assertEq(buyPositions.length, 1);
         assertEq(sellPositions.length, 1);
 
@@ -508,17 +511,17 @@ contract DoppiCoreTest is Test {
         );
         vm.stopPrank();
 
-        DualAssetPosition[] memory positions = doppiCore.get_positions_buy(user1);
-        DualAssetPosition[] memory positions2= doppiCore.get_positions_buy(user2);
+        DualAssetPosition[] memory positions = positionLens.getPositionsBuy(user1);
+        DualAssetPosition[] memory positions2= positionLens.getPositionsBuy(user2);
         // assertEq(positions.length, 2);
         assertEq(positions[0].owner, user1);
         assertEq(positions2[0].owner, user2);
         assertEq(positions[0].amount, 50_000 ether);
         assertEq(positions2[0].amount, 75_000 ether);
 
-        positions = doppiCore.get_positions_buy(user1);
+        positions = positionLens.getPositionsBuy(user1);
         assertEq(positions.length, 1);
-        positions = doppiCore.get_positions_buy(user2);
+        positions = positionLens.getPositionsBuy(user2);
         assertEq(positions.length, 1);
     }
 
@@ -739,6 +742,89 @@ contract DoppiCoreTest is Test {
         assertEq(pending.pendingInterest, 0);
         assertTrue(pending.claimed);
         assertGt(usdt.balanceOf(user1), userBalanceBeforeClaim);
+    }
+
+    function test_claimPendingSettlement_duringEmergency_coreBalanceSufficient() public {
+        BlockedReceiverToken(address(usdt)).setBlocked(user1);
+
+        DualAssetOffer memory buyOffer = impliedVol.getOffer(true, 1, 1);
+        DepositParams memory params = DepositParams({
+            amount: 50_000 ether,
+            strikeZone: 1,
+            strikePrice: buyOffer.strikePrice,
+            numDays: 1,
+            apr: buyOffer.apr,
+            expiry: buyOffer.expiry
+        });
+
+        vm.startPrank(user1);
+        usdt.approve(address(doppiCore), params.amount);
+        doppiCore.deposit_buy(params);
+        vm.stopPrank();
+
+        vm.warp(block.timestamp + 1 days + 1);
+        oracle.setPrice(int256(INITIAL_PRICE));
+
+        _updateIV();
+        // Deposit a second, later-expiring position so totalBuyDeposits stays
+        // non-zero after settleOrders, letting the emergency snapshot lock succeed.
+        DualAssetOffer memory buyOffer2 = impliedVol.getOffer(true, 1, 1);
+        DepositParams memory params2 = DepositParams({
+            amount: 50_000 ether,
+            strikeZone: 1,
+            strikePrice: buyOffer2.strikePrice,
+            numDays: 1,
+            apr: buyOffer2.apr,
+            expiry: buyOffer2.expiry
+        });
+        vm.startPrank(user2);
+        usdt.approve(address(doppiCore), params2.amount);
+        doppiCore.deposit_buy(params2);
+        vm.stopPrank();
+
+        vm.prank(owner);
+        doppiCore.settleOrders(1);
+
+        uint256[] memory pendingIds = doppiCore.getPendingSettlementIds(user1);
+        assertEq(pendingIds.length, 1);
+
+        PendingSettlement memory pending = doppiCore.getPendingSettlement(pendingIds[0]);
+        assertFalse(pending.claimed);
+        assertGt(pending.pendingPayout, 0);
+        assertGt(pending.pendingInterest, 0);
+        assertEq(pending.payoutToken, address(usdt));
+        assertEq(pending.interestToken, address(usdt));
+        assertEq(doppiCore.totalPendingLiabilityA(), pending.pendingPayout + pending.pendingInterest);
+
+        vm.startPrank(owner);
+        doppiCore.setPause();
+        doppiCore.setEmergencyMode(true);
+        vm.stopPrank();
+
+        assertTrue(doppiCore.emergencyMode());
+        assertTrue(doppiCore.paused());
+
+        // Funds owed to user1 must still sit in DoppiCore while emergency mode is active.
+        uint256 coreBalanceBeforeClaim = usdt.balanceOf(address(doppiCore));
+        assertGe(coreBalanceBeforeClaim, pending.pendingPayout + pending.pendingInterest);
+
+        BlockedReceiverToken(address(usdt)).setBlocked(address(0));
+        uint256 userBalanceBeforeClaim = usdt.balanceOf(user1);
+
+        vm.prank(user1);
+        doppiCore.claimPendingSettlement(pendingIds[0]);
+
+        PendingSettlement memory claimed = doppiCore.getPendingSettlement(pendingIds[0]);
+        assertEq(claimed.pendingPayout, 0);
+        assertEq(claimed.pendingInterest, 0);
+        assertTrue(claimed.claimed);
+        assertEq(doppiCore.totalPendingLiabilityA(), 0);
+
+        // Interest leg is transferred net of the treasury fee; payout leg is transferred in full.
+        uint256 interestFee = pending.pendingInterest * doppiCore.treasury_fee() / 10000;
+        uint256 expectedUserGain = pending.pendingPayout + (pending.pendingInterest - interestFee);
+        assertEq(usdt.balanceOf(user1), userBalanceBeforeClaim + expectedUserGain);
+        assertEq(usdt.balanceOf(address(doppiCore)), coreBalanceBeforeClaim - pending.pendingPayout - pending.pendingInterest);
     }
 
     function _depositBTC() internal returns (DualAssetOffer memory) {

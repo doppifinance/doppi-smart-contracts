@@ -9,6 +9,17 @@ abstract contract DoppiCoreAdmin is Ownable, Pausable {
     error TreasuryFeeTooHigh();
     error AprToleranceTooHigh();
     error ZeroForwarder();
+
+    struct EmergencySnapshot {
+        uint256 assetA;
+        uint256 assetB;
+        uint256 totalBuy;
+        uint256 totalSell;
+        uint256 totalWeightA;
+        uint96 priceE8;
+        uint64 blockNumber;
+        bool locked;
+    }
     
     uint256 public priceDecimal;
     uint24 public treasury_fee; 
@@ -21,6 +32,9 @@ abstract contract DoppiCoreAdmin is Ownable, Pausable {
     mapping(address => bool) public opportunityBots;
     uint16 public aprToleranceBP = 0; 
     uint256 public maxSwap = 20000 ether;
+    address public emergencyV3Pool;
+    uint32 public emergencyTwapDuration = 1800;
+    EmergencySnapshot public emergencySnapshot;
     
     IDoppiTraderFactory public doppiTraderFactory;
     
@@ -61,8 +75,13 @@ abstract contract DoppiCoreAdmin is Ownable, Pausable {
         opportunityBots[_opportunityBot] = _status;
     }
 
-    function setEmergencyMode(bool _emergency) external onlyOwner whenPaused {
+    function setEmergencyMode(bool _emergency) public virtual onlyOwner whenPaused {
         emergencyMode = _emergency;
+    }
+
+    function setEmergencyPriceSource(address _v3Pool, uint32 _twapDuration) external onlyOwner {
+        emergencyV3Pool = _v3Pool;
+        emergencyTwapDuration = _twapDuration;
     }
 
     function setForwarderAddress(address forwarderAddress) external onlyOwner {

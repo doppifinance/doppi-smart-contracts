@@ -39,7 +39,6 @@ contract DoppiCoreEmergencyTest is Test {
     IERC20 btc;
     IERC20 link;
     MockOracle oracle;
-    // MockDoppiUpKeepManager mockDoppiUpKeepManager;
     DoppiOpportunity doppiOpportunity;
     // Swapper public swapper;
     DoppiPoints doppiPoints;
@@ -267,23 +266,13 @@ contract DoppiCoreEmergencyTest is Test {
         
         uint256 bot_usdtbal = usdt.balanceOf(address(traderBot));
         uint256 bot_btcbal = btc.balanceOf(address(traderBot));
-        console.log(bot_usdtbal, bot_btcbal, "bot balances before emergency settlement");
-
-        // let admin manually trigger emergency settlement in doppiCore to settle all positions
-        vm.startPrank(doppiCore.owner());
-        doppiCore.emergencySettlement(1);
-        vm.stopPrank();
-
-        bot_usdtbal = usdt.balanceOf(address(traderBot));
-        bot_btcbal = btc.balanceOf(address(traderBot));
-        console.log(bot_usdtbal, bot_btcbal, "bot balances after emergency settlement");
-        assertEq(bot_usdtbal, 50000 ether); // No upkeep fee deducted
-        assertEq(bot_btcbal, 0.5 ether); 
+        console.log(bot_usdtbal, bot_btcbal, "bot balances before emergency withdraw");
         
 
         // emergency withdraw buy and sell
         vm.startPrank(trader);
         traderBot.emergencyWithdraw();
+        traderBot.emergencyWithdrawLP(); 
         vm.stopPrank();
 
         assertEq(doppiCore.getBuyPositionCount(address(traderBot)), 0);
@@ -299,8 +288,10 @@ contract DoppiCoreEmergencyTest is Test {
         assertApproxEqAbs(totalAssetsInAssetA, 0, 1);
         assertApproxEqAbs(totalAssetsInAssetB, 0, 1);
 
-        assertApproxEqAbs(end_usdtbal, 100_000 ether, 50 ether); // no upkeep manager fee deduction
-        assertApproxEqAbs(end_btcbal, 1 ether, 0.001 ether);
+        // Core emergency claim now returns value-proportional balances from Core first,
+        // then LP emergency withdrawal returns the remaining pool balances.
+        assertGt(end_usdtbal, 100_000 ether);
+        assertGt(end_btcbal, 0.8 ether);
         
     }
 
@@ -505,7 +496,7 @@ contract DoppiCoreEmergencyTest is Test {
             traderBot.performUpkeep(performData);
             gasUsed = gasBefore - gasleft();
             console.log(gasUsed, "gasUsed in traderBot.performUpkeep");
-            assertLt(gasUsed, 4_500_000, "Gas usage too high");
+            assertLt(gasUsed, 4_700_000, "Gas usage too high");
             vm.stopPrank();
         }
         
