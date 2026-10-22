@@ -52,24 +52,28 @@ contract DoppiPointsTest is Test {
     }
 
     function testMultipleTradesAccumulateCorrectly() public {
-        
+        uint24 firstMonthId = doppiPoints.getCurrentMonthId();
         vm.prank(mockDoppiCore);
         doppiPoints.recordTrade(trader1, 50);
         vm.stopPrank();
-        vm.warp(block.timestamp + 15 days + 1);
+        vm.warp(vm.getBlockTimestamp() + 15 days + 1);
         vm.prank(mockDoppiCore);
         doppiPoints.recordTrade(trader1, 150);
         vm.stopPrank();
         
-        vm.warp(block.timestamp + 15 days + 1);
+        vm.warp(vm.getBlockTimestamp() + 15 days + 1);
         vm.prank(mockDoppiCore);
         doppiPoints.recordTrade(trader2, 150);
         vm.stopPrank();
         
         uint24 currentMonthId = doppiPoints.getCurrentMonthId();
-        uint256 volume = doppiPoints.getMonthlyVolume(trader1, currentMonthId);
+        uint256 volume = doppiPoints.getMonthlyVolume(trader1, firstMonthId);
 
         assertEq(volume, 200, "Total volume should equal 200");
+        assertEq(currentMonthId, firstMonthId + 1, "Thirty days should advance the rolling month");
+        assertEq(doppiPoints.getMonthlyVolume(trader1, currentMonthId), 0, "Previous volume stays in the first month");
+        assertEq(doppiPoints.getMonthlyVolume(trader2, firstMonthId), 0, "Later trade does not affect the first month");
+        assertEq(doppiPoints.getMonthlyVolume(trader2, currentMonthId), 150, "Later trade belongs to the new month");
 
     }
 

@@ -58,16 +58,16 @@ contract EmergencyWithdrawAndSetup is Script {
         vm.stopBroadcast();
     }
 
-    function _executeEmergencySettlement() internal {
+    // function _executeEmergencySettlement() internal {
         
-        if(doppiCore.emergencyMode() && doppiCore.paused()){
-            doppiCore.emergencySettlement(1);
-            console.log("Executed emergency settlement for order 1");
-        } else {
-            console.log("Protocol is not in the correct state for emergency settlement. Exiting.");
-            return;
-        }
-    }
+    //     if(doppiCore.emergencyMode() && doppiCore.paused()){
+    //         doppiCore.emergencySettlement(1);
+    //         console.log("Executed emergency settlement for order 1");
+    //     } else {
+    //         console.log("Protocol is not in the correct state for emergency settlement. Exiting.");
+    //         return;
+    //     }
+    // }
 
     function _setPauseProtocol() internal {
         

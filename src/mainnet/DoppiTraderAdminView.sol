@@ -233,6 +233,12 @@ abstract contract DoppiTraderAdminView is Ownable, Pausable {
 
     function _initializeOrderConfigs(uint24[] memory _weights) internal {
         uint256 length = _weights.length;
+        uint256 totalWeight;
+        for (uint256 i = 0; i < length; ) {
+            totalWeight += _weights[i];
+            unchecked { ++i; }
+        }
+        if (totalWeight != 10000) revert MustHundred();
 
         for (uint256 i = length; i > 0; ) {
             unchecked { --i; }
