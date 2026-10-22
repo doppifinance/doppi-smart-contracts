@@ -335,10 +335,10 @@ contract DoppiTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCompati
     }
 
     function _placeBulk() internal {
-        (BulkDepositParam[] memory buyParams, uint256 availableA) = _prepareOrders(true);
-        (BulkDepositParam[] memory sellParams, uint256 availableB) = _prepareOrders(false);
-        if (buyParams.length > 0) _placeOrders(true, buyParams, availableA);
-        if (sellParams.length > 0) _placeOrders(false, sellParams, availableB);
+        (BulkDepositParam[] memory buyParams, ) = _prepareOrders(true);
+        (BulkDepositParam[] memory sellParams, ) = _prepareOrders(false);
+        if (buyParams.length > 0) _placeOrders(true, buyParams);
+        if (sellParams.length > 0) _placeOrders(false, sellParams);
     }
 
     function _prepareOrders(bool isBuy) internal view returns (BulkDepositParam[] memory params, uint256 availableAsset) {
@@ -394,18 +394,18 @@ contract DoppiTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCompati
         param = BulkDepositParam(depositAmount, _orderConfig.strikeZone, traderDefaultDay);
     }
 
-    function _placeOrders(bool isBuy, BulkDepositParam[] memory params, uint256 available) internal returns (bool) {
+    function _placeOrders(bool isBuy, BulkDepositParam[] memory params) internal returns (bool) {
         uint256 totalAmount = _sumBulkAmounts(params);
         _approveExact(isBuy ? assetA : assetB, address(doppiCore), totalAmount);
-        doppiCore.bulkDeposit(isBuy, params, available);
-        emit BulkDeposited(msg.sender, available, isBuy);
+        doppiCore.bulkDeposit(isBuy, params, totalAmount);
+        emit BulkDeposited(msg.sender, totalAmount, isBuy);
         return true;
     }
 
     function _place_oneside(bool isBuy) internal {
-        (BulkDepositParam[] memory params, uint256 available) = _prepareOrders(isBuy);
+        (BulkDepositParam[] memory params, ) = _prepareOrders(isBuy);
         if (params.length == 0) return;
-        _placeOrders(isBuy, params, available);
+        _placeOrders(isBuy, params);
     }
     
     function _checkUndoTrade(bool _isBuy, uint256 _price) internal view 

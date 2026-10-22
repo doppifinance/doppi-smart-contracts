@@ -10,7 +10,7 @@ The current source contains the substantial remediations described in the 2026-0
 
 | ID | Severity | Finding | Status |
 | --- | --- | --- | --- |
-| M-01 | Medium | Initial shared-trader weights can over-credit trade points | Open |
+| M-01 | Medium | Initial shared-trader weights can over-credit trade points | Fixed |
 | M-02 | Medium | Reverting primary oracle prevents configured TWAP fallback | Open |
 | L-01 | Low | Strike upkeep scans remain unbounded until owners configure limits | Open operational risk |
 | INFO-01 | Informational | Emergency LP redemption bypasses Core-liability check in Core emergency mode | Intentional emergency behavior; document and test the loss policy |
@@ -43,6 +43,8 @@ Recommendation:
 - Validate a nonzero initial weight sum of exactly 10,000 bps in the factory or initializer before storing the configuration.
 - Independently derive points volume from the sum of successfully deposited order amounts in Core; do not accept a caller-supplied total that can disagree with actual positions.
 - Add a regression test deploying with underweighted initial weights and assert that credited points equal actual deposited volume, or that deployment rejects the weights.
+
+Remediation: `_initializeOrderConfigs` now rejects weight arrays that do not sum to 10,000 bps. The trader now passes the sum of its actual order amounts through Core's existing `total` argument, rather than the larger allocation budget. Regression tests cover invalid initial weights and point volume after per-order rounding.
 
 ### M-02: Reverting primary oracle prevents configured TWAP fallback
 

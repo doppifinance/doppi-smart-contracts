@@ -157,6 +157,43 @@ contract DoppiTraderTest is Test {
         assertEq(address(doppiTrader.doppiCore()), address(doppiCore));
     }
 
+    function test_deployTraderBotRejectsInitialWeightsThatDoNotSumTo10000() public {
+        uint24[] memory weights = new uint24[](2);
+        weights[0] = 5000;
+        weights[1] = 4000;
+
+        vm.expectRevert(bytes4(keccak256("MustHundred()")));
+        vm.prank(trader);
+        doppiFactory.deployTraderBot(weights);
+    }
+
+    function test_bulkDepositRecordsPointsForActualOrderAmounts() public {
+        uint8[] memory strikeZones = new uint8[](3);
+        uint24[] memory weights = new uint24[](3);
+        strikeZones[0] = 0;
+        strikeZones[1] = 1;
+        strikeZones[2] = 2;
+        weights[0] = 3333;
+        weights[1] = 3333;
+        weights[2] = 3334;
+
+        vm.startPrank(trader);
+        doppiTrader.setMultipleOrderConfigs(strikeZones, weights);
+        usdt.approve(address(doppiTrader), type(uint256).max);
+        doppiTrader.setMaxSwap(200_000 ether);
+        uint256 initialTradeVolume = doppiPoints.totalTradeVolumeUSDT();
+        doppiTrader.start(100_000 ether + 2, 0);
+        vm.stopPrank();
+
+        DualAssetPosition[] memory positions = positionLens.getPositionsBuy(address(doppiTrader));
+        uint256 depositedAmount;
+        for (uint256 i = 0; i < positions.length; i++) {
+            depositedAmount += positions[i].amount;
+        }
+
+        assertEq(doppiPoints.totalTradeVolumeUSDT() - initialTradeVolume, depositedAmount);
+    }
+
     function test_updateImplementation_onlyAffectsNewBots() public {
         address oldBot = address(doppiTrader);
         address oldImplementation = doppiFactory.traderBotImplementation();
