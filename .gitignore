@@ -4,6 +4,7 @@ out/
 trace/
 tmp/
 .tmp/
+publication/
 
 # Dependency directories
 node_modules/
