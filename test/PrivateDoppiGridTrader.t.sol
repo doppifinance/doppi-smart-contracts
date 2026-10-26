@@ -620,6 +620,36 @@ contract PrivateDoppiGridTraderTest is Test {
         assertEq(bot.getOpportunityInfo(true, 98_000 * p), 6_000 ether);
     }
 
+    function test_epochRollsForwardWhenNoBudgetAvailable() public {
+        (address botAddr,,,,) = _deployAndCapture(trader);
+        DoppiGridTrader bot = DoppiGridTrader(botAddr);
+
+        vm.startPrank(trader);
+        bot.setForwarderAddress(forwarder);
+        usdt.approve(address(bot), type(uint256).max);
+        // Below minOrderA, so no budget can be placed on either side.
+        bot.start(10 ether, 0);
+        vm.stopPrank();
+
+        (, uint64 expiryAfterStart,) = bot.getEpochInfo();
+        assertGt(expiryAfterStart, 0);
+        assertEq(bot.getEpochZoneInfo().length, 0);
+
+        (bool upkeepNeeded,) = bot.checkUpkeep("");
+        assertFalse(upkeepNeeded);
+
+        vm.warp(uint256(expiryAfterStart) + 1);
+        (bool needed, bytes memory performData) = bot.checkUpkeep("");
+        assertTrue(needed);
+        vm.prank(forwarder);
+        bot.performUpkeep(performData);
+
+        (, uint64 expiryAfterUpkeep,) = bot.getEpochInfo();
+        assertGt(expiryAfterUpkeep, expiryAfterStart);
+        (upkeepNeeded,) = bot.checkUpkeep("");
+        assertFalse(upkeepNeeded);
+    }
+
     function test_deployPrivateBot_registersHubAndSetsForwarder() public {
         vm.prank(owner);
         privateFactory.setPrivateAutomationHub(address(mockHub));
