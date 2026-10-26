@@ -561,8 +561,6 @@ contract DoppiGridTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCom
             sellBudget = _applyBudgetRamp(sellBudget, false, availableB);
         }
         
-        if (buyBudget == 0 && sellBudget == 0) return;
-        
         uint256 gap = _priceGapWithDecimals();
         uint256 anchor = _roundPrice(price, gap);
 
@@ -583,6 +581,10 @@ contract DoppiGridTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationCom
 
         delete activeBuyOpportunityStrikes;
         delete activeSellOpportunityStrikes;
+
+        // Even with no budget, the epoch must still roll forward; otherwise _needPlaceOrders()
+        // stays true and checkUpkeep/performUpkeep loop every block.
+        if (buyBudget == 0 && sellBudget == 0) length = 0;
 
         for (uint256 i = 0; i < length; ) {
             uint256 zone = orderConfigs[i].strikeZone;
