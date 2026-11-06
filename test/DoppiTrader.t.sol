@@ -22,6 +22,8 @@ import "../src/mainnet/DoppiCoreTypes.sol";
 import {TestParamLib} from "../src/Library/TestParamLib.sol";
 import "../src/mainnet/DoppiLiquidityTypes.sol";
 import {MockPrivateAutomationHubForSimple} from "./PrivateDoppiSimpleTraderTopUpMock.sol";
+import {DisabledDoppiTraderFactory} from "../src/mainnet/DisabledDoppiTraderFactory.sol";
+import {DisableDoppiTrader} from "../script/deployment/DisableDoppiTrader.s.sol";
 
 contract DoppiTraderV2Mock is DoppiTrader {
     function version() external pure returns (uint256) {
@@ -192,6 +194,38 @@ contract DoppiTraderTest is Test {
         }
 
         assertEq(doppiPoints.totalTradeVolumeUSDT() - initialTradeVolume, depositedAmount);
+    }
+
+    function test_bulkDepositRejectsBotWhenFactoryReturnsFalse() public {
+        assertTrue(doppiFactory.isTraderBot(address(doppiTrader)));
+        vm.mockCall(
+            address(doppiFactory),
+            abi.encodeWithSelector(doppiFactory.isTraderBot.selector, address(doppiTrader)),
+            abi.encode(false)
+        );
+
+        BulkDepositParam[] memory params = new BulkDepositParam[](1);
+        params[0] = BulkDepositParam(100 ether, 0, 1);
+
+        vm.expectRevert(DoppiCore.OnlyTraderBot.selector);
+        vm.prank(address(doppiTrader));
+        doppiCore.bulkDeposit(true, params, 100 ether);
+
+        vm.expectRevert(DoppiCore.OnlyTraderBot.selector);
+        vm.prank(address(doppiTrader));
+        doppiCore.bulkDeposit(false, params, 100 ether);
+        assertEq(doppiCore.getBuyPositionCount(address(doppiTrader)), 0);
+        assertEq(doppiCore.getSellPositionCount(address(doppiTrader)), 0);
+    }
+
+    function test_disabledFactoryImplementsEmptyRegistry() public {
+        DisabledDoppiTraderFactory dummy = new DisabledDoppiTraderFactory();
+        assertFalse(dummy.isTraderBot(address(doppiTrader)));
+        assertFalse(dummy.isTraderBot(address(0)));
+        assertEq(dummy.getTraderBotByTrader(trader).length, 0);
+        assertEq(dummy.traderBots(1), address(0));
+        assertEq(dummy.getNextBotId(), 1);
+        assertEq(dummy.traderBotId(address(doppiTrader)), 0);
     }
 
     function test_updateImplementation_onlyAffectsNewBots() public {
