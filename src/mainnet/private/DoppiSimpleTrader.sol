@@ -555,7 +555,12 @@ contract DoppiSimpleTrader is DoppiTraderAdminView, ReentrancyGuard, AutomationC
         uint256 minOrder = isBuy ? minOrderA : minOrderB;
         uint256 amountToTrade = isBuy ? maxOrderPerRoundA : maxOrderPerRoundB;
 
-        if(amountToTrade > 0) return amountToTrade;
+        if (amountToTrade > 0) {
+            uint256 cappedBudget =
+                amountToTrade < availableBalance ? amountToTrade : availableBalance;
+            uint256 maxSwapForSide = _getSideMaxSwap(isBuy);
+            return cappedBudget < maxSwapForSide ? cappedBudget : maxSwapForSide;
+        }
 
         uint256 sideHint = isBuy ? 1 : 2;
         amountToTrade = _getAutoRoundBudget(availableBalance, minOrder, sideHint);            

@@ -23,7 +23,6 @@ import {TestParamLib} from "../src/Library/TestParamLib.sol";
 import "../src/mainnet/DoppiLiquidityTypes.sol";
 import {MockPrivateAutomationHubForSimple} from "./PrivateDoppiSimpleTraderTopUpMock.sol";
 import {DisabledDoppiTraderFactory} from "../src/mainnet/DisabledDoppiTraderFactory.sol";
-import {DisableDoppiTrader} from "../script/deployment/DisableDoppiTrader.s.sol";
 
 contract DoppiTraderV2Mock is DoppiTrader {
     function version() external pure returns (uint256) {
