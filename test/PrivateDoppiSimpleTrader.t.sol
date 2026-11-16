@@ -364,6 +364,80 @@ contract PrivateDoppiSimpleTraderTest is Test {
         assertEq(bot.buyCostAOutstanding(), 150 ether);
     }
 
+    function test_fixedBuyBudgetCapsAvailableBalanceAndExecutes() public {
+        DoppiSimpleTrader bot = DoppiSimpleTrader(_deployAndCapture(trader));
+
+        vm.startPrank(trader);
+        bot.setForwarderAddress(forwarder);
+        bot.setOpportunityBufferParams(10000, 0);
+        bot.setMaxOrderPerRound(500 ether, 0);
+        usdt.approve(address(bot), type(uint256).max);
+        bot.start(100 ether, 0);
+        vm.stopPrank();
+
+        assertEq(bot.getNextOrderAmount(true), 100 ether);
+        (bool needed, bytes memory data) = bot.checkUpkeep("");
+        assertTrue(needed);
+        vm.prank(forwarder);
+        bot.performUpkeep(data);
+
+        assertEq(bot.buyCostAOutstanding(), 100 ether);
+        assertEq(usdt.balanceOf(address(bot)), 0);
+    }
+
+    function test_fixedBuyBudgetBelowMinimumIsNotSelected() public {
+        DoppiSimpleTrader bot = DoppiSimpleTrader(_deployAndCapture(trader));
+
+        vm.startPrank(trader);
+        bot.setForwarderAddress(forwarder);
+        bot.setOpportunityBufferParams(10000, 0);
+        bot.setMaxOrderPerRound(500 ether, 0);
+        usdt.approve(address(bot), type(uint256).max);
+        bot.start(27 ether, 0);
+        vm.stopPrank();
+
+        (bool needed, bytes memory data) = bot.checkUpkeep("");
+        assertFalse(needed);
+        (bool placeBuy,,,,) = abi.decode(data, (bool, bool, bool, bool, bool));
+        assertFalse(placeBuy);
+    }
+
+    function test_fixedSellBudgetCapsAvailableBalanceAndExecutes() public {
+        DoppiSimpleTrader bot = DoppiSimpleTrader(_deployAndCapture(trader));
+
+        vm.startPrank(trader);
+        bot.setForwarderAddress(forwarder);
+        bot.setOpportunityBufferParams(10000, 0);
+        bot.setMaxOrderPerRound(0, 0.1 ether);
+        btc.approve(address(bot), type(uint256).max);
+        bot.start(0, 0.001 ether);
+        vm.stopPrank();
+
+        assertEq(bot.getNextOrderAmount(false), 0.001 ether);
+        (bool needed, bytes memory data) = bot.checkUpkeep("");
+        assertTrue(needed);
+        vm.prank(forwarder);
+        bot.performUpkeep(data);
+
+        assertEq(bot.sellQtyBOutstanding(), 0.001 ether);
+        assertEq(btc.balanceOf(address(bot)), 0);
+    }
+
+    function test_fixedBudgetsRespectSideMaxSwap() public {
+        DoppiSimpleTrader bot = DoppiSimpleTrader(_deployAndCapture(trader));
+
+        vm.startPrank(trader);
+        bot.setMaxOrderPerRound(5_000 ether, 0.05 ether);
+        bot.setMaxSwap(1_000 ether);
+        usdt.approve(address(bot), type(uint256).max);
+        btc.approve(address(bot), type(uint256).max);
+        bot.start(20_000 ether, 0.2 ether);
+        vm.stopPrank();
+
+        assertEq(bot.getNextOrderAmount(true), 1_000 ether);
+        assertEq(bot.getNextOrderAmount(false), 0.01 ether);
+    }
+
     function test_getPositionInfoReportsCurrentState() public {
         address botAddr = _deployAndCapture(trader);
         DoppiSimpleTrader bot = DoppiSimpleTrader(botAddr);
